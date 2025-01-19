@@ -83,7 +83,6 @@ vim.api.nvim_set_keymap('n', '<Leader>ft', ':Telescope help_tags<CR>', { noremap
 
 -- Set up nvim-tree
 require('nvim-tree').setup({
-  auto_close = true,               -- Auto close the tree when it's the last window
   view = {
     width = 30,                    -- Width of the file tree
   },
