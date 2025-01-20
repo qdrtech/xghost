@@ -3,6 +3,13 @@
 -- Ensure lazy.nvim is installed and loaded
 vim.opt.rtp:prepend("~/.local/share/nvim/site/pack/lazy/opt/lazy.nvim")
 
+-- disable netrw at the very start of your init.lua
+vim.g.loaded_netrw = 1
+vim.g.loaded_netrwPlugin = 1
+
+-- optionally enable 24-bit colour
+vim.opt.termguicolors = true
+
 -- Plugin manager setup using lazy.nvim
 require('lazy').setup({
 
