@@ -13,9 +13,6 @@ vim.opt.termguicolors = true
 -- Plugin manager setup using lazy.nvim
 require('lazy').setup({
 
-  -- TokyoNight theme
-  { 'folke/tokyonight.nvim' },
-
   -- Telescope for fuzzy finding
   {
     'nvim-telescope/telescope.nvim',
@@ -55,8 +52,6 @@ require('lazy').setup({
 
 })
 
--- Set the theme (tokyonight)
-vim.cmd [[colorscheme tokyonight]]
 
 -- Basic settings
 vim.opt.number = true                -- Show line numbers
@@ -92,13 +87,6 @@ vim.api.nvim_set_keymap('n', '<Leader>ft', ':Telescope help_tags<CR>', { noremap
 require('nvim-tree').setup({
   view = {
     width = 30,                    -- Width of the file tree
-  },
-})
-
--- Set up lualine (statusline)
-require('lualine').setup({
-  options = {
-    theme = 'tokyonight',
   },
 })
 
