@@ -19,6 +19,12 @@ require('lazy').setup({
     dependencies = { 'nvim-lua/plenary.nvim' }
   },
 
+  {
+    "vhyrro/luarocks.nvim",
+    priority = 1000, -- Very high priority is required, luarocks.nvim should run as the first plugin in your config.
+    config = true,
+  },
+
   -- File explorer
   { 'nvim-tree/nvim-tree.lua' },
 
@@ -46,9 +52,6 @@ require('lazy').setup({
 
   -- Git integration
   { 'tpope/vim-fugitive' },
-
-  -- Automatically sync plugins after saving init.lua
-  { 'wbthomason/packer.nvim', opt = true },
 
 })
 
@@ -105,4 +108,5 @@ require('lspconfig').pyright.setup{}
 
 -- Key mappings for NvimTree toggle
 vim.api.nvim_set_keymap('n', '<Leader>e', ':NvimTreeToggle<CR>', { noremap = true, silent = true })
+
 
