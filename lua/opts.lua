@@ -1,14 +1,29 @@
--- Basic settings
-vim.opt.number = true                -- Show line numbers
-vim.opt.relativenumber = true        -- Relative line numbers
-vim.opt.expandtab = true             -- Convert tabs to spaces
-vim.opt.shiftwidth = 2               -- Indentation width
-vim.opt.tabstop = 2                 -- Tab width
-vim.opt.smartindent = true           -- Smart indentation
-vim.opt.hlsearch = true              -- Highlight search matches
-vim.opt.ignorecase = true            -- Ignore case in search
-vim.opt.smartcase = true             -- Smart case sensitivity
-vim.opt.clipboard = "unnamedplus"    -- Use system clipboard
+vim.g.mapleader = " "
+vim.opt.nu = true
+vim.opt.relativenumber = true
+
+vim.opt.tabstop = 3
+vim.opt.softtabstop = 3
+vim.opt.shiftwidth = 3
+vim.opt.expandtab = true
+vim.smartindent = true
+
+vim.opt.wrap = false
+
+vim.opt.hlsearch = false
+vim.opt.incsearch = true
+
+vim.opt.swapfile = false
+vim.opt.backup = false
+vim.opt.undofile = true
+-- Comment this line
+vim.opt.undodir = os.getenv("HOME") .. "/.vim/undodir"
+-- And uncomment this one in case you use Windows
+-- vim.opt.undodir = os.getenv("UserProfile") .. /".vim/undodir" 
+
+vim.opt.scrolloff = 8
+vim.opt.signcolumn = "yes"
+vim.opt.updatetime = 50
 
 -- optionally enable 24-bit colour
 vim.opt.termguicolors = true

@@ -1,6 +1,12 @@
-local M = { 'nvim-tree/nvim-tree.lua' }
+local M = { 
+  'nvim-tree/nvim-tree.lua',
+  dependencies = {
+    "nvim-tree/nvim-web-devicons",
+  },
+  lazy = false 
+}
 
-function M.conifg()
+function M.config()
     -- Set up nvim-tree
     require('nvim-tree').setup({
         view = {
