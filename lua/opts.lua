@@ -22,7 +22,7 @@ vim.opt.undodir = os.getenv("HOME") .. "/.vim/undodir"
 -- vim.opt.undodir = os.getenv("UserProfile") .. /".vim/undodir" 
 
 vim.opt.scrolloff = 8
-vim.opt.signcolumn = "yes"
+vim.opt.signcolumn = "no"
 vim.opt.updatetime = 50
 
 -- optionally enable 24-bit colour
