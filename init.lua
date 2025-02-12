@@ -2,17 +2,9 @@
 vim.g.loaded_netrw = 1
 vim.g.loaded_netrwPlugin = 1
 
+vim.g.mapleader = " "
 -- init.lua
-require('opts')
-require('launch')
-require('kebindings')
+require("opts")
+require("kebindings")
+require("plugin.lazy")
 
-spec('plugin.telescope')
-spec('plugin.luarocks')
-spec('plugin.nvim-tree')
-spec('plugin.lualine')
-spec('plugin.treesitter')
-spec('plugin.lsp-zero')
-spec('plugin.mason')
-
-require('plugin.lazy')

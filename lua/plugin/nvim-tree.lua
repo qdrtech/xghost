@@ -10,7 +10,10 @@ function M.config()
     -- Set up nvim-tree
     require('nvim-tree').setup({
         view = {
-        width = 30,                    -- Width of the file tree
+            width = 30,                    -- Width of the file tree
+        },
+        filters = {
+            dotfiles = true,               -- Show hidden files
         },
     })
 end
