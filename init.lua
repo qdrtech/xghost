@@ -3,8 +3,8 @@ vim.g.loaded_netrw = 1
 vim.g.loaded_netrwPlugin = 1
 
 vim.g.mapleader = " "
--- init.lua
-require("opts")
-require("kebindings")
-require("plugin.lazy")
 
+-- Load lazyvim and other configs
+require("config.opts")
+require("config.keybindings")
+require("config.lazy")

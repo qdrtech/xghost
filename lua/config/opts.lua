@@ -26,3 +26,5 @@ vim.opt.updatetime = 50
 
 -- optionally enable 24-bit colour
 vim.opt.termguicolors = true
+
+vim.g.root_lsp_ignore = { "copilot" }
