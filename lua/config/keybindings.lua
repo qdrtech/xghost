@@ -4,5 +4,9 @@ vim.api.nvim_set_keymap("n", "<Leader>fg", ":Telescope live_grep<CR>", { noremap
 vim.api.nvim_set_keymap("n", "<Leader>fb", ":Telescope buffers<CR>", { noremap = true, silent = true })
 vim.api.nvim_set_keymap("n", "<Leader>ft", ":Telescope help_tags<CR>", { noremap = true, silent = true })
 
--- Key mappings for NvimTree toggle
+-- File explorer keybindings
+vim.keymap.set("n", "<leader>e", function() Snacks.explorer() end, { desc = "Explorer" })
+vim.keymap.set("n", "<leader>E", function() Snacks.explorer({ cwd = vim.uv.cwd() }) end, { desc = "Explorer (cwd)" })
+
+-- Other keybindings
 vim.keymap.set("i", "jj", "<Esc>", { noremap = true })
