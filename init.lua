@@ -5,6 +5,6 @@ vim.g.loaded_netrwPlugin = 1
 vim.g.mapleader = " "
 
 -- Load lazyvim and other configs
+require("config.lazy")
 require("config.opts")
 require("config.keybindings")
-require("config.lazy")
