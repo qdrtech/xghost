@@ -1,30 +1,29 @@
-vim.opt.nu = true
-vim.opt.relativenumber = true
 
-vim.opt.tabstop = 3
-vim.opt.softtabstop = 3
-vim.opt.shiftwidth = 3
-vim.opt.expandtab = false
-vim.smartindent = true
+-- vim.opt.nu = true                -- Show absolute line numbers
+vim.opt.relativenumber = true    -- Show relative line numbers
+-- vim.opt.tabstop = 3              -- Number of spaces per tab
+-- vim.opt.softtabstop = 3          -- Number of spaces per tab while editing
+-- vim.opt.shiftwidth = 3           -- Number of spaces for each indentation
+-- vim.opt.expandtab = false        -- Use tabs instead of spaces
+-- vim.smartindent = true           -- Enable smart indentation
+-- vim.opt.wrap = false             -- Disable line wrapping
+-- vim.opt.hlsearch = false         -- Disable highlight for search matches
+-- vim.opt.incsearch = true         -- Enable incremental search
+-- vim.opt.swapfile = false         -- Disable swap file creation
+-- vim.opt.backup = false           -- Disable backup file creation
+-- vim.opt.undofile = true          -- Enable persistent undo
+-- vim.opt.undodir = os.getenv("HOME") .. "/.vim/undodir" -- Set undo directory (Linux/macOS)
+-- vim.opt.undodir = os.getenv("UserProfile") .. /".vim/undodir" -- Set undo directory (Windows)
+-- vim.opt.scrolloff = 8            -- Minimum lines to keep above/below cursor
+-- vim.opt.signcolumn = "no"        -- Hide sign column (for diagnostics, git, etc.)
+-- vim.opt.updatetime = 50          -- Faster completion and CursorHold events
+-- vim.opt.termguicolors = true     -- Enable 24-bit RGB color in the terminal
+-- vim.g.root_lsp_ignore = { "copilot" } -- Ignore Copilot in root LSP setup
 
-vim.opt.wrap = false
+-- Minimal Neovim options with comments:
 
-vim.opt.hlsearch = false
-vim.opt.incsearch = true
+vim.opt.encoding = "utf-8"      -- Set default encoding to UTF-8
+vim.opt.fileencoding = "utf-8"  -- File encoding used for written files
+vim.opt.compatible = false      -- Disable Vi compatibility for better Neovim experience
 
-vim.opt.swapfile = false
-vim.opt.backup = false
-vim.opt.undofile = true
--- Comment this line
-vim.opt.undodir = os.getenv("HOME") .. "/.vim/undodir"
--- And uncomment this one in case you use Windows
--- vim.opt.undodir = os.getenv("UserProfile") .. /".vim/undodir" 
 
-vim.opt.scrolloff = 8
-vim.opt.signcolumn = "no"
-vim.opt.updatetime = 50
-
--- optionally enable 24-bit colour
-vim.opt.termguicolors = true
-
-vim.g.root_lsp_ignore = { "copilot" }

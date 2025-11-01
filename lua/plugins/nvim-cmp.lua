@@ -9,6 +9,35 @@ local M = {
           "hrsh7th/cmp-path",
         },
         opts = function()
+          -- Define fallback icons
+          local kind_icons = {
+            Text = "󰉿",
+            Method = "󰆧",
+            Function = "󰊕",
+            Constructor = "",
+            Field = "󰜢",
+            Variable = "󰀫",
+            Class = "󰠱",
+            Interface = "",
+            Module = "",
+            Property = "󰜢",
+            Unit = "󰑭",
+            Value = "󰎠",
+            Enum = "",
+            Keyword = "󰌋",
+            Snippet = "",
+            Color = "󰏘",
+            File = "󰈙",
+            Reference = "󰈇",
+            Folder = "󰉋",
+            EnumMember = "",
+            Constant = "󰏿",
+            Struct = "󰙅",
+            Event = "",
+            Operator = "󰆕",
+            TypeParameter = "",
+          }
+
           -- Check if LazyVim exists and create fallback functions if needed
           local function create_confirm_func(opts)
             return function(fallback)
@@ -32,7 +61,7 @@ local M = {
             confirm = LazyVim and LazyVim.cmp and LazyVim.cmp.confirm or create_confirm_func,
             map = LazyVim and LazyVim.cmp and LazyVim.cmp.map or create_snippet_map_func,
           }
-          
+ 
           vim.api.nvim_set_hl(0, "CmpGhostText", { link = "Comment", default = true })
           local cmp = require("cmp")
           local defaults = require("cmp.config.default")()
@@ -73,7 +102,7 @@ local M = {
             }),
             formatting = {
               format = function(entry, item)
-                local icons = LazyVim.config.icons.kinds
+                local icons = (LazyVim and LazyVim.config and LazyVim.config.icons and LazyVim.config.icons.kinds) or kind_icons
                 if icons[item.kind] then
                   item.kind = icons[item.kind] .. item.kind
                 end
@@ -101,7 +130,6 @@ local M = {
             sorting = defaults.sorting,
           }
         end,
-        main = "lazyvim.util.cmp",
       }
 }
 
