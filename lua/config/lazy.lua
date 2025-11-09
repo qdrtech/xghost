@@ -18,7 +18,7 @@ vim.opt.rtp:prepend(lazypath)
 require("lazy").setup({
 	spec = {
 		-- add LazyVim and import its plugins
-		{ "LazyVim/LazyVim", opts = { colorscheme = "tokyonight" } }, 
+		{ "LazyVim/LazyVim", opts = { colorscheme = "onedark" } }, 
 		{ "catppuccin/nvim", name="catppuccin", priority = 1000 },
 		{ "folke/tokyonight.nvim", opts = {
 				style = "storm",
@@ -26,6 +26,11 @@ require("lazy").setup({
 			}
 		},
 		{ "ellisonleao/gruvbox.nvim" },
+		{ "navarasu/onedark.nvim", priority=1000,
+			opts = {
+				style="warmer",
+			},
+		},
 		-- import any extra modules here
 		{ import = "plugins" },
 	},
