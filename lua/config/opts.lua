@@ -1,6 +1,6 @@
 
--- vim.opt.nu = true                -- Show absolute line numbers
-vim.opt.relativenumber = true    -- Show relative line numbers
+--vim.opt.nu = true                -- Show absolute line numbers
+-- vim.opt.relativenumber = true    -- Show relative line numbers
 vim.opt.tabstop = 3              -- Number of spaces per tab
 vim.opt.softtabstop = 3          -- Number of spaces per tab while editing
 vim.opt.shiftwidth = 3           -- Number of spaces for each indentation
