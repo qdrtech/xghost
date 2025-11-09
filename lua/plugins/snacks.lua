@@ -23,7 +23,14 @@ return {
 			-- Global picker formatting for VSCode style
 			formatters = {
 				file = {
-					filename_first = true, -- Show filename before path (like VSCode)
+					-- Show the path (dir + file) instead of repeating the folder name first
+					filename_first = true,
+					filename_only = false,
+				},
+			},
+			icons = {
+				files = {
+					enabled = true, -- hide folder/file glyphs so the path stands alone
 				},
 			},
 			sources = {
