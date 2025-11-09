@@ -18,7 +18,7 @@ vim.opt.rtp:prepend(lazypath)
 require("lazy").setup({
 	spec = {
 		-- add LazyVim and import its plugins
-		{ "LazyVim/LazyVim", opts = { colorscheme = "onedark" } }, 
+		{ "LazyVim/LazyVim" }, 
 		{ "catppuccin/nvim", name="catppuccin", priority = 1000 },
 		{ "folke/tokyonight.nvim", opts = {
 				style = "storm",
@@ -31,6 +31,18 @@ require("lazy").setup({
 				style="warmer",
 			},
 		},
+  {
+    dir = "/home/qdrtech/projects/nvim/xghost-theme",
+    name = "xghost.nvim",
+    lazy = false,
+    priority = 1000,
+    config = function()
+      require("xghost").setup()
+      vim.cmd([[colorscheme xghost]])
+    end,
+  },
+
+
 		-- import any extra modules here
 		{ import = "plugins" },
 	},
