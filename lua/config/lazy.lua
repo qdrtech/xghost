@@ -36,6 +36,7 @@ require("lazy").setup({
     priority = 1000,
 	opts = {
 				style="default",
+				font_style="semi_bold",
 			},
   },
 
