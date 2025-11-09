@@ -30,9 +30,96 @@ return {
 			},
 			icons = {
 				files = {
-					enabled = true, -- hide folder/file glyphs so the path stands alone
+				  enabled = true, -- show file icons
+				  dir = "󰉋 ",
+				  dir_open = "⌄ 󰝰 ",
+				  file = " "
 				},
-			},
+				keymaps = {
+				  nowait = "󰓅 "
+				},
+				tree = {
+				  vertical = "  ",
+				  middle   = "  ",
+				  last     = "  ",
+				},
+				undo = {
+				  saved   = " ",
+				},
+				ui = {
+				  live        = "● ",
+				  hidden      = "H",
+				  ignored     = "I",
+				  follow      = "F",
+				  selected    = "● ",
+				  unselected  = "○ ",
+				  -- selected = " ",
+				},
+				git = {
+				  enabled   = true, -- show git icons
+				  commit    = "● ", -- used by git log
+				  staged    = "A", -- staged changes. always overrides the type icons
+				  added     = "A",
+				  deleted   = "D",
+				  ignored   = "I",
+				  modified  = "M",
+				  renamed   = "R",
+				  unmerged  = "U",
+				  untracked = "?",
+				},
+				diagnostics = {
+				  Error = "● ",
+				  Warn  = "▲ ",
+				  Hint  = "💡 ",
+				  Info  = "ⓘ ",
+				},
+				lsp = {
+				  unavailable = "○",
+				  enabled = "●",
+				  disabled = "○",
+				  attached = "● "
+				},
+				kinds = {
+				  Array         = "[] ",
+				  Boolean       = "◯ ",
+				  Class         = "C ",
+				  Color         = "# ",
+				  Control       = "⚙ ",
+				  Collapsed     = "… ",
+				  Constant      = "K ",
+				  Constructor   = "⚒ ",
+				  Copilot       = "🤖 ",
+				  Enum          = "E ",
+				  EnumMember    = "e ",
+				  Event         = "⚡ ",
+				  Field         = "F ",
+				  File          = "📄 ",
+				  Folder        = "📁 ",
+				  Function      = "f ",
+				  Interface     = "I ",
+				  Key           = "🔑 ",
+				  Keyword       = "K ",
+				  Method        = "m ",
+				  Module        = "M ",
+				  Namespace     = "N ",
+				  Null          = "∅ ",
+				  Number        = "# ",
+				  Object        = "{} ",
+				  Operator      = "+ ",
+				  Package       = "📦 ",
+				  Property      = "p ",
+				  Reference     = "& ",
+				  Snippet       = "<> ",
+				  String        = "\" ",
+				  Struct        = "S ",
+				  Text          = "T ",
+				  TypeParameter = "T ",
+				  Unit          = "U ",
+				  Unknown        = "? ",
+				  Value         = "V ",
+				  Variable      = "v ",
+				},
+			  },
 			sources = {
 				explorer = {
 					-- Layout: VSCode sidebar style on the left
