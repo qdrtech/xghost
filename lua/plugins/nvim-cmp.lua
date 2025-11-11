@@ -51,15 +51,20 @@ local M = {
           end
 
           local function create_snippet_map_func()
-            return function(fallback)
-              fallback()
+            return function(actions, fallback)
+              -- Simple fallback that just calls fallback when LazyVim is not available
+              return function()
+                if fallback then
+                  fallback()
+                end
+              end
             end
           end
-          
+
           -- Use LazyVim utilities if available, otherwise use fallbacks
           local cmp_utils = {
             confirm = LazyVim and LazyVim.cmp and LazyVim.cmp.confirm or create_confirm_func,
-            map = LazyVim and LazyVim.cmp and LazyVim.cmp.map or create_snippet_map_func,
+            map = LazyVim and LazyVim.cmp and LazyVim.cmp.map or create_snippet_map_func(),
           }
  
           vim.api.nvim_set_hl(0, "CmpGhostText", { link = "Comment", default = true })
