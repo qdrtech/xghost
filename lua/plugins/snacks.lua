@@ -121,6 +121,9 @@ return {
 				},
 			  },
 			sources = {
+				files = {
+					hidden = true, -- Include dot-directories when using Snacks file pickers
+				},
 				explorer = {
 					-- Layout: VSCode sidebar style on the left
 					layout = {
