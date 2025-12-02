@@ -90,9 +90,11 @@ local M = {
                 cmp.abort()
                 fallback()
               end,
-              ["<tab>"] = function(fallback)
-                if cmp_utils.map then
-                  return cmp_utils.map({ "snippet_forward", "ai_accept" }, fallback)()
+              -- Use Ctrl+j to accept Copilot suggestions
+              ["<C-j>"] = function(fallback)
+                local copilot_ok, copilot_suggestion = pcall(require, "copilot.suggestion")
+                if copilot_ok and copilot_suggestion.is_visible() then
+                  copilot_suggestion.accept()
                 else
                   fallback()
                 end
