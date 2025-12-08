@@ -23,9 +23,3 @@ vim.keymap.set("n", "<leader>gt", vim.lsp.buf.type_definition, { desc = "Goto Ty
 
 -- Other keybindings
 vim.keymap.set("i", "jj", "<Esc>", { noremap = true })
-
--- Tab autocomplete settings
--- Use <Tab> and <Shift-Tab> to accept autocomplete suggestions as well as navigate through them
-vim.api.nvim_set_keymap("i", "<Tab>", "v:lua.tab_complete()", { expr = true, noremap = true })
-vim.api.nvim_set_keymap("i", "<S-Tab>", "v:lua.s_tab_complete()", { expr = true, noremap = true })
-vim.api.nvim_set_keymap("i", "<C-Tab>", "v:lua.tab_complete()", { expr = true, noremap = true })
