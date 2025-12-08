@@ -99,6 +99,22 @@ local M = {
                   fallback()
                 end
               end,
+              -- Tab: Accept cmp selection or insert tab
+              ["<Tab>"] = cmp.mapping(function(fallback)
+                if cmp.visible() then
+                  cmp.confirm({ select = true })
+                else
+                  fallback()
+                end
+              end, { "i", "s" }),
+              -- S-Tab: Select previous cmp item or insert shift-tab
+              ["<S-Tab>"] = cmp.mapping(function(fallback)
+                if cmp.visible() then
+                  cmp.select_prev_item({ behavior = cmp.SelectBehavior.Insert })
+                else
+                  fallback()
+                end
+              end, { "i", "s" }),
             }),
             sources = cmp.config.sources({
               { name = "lazydev" },
