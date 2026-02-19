@@ -3,7 +3,6 @@ local M = {
 		"zbirenbaum/copilot.lua",
 		cmd = "Copilot",
 		build = ":Copilot auth",
-		lazy = true,
 		event = "BufReadPost",
 		opts = {
 			suggestion = {
