@@ -7,15 +7,15 @@ local M = {
 				"prettierd",                    -- Fast Prettier daemon (preferred)
 				"prettier",                     -- Fallback formatter
 				"stylua",
-				"shellcheck",
+				"shellcheck",                   -- Shell linter (driven by nvim-lint)
 				"shfmt",
-				"flake8",
 
 				-- Language Servers
 				"typescript-language-server",  -- TypeScript/JavaScript
 				"vtsls",                        -- Alternative TS server
 				"gopls",                        -- Go
-				"omnisharp",                    -- C#
+				"pyright",                      -- Python type checking
+				"ruff",                         -- Python lint + format + import sorting (LSP)
 			},
 		}
    }

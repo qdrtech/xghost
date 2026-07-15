@@ -1,17 +1,20 @@
-local M = {
+return {
     "nvim-treesitter/nvim-treesitter",
+    branch = "main",
+    lazy = false,
     build = ":TSUpdate",
-    lazy = false,   -- We want to see the highlighting since the start, so false
+    config = function()
+        local nts = require("nvim-treesitter")
+        nts.setup({})
+
+        nts.install({ "c", "lua", "rust", "bash", "typescript", "sql" })
+
+        vim.api.nvim_create_autocmd("FileType", {
+            callback = function(ev)
+                if pcall(vim.treesitter.start, ev.buf) then
+                    vim.bo[ev.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+                end
+            end,
+        })
+    end,
 }
-
-function M.config()
-    require "nvim-treesitter.configs".setup {
-        ensure_installed = { "c", "lua", "rust" , "bash", "typescript", "sql" },
-        sync_install = true,
-        auto_install = true,
-        highlight = { enable = true },
-        indent = { enable = true },
-    }
-end
-
-return M

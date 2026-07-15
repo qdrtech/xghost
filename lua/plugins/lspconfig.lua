@@ -55,16 +55,14 @@ return {
         },
       })
 
+      -- Go
+      opts.servers.gopls = opts.servers.gopls or {}
+
+      -- Python: pyright for types, ruff for lint/format/imports
+      opts.servers.pyright = opts.servers.pyright or {}
+      opts.servers.ruff = opts.servers.ruff or {}
+
       return opts
-    end,
-    config = function(_, opts)
-      for server, server_opts in pairs(opts.servers or {}) do
-        if server_opts ~= false then
-          local cfg = server_opts == true and {} or vim.deepcopy(server_opts)
-          vim.lsp.config(server, cfg)
-          vim.lsp.enable(server)
-        end
-      end
     end,
   },
 }
