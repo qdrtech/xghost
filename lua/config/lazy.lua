@@ -18,7 +18,9 @@ vim.opt.rtp:prepend(lazypath)
 require("lazy").setup({
 	spec = {
 		-- add LazyVim and import its plugins
-		{ "LazyVim/LazyVim" },
+		{ "LazyVim/LazyVim", import = "lazyvim.plugins" },
+		-- Use nvim-cmp (our custom config) instead of the default blink.cmp.
+		{ import = "lazyvim.plugins.extras.coding.nvim-cmp" },
 		{ "catppuccin/nvim", name = "catppuccin", priority = 1000 },
 		{ "folke/tokyonight.nvim", opts = {
 			style = "storm",
@@ -38,7 +40,7 @@ require("lazy").setup({
 			},
 		},
 
-		-- import any extra modules here
+		-- import other plugins
 		{ import = "plugins" },
 	},
 	defaults = {
