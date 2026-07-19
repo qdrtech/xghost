@@ -10,6 +10,7 @@ local M = {
 				"shellcheck", -- Shell linter (driven by nvim-lint)
 				"shfmt",
 				"sqlfmt", -- SQL formatter (driven by conform)
+				"sqlfluff", -- SQL linter (driven by nvim-lint)
 
 				-- Language Servers
 				"typescript-language-server", -- TypeScript/JavaScript
