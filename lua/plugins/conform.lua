@@ -6,6 +6,9 @@ local M = {
 				-- Lua
 				lua = { "stylua" },
 
+				-- Go: goimports fixes imports, gofumpt applies strict formatting
+				go = { "goimports", "gofumpt" },
+
 				-- JavaScript/TypeScript
 				javascript = { "prettierd", "prettier", stop_after_first = true },
 				javascriptreact = { "prettierd", "prettier", stop_after_first = true },
@@ -40,13 +43,12 @@ local M = {
 			default_format_opts = {
 				lsp_format = "fallback",
 			},
-			-- Fixed typo: format_on_save (was forat_on_save)
 			format_on_save = {
 				timeout_ms = 500,
 				lsp_format = "fallback",
 			},
-		}
-	}
+		},
+	},
 }
 
 return M

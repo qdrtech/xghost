@@ -9,6 +9,9 @@ local M = {
 				"stylua",
 				"shellcheck", -- Shell linter (driven by nvim-lint)
 				"shfmt",
+				"gofumpt", -- Go strict formatter
+				"goimports", -- Go import management
+				"golangci-lint", -- Go linter (driven by nvim-lint)
 				"sqlfmt", -- SQL formatter (driven by conform)
 
 				-- Language Servers

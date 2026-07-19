@@ -55,7 +55,43 @@ local M = {
 		})
 
 		-- Go
-		opts.servers.gopls = opts.servers.gopls or {}
+		opts.servers.gopls = vim.tbl_deep_extend("force", opts.servers.gopls or {}, {
+			settings = {
+				gopls = {
+					gofumpt = true,
+					usePlaceholders = true,
+					completeUnimported = true,
+					staticcheck = true,
+					semanticTokens = true,
+					analyses = {
+						nilness = true,
+						unusedparams = true,
+						unusedwrite = true,
+						useany = true,
+					},
+					hints = {
+						assignVariableTypes = true,
+						compositeLiteralFields = true,
+						compositeLiteralTypes = true,
+						constantValues = true,
+						functionTypeParameters = true,
+						parameterNames = true,
+						rangeVariableTypes = true,
+					},
+					codelenses = {
+						gc_details = false,
+						generate = true,
+						regenerate_cgo = true,
+						run_govulncheck = true,
+						test = true,
+						tidy = true,
+						upgrade_dependency = true,
+						vendor = true,
+					},
+					directoryFilters = { "-.git", "-.vscode", "-.idea", "-.vscode-test", "-node_modules" },
+				},
+			},
+		})
 
 		-- Python: pyright for types, ruff for lint/format/imports
 		opts.servers.pyright = opts.servers.pyright or {}
