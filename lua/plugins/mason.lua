@@ -9,6 +9,7 @@ local M = {
 				"stylua",
 				"shellcheck", -- Shell linter (driven by nvim-lint)
 				"shfmt",
+				"sqlfmt", -- SQL formatter (driven by conform)
 
 				-- Language Servers
 				"typescript-language-server", -- TypeScript/JavaScript

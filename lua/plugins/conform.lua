@@ -23,6 +23,9 @@ local M = {
 				jsonc = { "prettierd", "prettier", stop_after_first = true },
 				yaml = { "prettierd", "prettier", stop_after_first = true },
 
+				-- SQL
+				sql = { "sqlfmt" },
+
 				-- Markdown
 				markdown = { "prettierd", "prettier", stop_after_first = true },
 				["markdown.mdx"] = { "prettierd", "prettier", stop_after_first = true },
