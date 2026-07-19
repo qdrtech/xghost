@@ -7,7 +7,7 @@ return {
         local nts = require("nvim-treesitter")
         nts.setup({})
 
-        nts.install({ "c", "lua", "rust", "bash", "typescript", "sql" })
+        nts.install({ "c", "lua", "rust", "bash", "typescript", "sql", "go", "gomod", "gosum", "gowork" })
 
         vim.api.nvim_create_autocmd("FileType", {
             callback = function(ev)

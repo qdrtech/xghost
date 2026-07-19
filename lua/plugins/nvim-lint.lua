@@ -9,6 +9,7 @@ local M = {
 			lint.linters_by_ft = {
 				sh = { "shellcheck" },
 				bash = { "shellcheck" },
+				go = { "golangcilint" },
 			}
 
 			local group = vim.api.nvim_create_augroup("nvim-lint", { clear = true })
