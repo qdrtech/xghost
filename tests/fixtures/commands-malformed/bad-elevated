@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# @xghost-meta
+# summary: A command whose elevated flag is not yes or no.
+# elevated: maybe
+# @end-xghost-meta
+
+set -euo pipefail
+
+printf 'bad-elevated ran\n'

@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: dispatcher tests
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # bats-core 1.14.0, pinned to the commit that carries the v1.14.0 tag.
+      # The same version is packaged as 'bats' in the Arch 'extra' repository.
+      - name: Install bats-core
+        env:
+          BATS_COMMIT: eb7f42f8d608ac693d7a4b67474f6714ea68cfc5
+        run: |
+          set -euo pipefail
+          source_dir=$RUNNER_TEMP/bats-core
+          mkdir -p "$source_dir"
+          git -C "$source_dir" init --quiet
+          git -C "$source_dir" remote add origin https://github.com/bats-core/bats-core.git
+          git -C "$source_dir" fetch --depth 1 origin "$BATS_COMMIT"
+          git -C "$source_dir" checkout --quiet FETCH_HEAD
+          "$source_dir/install.sh" "$RUNNER_TEMP/bats"
+          echo "$RUNNER_TEMP/bats/bin" >>"$GITHUB_PATH"
+
+      - name: Report the bats version
+        run: bats --version
+
+      - name: Lint the command metadata
+        run: ./bin/xghost --lint
+
+      - name: Run the test suite
+        run: bats --print-output-on-failure tests

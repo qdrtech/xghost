@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# @xghost-meta
+# summary: Set the active theme.
+# arg: NAME  The theme to activate.
+# example: xghost theme set nord
+# elevated: no
+# internal: no
+# @end-xghost-meta
+
+set -euo pipefail
+
+printf 'theme-set ran with: %s\n' "$*"

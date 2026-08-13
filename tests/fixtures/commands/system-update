@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# @xghost-meta
+# summary: Update the packages and xghost itself.
+# example: xghost system update
+# elevated: yes
+# @end-xghost-meta
+
+set -euo pipefail
+
+printf 'system-update ran\n'

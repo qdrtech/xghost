@@ -1,0 +1,527 @@
+#!/usr/bin/env bash
+#
+# xghost — the command line entry point.
+#
+# The dispatcher reads a metadata comment block from every script in the
+# command directory. It builds routing, grouped help, and shell completion
+# from that metadata. Adding a command means adding one file to the command
+# directory. There is no registry.
+#
+# The metadata format is documented in docs/adding-a-command.md.
+#
+# Environment:
+#   XGHOST_COMMAND_DIR   Override the command directory. The tests use this.
+
+set -euo pipefail
+
+readonly PROGRAM=xghost
+
+# Exit codes.
+readonly EXIT_ERROR=1
+readonly EXIT_USAGE=2
+readonly EXIT_NOT_EXECUTABLE=126
+readonly EXIT_NOT_FOUND=127
+
+# A command file is named <group>-<verb>. The verb may itself contain a
+# hyphen, so the split takes the first hyphen.
+readonly FILE_NAME_PATTERN='^[a-z0-9]+(-[a-z0-9]+)+$'
+readonly GROUP_PATTERN='^[a-z0-9]+$'
+readonly VERB_PATTERN='^[a-z0-9]+(-[a-z0-9]+)*$'
+
+# Set by parse_metadata.
+META_SUMMARY=
+META_ARG_NAMES=()
+META_ARG_TEXTS=()
+META_EXAMPLES=()
+META_ELEVATED=no
+META_INTERNAL=no
+META_ERRORS=()
+
+# Set by split_command_name and check_entry.
+ENTRY_GROUP=
+ENTRY_VERB=
+ENTRY_ERRORS=()
+
+warn() {
+	printf '%s: %s\n' "$PROGRAM" "$*" >&2
+}
+
+die() {
+	local code=$1
+	shift
+	warn "$*"
+	exit "$code"
+}
+
+# Print the directory that holds this script, with symbolic links resolved.
+resolve_program_dir() {
+	local source=${BASH_SOURCE[0]}
+	local dir
+	while [ -L "$source" ]; do
+		dir=$(cd -P "$(dirname "$source")" && pwd)
+		source=$(readlink "$source")
+		if [[ $source != /* ]]; then
+			source=$dir/$source
+		fi
+	done
+	cd -P "$(dirname "$source")" && pwd
+}
+
+# Read the metadata block of one command file.
+#
+# Sets META_SUMMARY, META_ARG_NAMES, META_ARG_TEXTS, META_EXAMPLES,
+# META_ELEVATED, META_INTERNAL and META_ERRORS. Returns 1 when the file has at
+# least one metadata problem. A problem is never dropped: every one lands in
+# META_ERRORS for the caller to report.
+parse_metadata() {
+	local file=$1
+
+	META_SUMMARY=
+	META_ARG_NAMES=()
+	META_ARG_TEXTS=()
+	META_EXAMPLES=()
+	META_ELEVATED=no
+	META_INTERNAL=no
+	META_ERRORS=()
+
+	local line key value name text count
+	local lineno=0
+	local in_block=0 block_count=0
+	local summary_count=0 elevated_count=0 internal_count=0
+
+	while IFS= read -r line || [ -n "$line" ]; do
+		lineno=$((lineno + 1))
+
+		if [ "$in_block" -eq 0 ]; then
+			if [[ $line =~ ^#[[:space:]]*@xghost-meta[[:space:]]*$ ]]; then
+				in_block=1
+				block_count=$((block_count + 1))
+				if [ "$block_count" -gt 1 ]; then
+					META_ERRORS+=("line $lineno: a second metadata block starts here; a command has exactly one")
+				fi
+			fi
+			continue
+		fi
+
+		if [[ $line =~ ^#[[:space:]]*@end-xghost-meta[[:space:]]*$ ]]; then
+			in_block=0
+			continue
+		fi
+
+		if [[ ! $line =~ ^# ]]; then
+			META_ERRORS+=("line $lineno: the metadata block stops at a line that is not a comment")
+			in_block=0
+			continue
+		fi
+
+		if [[ $line =~ ^#[[:space:]]*$ ]]; then
+			continue
+		fi
+
+		if [[ $line =~ ^#[[:space:]]*([a-z][a-z-]*):[[:space:]]*(.*)$ ]]; then
+			key=${BASH_REMATCH[1]}
+			value=${BASH_REMATCH[2]}
+		else
+			META_ERRORS+=("line $lineno: expected '# <key>: <value>', found '$line'")
+			continue
+		fi
+
+		# Drop trailing white space from the value.
+		value=${value%"${value##*[![:space:]]}"}
+
+		case $key in
+		summary)
+			summary_count=$((summary_count + 1))
+			if [ "$summary_count" -gt 1 ]; then
+				META_ERRORS+=("line $lineno: 'summary' is given more than once")
+			elif [ -z "$value" ]; then
+				META_ERRORS+=("line $lineno: 'summary' has no value")
+			else
+				META_SUMMARY=$value
+			fi
+			;;
+		arg)
+			name=${value%%[[:space:]]*}
+			text=${value#"$name"}
+			text=${text#"${text%%[![:space:]]*}"}
+			if [ -z "$name" ] || [ -z "$text" ]; then
+				META_ERRORS+=("line $lineno: 'arg' needs a name and a description, such as 'arg: NAME  what it is'")
+			else
+				META_ARG_NAMES+=("$name")
+				META_ARG_TEXTS+=("$text")
+			fi
+			;;
+		example)
+			if [ -z "$value" ]; then
+				META_ERRORS+=("line $lineno: 'example' has no value")
+			else
+				META_EXAMPLES+=("$value")
+			fi
+			;;
+		elevated | internal)
+			if [ "$key" = elevated ]; then
+				elevated_count=$((elevated_count + 1))
+				count=$elevated_count
+			else
+				internal_count=$((internal_count + 1))
+				count=$internal_count
+			fi
+			if [ "$count" -gt 1 ]; then
+				META_ERRORS+=("line $lineno: '$key' is given more than once")
+			elif [ "$value" != yes ] && [ "$value" != no ]; then
+				META_ERRORS+=("line $lineno: '$key' takes 'yes' or 'no', found '$value'")
+			elif [ "$key" = elevated ]; then
+				META_ELEVATED=$value
+			else
+				META_INTERNAL=$value
+			fi
+			;;
+		*)
+			META_ERRORS+=("line $lineno: unknown key '$key'")
+			;;
+		esac
+	done <"$file"
+
+	if [ "$in_block" -eq 1 ]; then
+		META_ERRORS+=("the metadata block is not closed with '# @end-xghost-meta'")
+	fi
+
+	if [ "$block_count" -eq 0 ]; then
+		META_ERRORS+=("no metadata block; the file needs a '# @xghost-meta' block")
+	elif [ "$summary_count" -eq 0 ]; then
+		META_ERRORS+=("the metadata block has no 'summary' key")
+	fi
+
+	[ "${#META_ERRORS[@]}" -eq 0 ]
+}
+
+# Split a command file name into ENTRY_GROUP and ENTRY_VERB.
+# Returns 1 when the name is not <group>-<verb>.
+split_command_name() {
+	local base=$1
+	ENTRY_GROUP=
+	ENTRY_VERB=
+	if [[ ! $base =~ $FILE_NAME_PATTERN ]]; then
+		return 1
+	fi
+	ENTRY_GROUP=${base%%-*}
+	ENTRY_VERB=${base#*-}
+}
+
+# Collect every problem with one entry of the command directory.
+#
+# Sets ENTRY_ERRORS, and on success ENTRY_GROUP, ENTRY_VERB and the META_
+# variables. Returns 1 when the entry has at least one problem.
+check_entry() {
+	local path=$1
+	local base=${path##*/}
+
+	ENTRY_ERRORS=()
+
+	if [ ! -f "$path" ]; then
+		ENTRY_ERRORS+=("not a regular file; the command directory is flat")
+		return 1
+	fi
+
+	if ! split_command_name "$base"; then
+		ENTRY_ERRORS+=("the file name must be <group>-<verb>, in lower case letters, digits and hyphens")
+	fi
+
+	if [ ! -x "$path" ]; then
+		ENTRY_ERRORS+=("the file is not executable")
+	fi
+
+	if ! parse_metadata "$path"; then
+		ENTRY_ERRORS+=("${META_ERRORS[@]}")
+	fi
+
+	[ "${#ENTRY_ERRORS[@]}" -eq 0 ]
+}
+
+require_command_dir() {
+	if [ ! -d "$COMMAND_DIR" ]; then
+		die "$EXIT_ERROR" "the command directory does not exist: $COMMAND_DIR"
+	fi
+}
+
+# Print one tab separated line per command that help and completion may show:
+# group, verb, elevated, summary. The list is sorted.
+#
+# Every entry with a metadata problem is reported on standard error and left
+# out of the list.
+usable_commands() {
+	local path base error
+	local -a lines=()
+
+	for path in "$COMMAND_DIR"/*; do
+		[ -e "$path" ] || continue
+		base=${path##*/}
+		if ! check_entry "$path"; then
+			for error in "${ENTRY_ERRORS[@]}"; do
+				warn "$base: $error"
+			done
+			continue
+		fi
+		if [ "$META_INTERNAL" = yes ]; then
+			continue
+		fi
+		lines+=("$ENTRY_GROUP"$'\t'"$ENTRY_VERB"$'\t'"$META_ELEVATED"$'\t'"$META_SUMMARY")
+	done
+
+	if [ "${#lines[@]}" -gt 0 ]; then
+		printf '%s\n' "${lines[@]}" | LC_ALL=C sort
+	fi
+}
+
+print_help() {
+	local table group verb elevated summary mark
+	local last_group=
+
+	table=$(usable_commands)
+
+	printf '%s — a prescribed Arch Linux desktop.\n' "$PROGRAM"
+	printf '\n'
+	printf 'Usage: %s <group> <verb> [argument ...]\n' "$PROGRAM"
+
+	if [ -z "$table" ]; then
+		printf '\n'
+		printf 'No commands are installed in %s.\n' "$COMMAND_DIR"
+		return 0
+	fi
+
+	while IFS=$'\t' read -r group verb elevated summary; do
+		if [ "$group" != "$last_group" ]; then
+			printf '\n%s\n' "$group"
+			last_group=$group
+		fi
+		mark=
+		if [ "$elevated" = yes ]; then
+			mark='  (needs root)'
+		fi
+		printf '  %-16s %s%s\n' "$verb" "$summary" "$mark"
+	done <<<"$table"
+
+	printf '\n'
+	printf "Run '%s <group>' to list the verbs of one group.\n" "$PROGRAM"
+	printf "Run '%s <group> <verb> --help' for the detail of one command.\n" "$PROGRAM"
+}
+
+print_group_help() {
+	local wanted=$1
+	local table group verb elevated summary mark
+	local found=0
+
+	table=$(usable_commands)
+
+	if [ -n "$table" ]; then
+		while IFS=$'\t' read -r group verb elevated summary; do
+			if [ "$group" != "$wanted" ]; then
+				continue
+			fi
+			if [ "$found" -eq 0 ]; then
+				printf 'Usage: %s %s <verb> [argument ...]\n\n' "$PROGRAM" "$wanted"
+				found=1
+			fi
+			mark=
+			if [ "$elevated" = yes ]; then
+				mark='  (needs root)'
+			fi
+			printf '  %-16s %s%s\n' "$verb" "$summary" "$mark"
+		done <<<"$table"
+	fi
+
+	if [ "$found" -eq 0 ]; then
+		die "$EXIT_NOT_FOUND" "unknown group '$wanted'. Run '$PROGRAM' for the list of groups."
+	fi
+}
+
+# Print the detail of one command from its metadata. The caller has already
+# parsed the metadata of that command.
+print_command_help() {
+	local group=$1 verb=$2
+	local usage index
+
+	usage="$PROGRAM $group $verb"
+	if [ "${#META_ARG_NAMES[@]}" -gt 0 ]; then
+		for index in "${!META_ARG_NAMES[@]}"; do
+			usage="$usage ${META_ARG_NAMES[index]}"
+		done
+	fi
+
+	printf '%s %s — %s\n' "$PROGRAM" "$group $verb" "$META_SUMMARY"
+	printf '\n'
+	printf 'Usage: %s\n' "$usage"
+
+	if [ "${#META_ARG_NAMES[@]}" -gt 0 ]; then
+		printf '\nArguments:\n'
+		for index in "${!META_ARG_NAMES[@]}"; do
+			printf '  %-16s %s\n' "${META_ARG_NAMES[index]}" "${META_ARG_TEXTS[index]}"
+		done
+	fi
+
+	if [ "${#META_EXAMPLES[@]}" -gt 0 ]; then
+		printf '\nExamples:\n'
+		for index in "${!META_EXAMPLES[@]}"; do
+			printf '  %s\n' "${META_EXAMPLES[index]}"
+		done
+	fi
+
+	if [ "$META_ELEVATED" = yes ]; then
+		printf '\nThis command needs elevated privileges.\n'
+	fi
+}
+
+group_has_files() {
+	local group=$1
+	local path
+	for path in "$COMMAND_DIR/$group"-*; do
+		if [ -e "$path" ]; then
+			return 0
+		fi
+	done
+	return 1
+}
+
+# Route to one command script. The remaining arguments are passed through
+# unchanged.
+dispatch() {
+	local group=$1 verb=$2
+	shift 2
+
+	if [[ ! $group =~ $GROUP_PATTERN ]]; then
+		die "$EXIT_NOT_FOUND" "unknown group '$group'. Run '$PROGRAM' for the list of groups."
+	fi
+	if [[ ! $verb =~ $VERB_PATTERN ]]; then
+		die "$EXIT_NOT_FOUND" "unknown verb '$verb' in group '$group'. Run '$PROGRAM $group'."
+	fi
+
+	local path=$COMMAND_DIR/$group-$verb
+	local error
+
+	if [ ! -e "$path" ]; then
+		if group_has_files "$group"; then
+			die "$EXIT_NOT_FOUND" "unknown verb '$verb' in group '$group'. Run '$PROGRAM $group'."
+		fi
+		die "$EXIT_NOT_FOUND" "unknown group '$group'. Run '$PROGRAM' for the list of groups."
+	fi
+
+	local sound=1
+	if ! check_entry "$path"; then
+		sound=0
+		for error in "${ENTRY_ERRORS[@]}"; do
+			warn "$group-$verb: $error"
+		done
+	fi
+
+	# The help text is built from the metadata, so it needs sound metadata.
+	if [ $# -gt 0 ] && [ "$1" = --help ]; then
+		if [ "$sound" -eq 0 ]; then
+			die "$EXIT_ERROR" "cannot describe '$group $verb': its metadata has a problem"
+		fi
+		print_command_help "$group" "$verb"
+		return 0
+	fi
+
+	# A metadata problem is reported above and does not stop the command.
+	# A file that cannot be run does stop it.
+	if [ ! -f "$path" ] || [ ! -x "$path" ]; then
+		die "$EXIT_NOT_EXECUTABLE" "cannot run '$group $verb': it is not an executable file"
+	fi
+
+	exec "$path" "$@"
+}
+
+lint_commands() {
+	local path base error
+	local count=0 bad=0
+
+	for path in "$COMMAND_DIR"/*; do
+		[ -e "$path" ] || continue
+		base=${path##*/}
+		count=$((count + 1))
+		if ! check_entry "$path"; then
+			bad=$((bad + 1))
+			for error in "${ENTRY_ERRORS[@]}"; do
+				warn "$base: $error"
+			done
+		fi
+	done
+
+	if [ "$bad" -gt 0 ]; then
+		die "$EXIT_ERROR" "$bad of $count command files have a metadata problem"
+	fi
+
+	printf '%s: %d command files, no metadata problem\n' "$PROGRAM" "$count"
+}
+
+complete_groups() {
+	local table
+	table=$(usable_commands)
+	if [ -n "$table" ]; then
+		printf '%s\n' "$table" | cut -f1 | LC_ALL=C sort -u
+	fi
+}
+
+# Print 'verb:summary' for one group, in the form the zsh _describe builtin
+# reads. A colon inside a summary is escaped.
+complete_verbs() {
+	local wanted=$1
+	local table group verb elevated summary
+
+	table=$(usable_commands)
+	if [ -z "$table" ]; then
+		return 0
+	fi
+
+	while IFS=$'\t' read -r group verb elevated summary; do
+		if [ "$group" = "$wanted" ]; then
+			printf '%s:%s\n' "$verb" "${summary//:/\\:}"
+		fi
+	done <<<"$table"
+}
+
+main() {
+	local first=${1-}
+
+	case $first in
+	'' | -h | --help)
+		require_command_dir
+		print_help
+		;;
+	--lint)
+		require_command_dir
+		lint_commands
+		;;
+	--complete-groups)
+		require_command_dir
+		complete_groups
+		;;
+	--complete-verbs)
+		if [ $# -lt 2 ]; then
+			die "$EXIT_USAGE" "'--complete-verbs' needs a group name"
+		fi
+		require_command_dir
+		complete_verbs "$2"
+		;;
+	-*)
+		die "$EXIT_USAGE" "unknown option '$first'. Run '$PROGRAM' for the list of commands."
+		;;
+	*)
+		require_command_dir
+		shift
+		if [ $# -eq 0 ]; then
+			print_group_help "$first"
+			return 0
+		fi
+		local verb=$1
+		shift
+		dispatch "$first" "$verb" "$@"
+		;;
+	esac
+}
+
+PROGRAM_DIR=$(resolve_program_dir)
+ROOT_DIR=$(cd -P "$PROGRAM_DIR/.." && pwd)
+COMMAND_DIR=${XGHOST_COMMAND_DIR:-$ROOT_DIR/commands}
+
+main "$@"

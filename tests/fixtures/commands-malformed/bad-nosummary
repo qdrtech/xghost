@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# @xghost-meta
+# example: xghost bad nosummary
+# @end-xghost-meta
+
+set -euo pipefail
+
+printf 'bad-nosummary ran\n'

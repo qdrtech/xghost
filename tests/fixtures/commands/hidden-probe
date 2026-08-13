@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# @xghost-meta
+# summary: Probe the display server.
+# internal: yes
+# @end-xghost-meta
+
+set -euo pipefail
+
+printf 'hidden-probe ran\n'

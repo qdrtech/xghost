@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# @xghost-meta
+# summary: A command whose file carries no execute permission.
+# @end-xghost-meta
+
+set -euo pipefail
+
+printf 'bad-notexecutable ran\n'

@@ -1,0 +1,41 @@
+#compdef xghost
+#
+# zsh completion for xghost.
+#
+# The dispatcher supplies the words, so a new command completes as soon as its
+# file exists. Two options carry the data:
+#
+#   xghost --complete-groups          one group per line
+#   xghost --complete-verbs <group>   one 'verb:summary' per line
+#
+# Both write their warnings to standard error, which this function discards so
+# that a malformed command never corrupts the completion list.
+#
+# To install, put this file in a directory on your fpath, for example
+# /usr/share/zsh/site-functions, and restart zsh.
+
+_xghost() {
+	local -a groups verbs
+	local state line
+	local dispatcher=${words[1]}
+
+	_arguments -C \
+		'1: :->group' \
+		'2: :->verb' \
+		'*:: :->argument'
+
+	case $state in
+	group)
+		groups=(${(f)"$($dispatcher --complete-groups 2>/dev/null)"})
+		groups=(${groups:#})
+		(($#groups)) && _describe -t xghost-groups 'xghost group' groups
+		;;
+	verb)
+		verbs=(${(f)"$($dispatcher --complete-verbs ${line[1]} 2>/dev/null)"})
+		verbs=(${verbs:#})
+		(($#verbs)) && _describe -t xghost-verbs 'xghost verb' verbs
+		;;
+	esac
+}
+
+_xghost "$@"

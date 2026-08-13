@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# @xghost-meta
+# summary: Rebuild the theme cache.
+# internal: yes
+# @end-xghost-meta
+
+set -euo pipefail
+
+printf 'theme-reload-cache ran\n'

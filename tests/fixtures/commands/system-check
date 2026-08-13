@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# @xghost-meta
+# summary: Report the health of the installation.
+# @end-xghost-meta
+
+set -euo pipefail
+
+printf 'system-check ran\n'
+exit 3
