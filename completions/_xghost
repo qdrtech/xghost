@@ -15,6 +15,10 @@
 # /usr/share/zsh/site-functions, and restart zsh.
 
 _xghost() {
+	# '_arguments -C' rewrites curcontext, so the function keeps a local copy.
+	# Without it the rewritten context reaches the calling completion, and this
+	# function is reachable as a sub-completion, such as 'sudo xghost <TAB>'.
+	local curcontext="$curcontext"
 	local -a groups verbs
 	local state line
 	local dispatcher=${words[1]}
@@ -34,6 +38,11 @@ _xghost() {
 		verbs=(${(f)"$($dispatcher --complete-verbs ${line[1]} 2>/dev/null)"})
 		verbs=(${verbs:#})
 		(($#verbs)) && _describe -t xghost-verbs 'xghost verb' verbs
+		;;
+	argument)
+		# The dispatcher passes every later word to the command, and the
+		# command owns its own arguments. Fall back to file names.
+		_default
 		;;
 	esac
 }

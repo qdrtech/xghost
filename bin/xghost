@@ -14,11 +14,18 @@
 
 set -euo pipefail
 
+# The environment may carry BASHOPTS or SHELLOPTS, and both change how the
+# globs in this script behave. Normalise every option the script depends on.
+shopt -u dotglob nocaseglob failglob
+unset GLOBIGNORE
+set +f
+
 readonly PROGRAM=xghost
 
 # Exit codes.
 readonly EXIT_ERROR=1
 readonly EXIT_USAGE=2
+readonly EXIT_NO_COMMANDS=3
 readonly EXIT_NOT_EXECUTABLE=126
 readonly EXIT_NOT_FOUND=127
 
@@ -86,7 +93,7 @@ parse_metadata() {
 
 	local line key value name text count
 	local lineno=0
-	local in_block=0 block_count=0
+	local in_block=0 block_count=0 stray_count=0
 	local summary_count=0 elevated_count=0 internal_count=0
 
 	while IFS= read -r line || [ -n "$line" ]; do
@@ -108,9 +115,15 @@ parse_metadata() {
 			continue
 		fi
 
+		# A line that is not a comment does not end the block. The block ends
+		# at its end marker, so the keys below such a line are still checked.
+		# Only the first line of this kind is reported, because an unclosed
+		# block would otherwise report every line of the script.
 		if [[ ! $line =~ ^# ]]; then
-			META_ERRORS+=("line $lineno: the metadata block stops at a line that is not a comment")
-			in_block=0
+			stray_count=$((stray_count + 1))
+			if [ "$stray_count" -eq 1 ]; then
+				META_ERRORS+=("line $lineno: the metadata block holds a line that is not a comment")
+			fi
 			continue
 		fi
 
@@ -136,6 +149,8 @@ parse_metadata() {
 				META_ERRORS+=("line $lineno: 'summary' is given more than once")
 			elif [ -z "$value" ]; then
 				META_ERRORS+=("line $lineno: 'summary' has no value")
+			elif [[ $value == *[[:cntrl:]]* ]]; then
+				META_ERRORS+=("line $lineno: 'summary' holds a control character, such as a tab; it takes printable characters and spaces only")
 			else
 				META_SUMMARY=$value
 			fi
@@ -218,6 +233,11 @@ check_entry() {
 
 	ENTRY_ERRORS=()
 
+	if [ -L "$path" ] && [ ! -e "$path" ]; then
+		ENTRY_ERRORS+=("a broken symbolic link; it points at a target that does not exist")
+		return 1
+	fi
+
 	if [ ! -f "$path" ]; then
 		ENTRY_ERRORS+=("not a regular file; the command directory is flat")
 		return 1
@@ -229,6 +249,12 @@ check_entry() {
 
 	if [ ! -x "$path" ]; then
 		ENTRY_ERRORS+=("the file is not executable")
+	fi
+
+	# The metadata cannot be read from a file the dispatcher cannot open.
+	if [ ! -r "$path" ]; then
+		ENTRY_ERRORS+=("the file cannot be read; check its permissions")
+		return 1
 	fi
 
 	if ! parse_metadata "$path"; then
@@ -254,7 +280,9 @@ usable_commands() {
 	local -a lines=()
 
 	for path in "$COMMAND_DIR"/*; do
-		[ -e "$path" ] || continue
+		# A broken symbolic link fails the -e test. It is an entry of the
+		# directory all the same, and check_entry reports it.
+		[ -e "$path" ] || [ -L "$path" ] || continue
 		base=${path##*/}
 		if ! check_entry "$path"; then
 			for error in "${ENTRY_ERRORS[@]}"; do
@@ -375,7 +403,7 @@ group_has_files() {
 	local group=$1
 	local path
 	for path in "$COMMAND_DIR/$group"-*; do
-		if [ -e "$path" ]; then
+		if [ -e "$path" ] || [ -L "$path" ]; then
 			return 0
 		fi
 	done
@@ -398,7 +426,9 @@ dispatch() {
 	local path=$COMMAND_DIR/$group-$verb
 	local error
 
-	if [ ! -e "$path" ]; then
+	# A broken symbolic link fails the -e test, and it is still an entry that
+	# names this verb. check_entry reports it below.
+	if [ ! -e "$path" ] && [ ! -L "$path" ]; then
 		if group_has_files "$group"; then
 			die "$EXIT_NOT_FOUND" "unknown verb '$verb' in group '$group'. Run '$PROGRAM $group'."
 		fi
@@ -413,8 +443,9 @@ dispatch() {
 		done
 	fi
 
+	# The dispatcher owns '-h' and '--help' in the first argument position.
 	# The help text is built from the metadata, so it needs sound metadata.
-	if [ $# -gt 0 ] && [ "$1" = --help ]; then
+	if [ $# -gt 0 ] && { [ "$1" = --help ] || [ "$1" = -h ]; }; then
 		if [ "$sound" -eq 0 ]; then
 			die "$EXIT_ERROR" "cannot describe '$group $verb': its metadata has a problem"
 		fi
@@ -436,7 +467,9 @@ lint_commands() {
 	local count=0 bad=0
 
 	for path in "$COMMAND_DIR"/*; do
-		[ -e "$path" ] || continue
+		# A broken symbolic link fails the -e test. It is an entry of the
+		# directory all the same, and check_entry reports it.
+		[ -e "$path" ] || [ -L "$path" ] || continue
 		base=${path##*/}
 		count=$((count + 1))
 		if ! check_entry "$path"; then
@@ -449,6 +482,12 @@ lint_commands() {
 
 	if [ "$bad" -gt 0 ]; then
 		die "$EXIT_ERROR" "$bad of $count command files have a metadata problem"
+	fi
+
+	# A lint pass that inspected nothing has proved nothing, so it is not a
+	# pass. It carries its own exit code, because it is not a metadata problem.
+	if [ "$count" -eq 0 ]; then
+		die "$EXIT_NO_COMMANDS" "no command file to check in $COMMAND_DIR"
 	fi
 
 	printf '%s: %d command files, no metadata problem\n' "$PROGRAM" "$count"
@@ -481,12 +520,21 @@ complete_verbs() {
 }
 
 main() {
-	local first=${1-}
-
-	case $first in
-	'' | -h | --help)
+	if [ $# -eq 0 ]; then
 		require_command_dir
 		print_help
+		return 0
+	fi
+
+	local first=$1
+
+	case $first in
+	-h | --help)
+		require_command_dir
+		print_help
+		;;
+	'')
+		die "$EXIT_USAGE" "the group name is empty. Run '$PROGRAM' for the list of commands."
 		;;
 	--lint)
 		require_command_dir
@@ -515,6 +563,11 @@ main() {
 		fi
 		local verb=$1
 		shift
+		# The dispatcher owns '-h' and '--help' in the verb position.
+		if [ "$verb" = -h ] || [ "$verb" = --help ]; then
+			print_group_help "$first"
+			return 0
+		fi
 		dispatch "$first" "$verb" "$@"
 		;;
 	esac

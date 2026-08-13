@@ -48,6 +48,14 @@ convention.
 | `elevated` | 0 or 1    | `yes` when the command needs root. Default `no`.              |
 | `internal` | 0 or 1    | `yes` to hide the command from help. Default `no`.            |
 
+A summary holds printable characters and spaces only. A control character, such
+as a tab, is a metadata problem, because the dispatcher carries the summary
+through a tab separated list into help and completion. Every other character is
+allowed. The dispatcher escapes a colon itself when it writes the completion
+list, so a summary may hold one.
+
+The dispatcher drops the white space at the end of every value.
+
 The dispatcher builds the usage line from the `arg` keys, in the order they
 appear. The example above produces:
 
@@ -63,16 +71,55 @@ by itself. The command does that.
 completion. The command still runs when a user names it, so another script may
 call it.
 
+## When the block is not well formed
+
+Each case below is a metadata problem. The dispatcher reports it and `xghost
+--lint` exits non-zero.
+
+- **A repeated key.** `summary`, `elevated`, and `internal` are allowed once
+  each. The dispatcher reports the second one with its line number and keeps
+  the value of the first one. `arg` and `example` repeat by design, and the
+  dispatcher keeps them in the order they appear.
+- **A second `# @xghost-meta` block.** A command has exactly one block. The
+  dispatcher reports the second one at the line where it starts. It reads the
+  keys of that block as though they continued the first block, so a key that
+  appears in both blocks is reported as a repeated key.
+- **A line inside the block that is not a comment.** The dispatcher reports the
+  line and keeps reading. The block ends at `# @end-xghost-meta` and nowhere
+  else, so every key below such a line is still checked and still reported. The
+  dispatcher reports only the first line of this kind in a file, because a block
+  that carries no end marker would otherwise produce one report for every line
+  of the script.
+- **A block that carries no `# @end-xghost-meta` line.** The dispatcher reports
+  it after it reads the last line of the file.
+
 ## How the metadata is used
 
 | Command                        | Output                                          |
 | ------------------------------ | ----------------------------------------------- |
 | `xghost`                       | Every visible command, grouped, with summaries. |
 | `xghost <group>`               | The verbs of one group, with summaries.         |
+| `xghost <group> --help`        | The verbs of one group, with summaries.         |
 | `xghost <group> <verb> --help` | Summary, usage, arguments, and examples.        |
 | `xghost <group> <verb> [...]`  | Runs the script with the arguments unchanged.   |
 
 The exit status of the script reaches the caller unchanged.
+
+## The dispatcher owns `-h` and `--help` in two positions
+
+`-h` and `--help` mean the same thing, and the dispatcher answers both in two
+positions:
+
+- **The verb position.** `xghost theme --help` and `xghost theme -h` print the
+  verbs of the group `theme`, which is what `xghost theme` prints.
+- **The first argument position.** `xghost theme set --help` and
+  `xghost theme set -h` print the detail of that one command.
+
+A command never receives `-h` or `--help` in those two positions. In every later
+position the dispatcher passes the word through unchanged, so
+`xghost theme set nord --help` runs the script with `nord --help`, and the
+script decides what that means. Write a command that takes an argument of its
+own with this in mind.
 
 ## A metadata problem is always reported
 
@@ -84,9 +131,17 @@ ways:
   with a metadata problem is left out of help and completion, because there is
   no sound summary to print. Routing still runs it, so a typo in a comment never
   takes a working command away from a user.
-- **A non-zero exit from `xghost --lint`.** The lint pass checks every file in
+- **A non-zero exit from `xghost --lint`.** The lint pass checks every entry of
   the command directory, prints every problem, and exits 1 when it finds any.
   Continuous integration runs it on every push.
+
+A lint pass that inspected no file has proved nothing, so it is not a pass. The
+lint pass exits 3 when the command directory holds no command file.
+
+An entry the dispatcher cannot inspect carries a message of its own: a broken
+symbolic link, a file the dispatcher may not read, and an entry that is not a
+regular file. The dispatcher names each one rather than passing over it, because
+these are the states a user is least able to see.
 
 The one case that stops a command is a file that cannot be run. The dispatcher
 exits 126 and reports it.
@@ -96,15 +151,18 @@ dispatcher skips them.
 
 ## Exit codes of the dispatcher
 
-| Code | Meaning                                              |
-| ---- | ---------------------------------------------------- |
-| 0    | Success.                                             |
-| 1    | The lint pass failed, or the command directory is missing. |
-| 2    | The dispatcher was called with an unknown option.    |
-| 126  | The command file is not an executable file.          |
-| 127  | The group or the verb does not exist.                |
+| Code | Meaning                                                                     |
+| ---- | --------------------------------------------------------------------------- |
+| 0    | Success.                                                                    |
+| 1    | The lint pass found a problem, the command directory is missing, or the dispatcher cannot describe a command whose metadata has a problem. |
+| 2    | The dispatcher was called with an unknown option or with an empty group name. |
+| 3    | The command directory holds no command file.                                |
+| 126  | The command file is not an executable file.                                 |
+| 127  | The group or the verb does not exist.                                       |
 
-Any other code comes from the command itself.
+The dispatcher returns one of these codes only when it stops before it runs a
+command. Once a command runs, the exit status of that command reaches the caller
+unchanged, and that status may hold any value, including the values above.
 
 ## Shell completion
 
