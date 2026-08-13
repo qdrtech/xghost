@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# @xghost-meta
+# summary: A command whose metadata is correct.
+# @end-xghost-meta
+
+set -euo pipefail
+
+printf 'good-one ran\n'

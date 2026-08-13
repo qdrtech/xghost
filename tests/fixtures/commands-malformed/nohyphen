@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# @xghost-meta
+# summary: A command whose file name carries no group and verb.
+# @end-xghost-meta
+
+set -euo pipefail
+
+printf 'nohyphen ran\n'

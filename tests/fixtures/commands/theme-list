@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# @xghost-meta
+# summary: List the available themes.
+# example: xghost theme list
+# @end-xghost-meta
+
+set -euo pipefail
+
+printf 'theme-list ran\n'

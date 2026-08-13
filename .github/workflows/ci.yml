@@ -1,0 +1,69 @@
+name: ci
+
+# A pull request branch lives in this repository, so an unfiltered 'push'
+# trigger would run every pull request twice. Push covers the default branch.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+# A new push to the same branch cancels the run of the previous one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: dispatcher tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # actions/checkout 4.2.2, pinned to the commit that carries the v4.2.2
+      # tag. A tag moves; a commit does not.
+      - name: Check out the repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # bats-core 1.14.0, pinned to the commit that carries the v1.14.0 tag.
+      # The same version is packaged as 'bats' in the Arch 'extra' repository.
+      - name: Install bats-core
+        env:
+          BATS_COMMIT: eb7f42f8d608ac693d7a4b67474f6714ea68cfc5
+        run: |
+          set -euo pipefail
+          source_dir=$RUNNER_TEMP/bats-core
+          mkdir -p "$source_dir"
+          git -C "$source_dir" init --quiet
+          git -C "$source_dir" remote add origin https://github.com/bats-core/bats-core.git
+          git -C "$source_dir" fetch --depth 1 origin "$BATS_COMMIT"
+          git -C "$source_dir" checkout --quiet FETCH_HEAD
+          "$source_dir/install.sh" "$RUNNER_TEMP/bats"
+          echo "$RUNNER_TEMP/bats/bin" >>"$GITHUB_PATH"
+
+      - name: Report the bats version
+        run: bats --version
+
+      # The fixture directory holds command files today, so this step proves
+      # the lint pass against real content.
+      - name: Lint the fixture command metadata
+        env:
+          XGHOST_COMMAND_DIR: tests/fixtures/commands
+        run: ./bin/xghost --lint
+
+      - name: Lint the shipped command metadata
+        run: |
+          set -uo pipefail
+          status=0
+          ./bin/xghost --lint || status=$?
+          # Exit code 3 means the directory holds no command file. The first
+          # shipped command arrives in a later slice, so 3 is the expected
+          # state of commands/ today. Any other non-zero code is a failure.
+          if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then
+            exit "$status"
+          fi
+
+      - name: Run the test suite
+        run: bats --print-output-on-failure tests

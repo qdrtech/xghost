@@ -1,0 +1,4 @@
+# Generated output is the fourth file category of ADR 0001. The renderer
+# rebuilds it on demand, nobody edits it, and it is never tracked. It lands in
+# the checkout, because the checkout is the install location.
+/generated/

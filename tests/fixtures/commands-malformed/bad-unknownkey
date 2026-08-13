@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# @xghost-meta
+# summary: A command with a key the dispatcher does not know.
+# colour: blue
+# @end-xghost-meta
+
+set -euo pipefail
+
+printf 'bad-unknownkey ran\n'

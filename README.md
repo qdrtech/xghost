@@ -13,3 +13,10 @@ Requirements, architecture, and scope are recorded in
 [issue #1](https://github.com/qdrtech/xghost/issues/1).
 
 This project is under initial development and is not yet installable.
+
+## Documentation
+
+- [Repository layout](docs/repository-layout.md) — what each directory holds.
+- [Adding a command](docs/adding-a-command.md) — the metadata contract of the
+  dispatcher.
+- [Architecture decision records](docs/adr/) — the decisions and their reasons.
