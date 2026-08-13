@@ -53,12 +53,12 @@ update mechanism.
 
 ### The file categories
 
-| Category         | Owner                       | Update mechanism                                     |
-| ---------------- | --------------------------- | ---------------------------------------------------- |
-| Prescribed       | The project                 | Pull. Symlinked into `~/.config`. Users do not edit. |
-| Machine facts    | The machine, via detection  | Detection overwrites the file wholesale.             |
-| Knobs            | The user, against a project-owned schema | The user edits the file. The project validates it. |
-| Generated output | The renderer                | Rebuilt on demand. Never tracked. Never edited.      |
+| Category         | Owner                                    | Update mechanism                                                                      |
+| ---------------- | ---------------------------------------- | ------------------------------------------------------------------------------------- |
+| Prescribed       | The project                              | Pull. Symlinked into `~/.config`. Users do not edit.                                  |
+| Machine facts    | The user, written by detection           | Detection overwrites the file wholesale. The user may edit it to correct a detection. |
+| Knobs            | The user, against a project-owned schema | The user edits the file. The project validates it.                                    |
+| Generated output | No one (produced by the renderer)        | Rebuilt on demand. Never tracked. Never edited.                                       |
 
 Prescribed files hold all real configuration.
 
@@ -67,12 +67,14 @@ device quirks, the timezone, the display scale, the default browser and
 terminal. Detection writes the whole file. The file is never patched and never
 merged.
 
+A user edit to this file is expected as the way to correct a wrong detection,
+and re-running detection discards that edit.
+
 Knobs are one file: the preferences the project supports, such as bar position,
 animations, gap sizes, and font. The project owns the schema and rejects an
 invalid value.
 
-Generated output is disposable. It is the fourth category and it belongs to no
-one.
+Generated output is the fourth category. It is disposable.
 
 Machine facts and knobs are two files rather than one, because their lifecycles
 differ. Detection has to overwrite its output completely. If knobs shared that
@@ -130,6 +132,9 @@ A migration **may**:
 - remove a stale generated file.
 
 A migration **must not** edit a user's configuration file.
+
+A migration **must** be safe to run twice, so that an interrupted update is
+resumed by running the pending migrations again.
 
 Contributors apply the rule as follows. Find the category of the file the change
 targets. A prescribed file is delivered by the pull, so it needs no migration.
