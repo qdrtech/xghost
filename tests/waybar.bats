@@ -357,11 +357,21 @@ expanded_include() {
 
 # The bar position is a scalar knob: one value reaches one key of one generated
 # file. docs/bundles/waybar.md records why it is not a structural choice.
+#
+# The theme is set first, and that is the precondition rather than a detail of
+# this test. 'xghost settings set' renders only when a theme is active: with
+# none, it stores the value, writes no file, and says so. docs/knobs.md records
+# that, and the knob tests of the other two bundles open the same way.
 @test "the bar position knob reaches the generated configuration at every value" {
+	"$XGHOST" theme set tokyonight >/dev/null
+
 	local value count=0
 	while IFS= read -r value; do
 		run "$XGHOST" settings set KNOB_BAR_POSITION "$value"
 		[ "$status" -eq 0 ]
+		# Read before parsing, so a file that was never written is named as the
+		# missing file it is rather than as a document that holds nothing.
+		[ -f "$GENERATED/waybar/position.json" ]
 		run json_value "$(grep -v '^[[:space:]]*//' "$GENERATED/waybar/position.json")" position
 		[ "$status" -eq 0 ]
 		[ "$output" = "$value" ]
