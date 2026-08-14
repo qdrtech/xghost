@@ -32,6 +32,12 @@ setup() {
 	STATE_DIR="$HOME/.local/state/xghost"
 	RECORD="$STATE_DIR/links"
 	BACKUP_DIR="$STATE_DIR/backups"
+
+	# The bridge to the generated output, and the path it reaches. The linker
+	# creates it beside the prescribed entries, so a prescribed file can reach
+	# the generated output by a relative path.
+	BRIDGE="$CONFIG_HOME/xghost-generated"
+	GENERATED="$STATE_DIR/generated"
 }
 
 # A test that takes a permission away must give it back, or the temporary
@@ -184,7 +190,10 @@ reported_backup_path() {
 	run "$XGHOST" config link
 	[ "$status" -eq 0 ]
 
-	[ "$(wc -l <"$RECORD")" -eq 1 ]
+	# One line for the prescribed entry, one for the bridge to the generated
+	# output, and no line written twice.
+	[ "$(wc -l <"$RECORD")" -eq 2 ]
+	[ "$(sort -u "$RECORD" | wc -l)" -eq 2 ]
 }
 
 @test "a link run adds a prescribed entry that arrived later" {
@@ -519,6 +528,127 @@ reported_backup_path() {
 	[ -L "$CONFIG_HOME/hypr" ]
 }
 
+# --- the bridge to the generated output --------------------------------------
+#
+# A prescribed file cannot name the state directory in full: the components
+# this project prescribes expand no environment variable, so such a path is
+# wrong the moment XDG_STATE_HOME is not the default, and the include then
+# misses in silence. The bridge gives the generated output one fixed name
+# inside the config directory, and a prescribed file reaches it by a relative
+# path. See docs/linking.md.
+
+@test "link creates the bridge to the generated output" {
+	prescribe_directory ghostty
+
+	run "$XGHOST" config link
+	[ "$status" -eq 0 ]
+	[ -L "$BRIDGE" ]
+	[ "$(readlink "$BRIDGE")" = "$GENERATED" ]
+	[[ $output == *"linked: $BRIDGE -> $GENERATED"* ]]
+}
+
+@test "the bridge is created before the generated output exists" {
+	prescribe_directory ghostty
+	[ ! -e "$GENERATED" ]
+
+	run "$XGHOST" config link
+	[ "$status" -eq 0 ]
+	# 'xghost theme set' has not run yet, so the bridge points at a path that
+	# is not there. The include of a prescribed file is optional for exactly
+	# this moment, and the link is right the moment the path appears.
+	[ -L "$BRIDGE" ]
+	[ ! -e "$BRIDGE" ]
+	[ "$(readlink "$BRIDGE")" = "$GENERATED" ]
+}
+
+@test "the bridge follows XDG_STATE_HOME" {
+	prescribe_directory ghostty
+	export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
+
+	run "$XGHOST" config link
+	[ "$status" -eq 0 ]
+	[ "$(readlink "$BRIDGE")" = "$XDG_STATE_HOME/xghost/generated" ]
+}
+
+@test "the bridge is recorded, so unlink removes it" {
+	prescribe_directory ghostty
+	run "$XGHOST" config link
+	[ "$status" -eq 0 ]
+	# The record holds one line per link: the link path, a tab, then the path
+	# it points at.
+	run grep -Fx "$(printf '%s\t%s' "$BRIDGE" "$GENERATED")" "$RECORD"
+	[ "$status" -eq 0 ]
+
+	run "$XGHOST" config unlink
+	[ "$status" -eq 0 ]
+	[[ $output == *"removed: $BRIDGE"* ]]
+	[ ! -L "$BRIDGE" ]
+	[ ! -e "$BRIDGE" ]
+}
+
+@test "unlink leaves the generated output in place" {
+	prescribe_directory ghostty
+	mkdir -p "$GENERATED/ghostty"
+	printf 'generated\n' >"$GENERATED/ghostty/colors.conf"
+	run "$XGHOST" config link
+	[ "$status" -eq 0 ]
+
+	run "$XGHOST" config unlink
+	[ "$status" -eq 0 ]
+	# Removing a symbolic link never touches what it points at.
+	[ "$(cat "$GENERATED/ghostty/colors.conf")" = generated ]
+}
+
+@test "link never clobbers a path that is already at the bridge name" {
+	prescribe_directory ghostty
+	mkdir -p "$BRIDGE"
+	printf 'the work of the user\n' >"$BRIDGE/mine.conf"
+
+	run "$XGHOST" config link
+	[ "$status" -eq 1 ]
+	[[ $output == *"conflict: $BRIDGE is a directory"* ]]
+	[ ! -L "$BRIDGE" ]
+	[ "$(cat "$BRIDGE/mine.conf")" = "the work of the user" ]
+
+	# The path is in conflict, so it was never recorded, and 'unlink' leaves
+	# it exactly where it is.
+	run "$XGHOST" config unlink
+	[ "$status" -eq 0 ]
+	[ "$(cat "$BRIDGE/mine.conf")" = "the work of the user" ]
+}
+
+@test "unlink leaves a bridge the user made by hand alone" {
+	prescribe_directory ghostty
+	mkdir -p "$CONFIG_HOME"
+	ln -s "$GENERATED" "$BRIDGE"
+
+	run "$XGHOST" config unlink
+	[ "$status" -eq 0 ]
+	[[ $output == *"nothing to remove"* ]]
+	[ -L "$BRIDGE" ]
+	[ "$(readlink "$BRIDGE")" = "$GENERATED" ]
+}
+
+@test "a link dry run creates no bridge" {
+	prescribe_directory ghostty
+
+	run "$XGHOST" config link --dry-run
+	[ "$status" -eq 0 ]
+	[[ $output == *"would link: $BRIDGE -> $GENERATED"* ]]
+	[ ! -e "$BRIDGE" ]
+	[ ! -L "$BRIDGE" ]
+}
+
+@test "no prescribed configuration means no bridge" {
+	: >"$XGHOST_CONFIG_SOURCE/.gitkeep"
+
+	run "$XGHOST" config link
+	[ "$status" -eq 0 ]
+	[[ $output == *"nothing to link"* ]]
+	# Nothing includes the generated output when nothing is prescribed.
+	[ ! -e "$CONFIG_HOME" ]
+}
+
 # --- options ---------------------------------------------------------------
 
 @test "link reports an unknown option and changes nothing" {
@@ -736,9 +866,10 @@ reported_backup_path() {
 	wait "$second"
 
 	# An unrecorded link is an orphan that 'unlink' never removes, so the
-	# record holds one line for every link on disk.
-	[ "$(find "$CONFIG_HOME" -maxdepth 1 -type l | wc -l)" -eq 4 ]
-	[ "$(wc -l <"$RECORD")" -eq 4 ]
+	# record holds one line for every link on disk: the four prescribed
+	# entries, and the one bridge the two runs share.
+	[ "$(find "$CONFIG_HOME" -maxdepth 1 -type l | wc -l)" -eq 5 ]
+	[ "$(wc -l <"$RECORD")" -eq 5 ]
 
 	run "$XGHOST" config unlink
 	[ "$status" -eq 0 ]
@@ -845,7 +976,9 @@ reported_backup_path() {
 	[ "$status" -eq 1 ]
 	[[ $output == *"cannot create the symbolic link $CONFIG_HOME/hypr"* ]]
 	[[ $output == *"0 in conflict"* ]]
-	[[ $output == *"1 failed"* ]]
+	# The prescribed entry and the bridge both fail on the same permission,
+	# and neither one is a conflict with something the user put in the way.
+	[[ $output == *"2 failed"* ]]
 }
 
 @test "a skipped entry is named in the message" {
