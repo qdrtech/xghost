@@ -1,0 +1,4 @@
+good-name
+Bad-Upper-Case
+-opens-with-a-hyphen
+another-good-name

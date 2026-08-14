@@ -19,11 +19,15 @@ behaviour without reading the tree.
 | `tests/`       | The bats test suite, with its fixtures under `tests/fixtures/` and the helpers more than one suite needs in `tests/helpers.bash`. |
 | `themes/`      | One directory per theme: its palette, its background, and any hand-written file.  |
 
+One file sits at the top level beside those directories: `install.sh`, the front
+end of the installer. It sources `lib/install.sh` and runs the steps below.
+[Installing](installing.md) records what each group does.
+
 ## Inside `install/`
 
 | Directory                | What it holds                                                             |
 | ------------------------ | ------------------------------------------------------------------------- |
-| `install/packages/`      | The package manifests, one package per line, comments permitted.          |
+| `install/packages/`      | The package manifests, one package per line, comments permitted. `base.txt` is what pacman installs, and `aur.txt` is what an AUR helper installs. |
 | `install/steps/preflight/`    | The checks that run before anything changes: hardware, network, existing files. |
 | `install/steps/packaging/`    | The steps that install the packages the manifests declare.           |
 | `install/steps/config/`       | The steps that place the prescribed configuration and run detection. |

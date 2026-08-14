@@ -302,9 +302,8 @@ make the output depend on a rule nobody wrote down. Read
 
 ## Detection during an installation
 
-The installer is [issue #7](https://github.com/qdrtech/xghost/issues/7) and
-does not exist yet. Detection is ready for it, and this is the contract the
-installer wires up.
+The installer runs detection twice, and [Installing](installing.md) records the
+order it chose. This is the contract it is wired up to.
 
 An installation step runs one command:
 
@@ -332,10 +331,16 @@ wrong at first login:
 
 [Repository layout](repository-layout.md) puts detection in
 `install/steps/config/`, and that step is correct for every fact except the
-monitors. To make the monitors correct at first login, the installer has to run
-detection again **inside the first Hyprland session**. A step under
-`install/steps/post-install/` and a run at the start of the session itself both
-satisfy that. The choice belongs to issue #7.
+monitors. To make the monitors correct, the installer has to run detection again
+**inside a Hyprland session**.
+
+The installer runs it at the start of the session itself: the prescribed
+autostart carries `exec-once = xghost machine refresh`, which runs detection
+again and renders the active theme from what it read. A step under
+`install/steps/post-install/` was the other candidate and cannot work, because
+the installer finishes before any session exists. The cost is that the
+prescribed monitor layout is in place from the second login, and
+[Installing](installing.md) records it.
 
 Running detection twice is safe, because the second run writes the same file
 from a machine it can now read fully. It is safe to run at every login as well:

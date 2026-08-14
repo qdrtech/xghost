@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+#
+# Read this computer again and render the active theme from what it reads.
+#
+# This is the second detection of an installation. The first one runs in the
+# config group of the installer, before any Hyprland session exists, so it
+# cannot read the monitors: hyprctl answers only inside a session. This command
+# runs from the autostart of the session, where hyprctl answers, and it renders
+# the theme again from the facts it just wrote.
+#
+# Running detection twice is safe. A run that reads the same machine writes the
+# same file and makes no copy of it, so a correction the user made by hand is
+# still the file that machine.conf.previous holds. docs/machine-facts.md records
+# that rule, and docs/installing.md records the order this command belongs to.
+#
+# @xghost-meta
+# summary: Read this computer again and render the active theme from what it reads.
+# example: xghost machine refresh
+# elevated: no
+# internal: no
+# @end-xghost-meta
+
+set -euo pipefail
+
+COMMAND_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+COMMAND_DIR=${COMMAND_PATH%/*}
+# shellcheck source=lib/theme.sh
+. "$COMMAND_DIR/../lib/theme.sh"
+
+if [ $# -gt 0 ]; then
+	xghost_die 2 "'machine refresh' takes no argument, and it was given $#."
+fi
+
+# Detection is one implementation, and this command runs it rather than
+# repeating it.
+if ! "$COMMAND_DIR/machine-detect"; then
+	xghost_die 1 "detection failed, so the machine facts are unchanged and no theme was rendered."
+fi
+
+# A machine with no theme yet is not a failure. This command runs at every
+# login, and a login before the first 'xghost theme set' has nothing to render.
+if ! name=$(theme_current); then
+	printf 'no theme is active, so nothing was rendered. Run %s.\n' "'xghost theme set <name>'"
+	exit 0
+fi
+
+if ! theme_set "$name"; then
+	xghost_die 1 "$THEME_PROBLEM"
+fi
+
+printf "the theme '%s' is rendered again from the machine facts\n" "$name"

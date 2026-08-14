@@ -1,0 +1,5 @@
+# An Arch Linux os-release, as tests/install.bats reads it.
+NAME="Arch Linux"
+PRETTY_NAME="Arch Linux"
+ID=arch
+BUILD_ID=rolling

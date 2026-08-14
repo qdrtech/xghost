@@ -323,7 +323,13 @@ Nothing here installs them.
 | `blueman`                      | `extra`    | `blueman-applet`, in the autostart.            |
 | `nautilus`                     | `extra`    | `$fileManager`.                                |
 | `ttf-jetbrains-mono-nerd`      | `extra`    | The two labels of `hyprlock.conf`. The Ghostty bundle names it as well. |
-| `hyprshot`                     | AUR        | The two screenshot keybindings.                |
+| `hyprshot`                     | `extra`    | The two screenshot keybindings.                |
+
+Every package above is declared in `install/packages/base.txt`, and
+[Installing](../installing.md) records the manifest. `hyprshot` was an AUR
+package when the dotfiles recorded it, and it is in `extra` today, so nothing
+this bundle needs requires an AUR helper. `pacman -Si hyprshot` names the
+repository.
 
 Three more programs are named by this bundle and belong to another one:
 `ghostty` is `$terminal` and comes with
