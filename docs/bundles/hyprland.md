@@ -14,12 +14,15 @@ The bundle is prescribed configuration plus four generated files:
 | `config/hypr/hyprpaper.conf`                           | Prescribed | The wallpaper daemon.                             |
 | `templates/hypr/colors.conf`                           | Template   | The palette of the theme, as Hyprland variables.  |
 | `templates/hypr/theme.conf`                            | Template   | The styling that depends on the palette.          |
+| `templates/hypr/knobs.conf`                            | Template   | The settings that carry a knob: the gaps and the font. |
 | `templates/hypr/monitors.conf.choice.MACHINE_MONITOR_COUNT/`  | Choice | The monitor layout, one fragment per count.  |
 | `templates/hypr/workspaces.conf.choice.MACHINE_MONITOR_COUNT/` | Choice | Which workspace opens on which monitor.     |
+| `templates/hypr/animation.conf.choice.KNOB_ANIMATIONS/` | Choice   | The animations, one fragment per value of the knob. |
 
 The file categories are those of
 [ADR 0001](../adr/0001-prescribed-config-architecture.md). The structural choice
-is documented in [Theming](../theming.md).
+is documented in [Theming](../theming.md), and the knobs in
+[Knobs](../knobs.md).
 
 Everything is carried over from `qdrtech/dotfiles`, path
 `hyprland/.config/hypr/`. What changed, and why, is recorded below.
@@ -32,8 +35,13 @@ xghost config link     $XDG_CONFIG_HOME/hypr             -> <install location>/c
 xghost theme set NAME  $XDG_STATE_HOME/xghost/generated/hypr/colors.conf
                        $XDG_STATE_HOME/xghost/generated/hypr/monitors.conf
                        $XDG_STATE_HOME/xghost/generated/hypr/workspaces.conf
+                       $XDG_STATE_HOME/xghost/generated/hypr/animation.conf
+                       $XDG_STATE_HOME/xghost/generated/hypr/knobs.conf
                        $XDG_STATE_HOME/xghost/generated/hypr/theme.conf
 ```
+
+`xghost settings set` writes the same six files, because a knob change renders
+the same tree.
 
 The second link is the **bridge**, the same one
 [the Ghostty bundle](ghostty.md) uses. The prescribed entry point reaches each
@@ -162,6 +170,38 @@ the one that monitor opens on.
 The order is the order of the facts, which is the order Hyprland reports its
 monitors. `MACHINE_PRIMARY_MONITOR` is not used here: it names a monitor, and
 the renderer cannot turn a name back into the index a fragment would need.
+
+## The knobs this bundle carries
+
+Three preferences of this desktop are knobs, and all three land in Hyprland.
+[Knobs](../knobs.md) documents the schema, the file a user edits, and the two
+commands.
+
+| Knob              | Where it lands                                            |
+| ----------------- | ---------------------------------------------------------- |
+| `KNOB_ANIMATIONS` | The whole `animations` block, as a structural choice.      |
+| `KNOB_GAP_SIZE`   | `general:gaps_in` and `general:gaps_out`.                  |
+| `KNOB_FONT`       | `misc:font_family`, and the terminal of [the Ghostty bundle](ghostty.md). |
+
+The two generated files are sourced after every prescribed file, so a preference
+wins over the value the project prescribes for the same setting. Neither setting
+is left behind in a prescribed file: `conf/window.conf` holds no gap and
+`conf/misc.conf` holds no font. Two writers of one setting would leave the knob
+winning by the order of the includes alone, and a reader of the prescribed file
+would see a value the compositor never runs. That is the fault this bundle
+already found once in the dotfiles it came from, recorded under "What else
+changed from the dotfiles".
+
+The animations are a **structural choice** rather than one setting, because
+switching them off is switching off a block of a dozen lines. The fragment for
+`off` carries `enabled = false` and no curve at all, so nothing is left that
+names an animation the compositor never plays. The choice has one fragment per
+value of the schema and no `default`: the schema names two values, and a value
+outside them never reaches the renderer.
+
+The gaps were 10 and 14 in the dotfiles, and one knob is one value, so both are
+the knob and the default is 10. The outer gap is therefore 4 pixels smaller than
+it was.
 
 ## The colours
 
@@ -322,7 +362,8 @@ Nothing here installs them.
 | `network-manager-applet`       | `extra`    | `nm-applet`, in the autostart.                 |
 | `blueman`                      | `extra`    | `blueman-applet`, in the autostart.            |
 | `nautilus`                     | `extra`    | `$fileManager`.                                |
-| `ttf-jetbrains-mono-nerd`      | `extra`    | The two labels of `hyprlock.conf`. The Ghostty bundle names it as well. |
+| `ttf-jetbrains-mono-nerd`      | `extra`    | The two labels of `hyprlock.conf`, and the default of `KNOB_FONT`. The Ghostty bundle names it as well. |
+| `ttf-cascadia-code-nerd`       | `extra`    | The second value of `KNOB_FONT`. See [Knobs](../knobs.md). |
 | `hyprshot`                     | AUR        | The two screenshot keybindings.                |
 
 Three more programs are named by this bundle and belong to another one:
@@ -340,17 +381,22 @@ comes with [issue #13](https://github.com/qdrtech/xghost/issues/13), and
   suite. It asserts the exact monitor lines and the exact workspace assignment
   for each. It proves that no monitor output name appears in any prescribed file
   or in any template, that no `exec` line names a script file, and that the
-  fallback fragment names no output either.
+  fallback fragment names no output either. It proves each of the three knobs at
+  more than one value, that the animation choice holds one fragment for every
+  value the schema names, and that neither the gaps nor the font is left behind
+  in a prescribed file.
 - The tests that need Hyprland run `Hyprland --verify-config` and skip when
   Hyprland is absent, because continuous integration has none. They prove that
   the whole configuration parses for one, two and three monitors and for the
-  fallback, that the missing include before the first `theme set` is reported
-  by name, and that removing the bridge breaks every include.
-- `tests/golden.bats` compares the rendered colours, the monitor layout and the
-  workspace assignment of every theme with the committed output under
-  `tests/golden/<theme>/hypr/`. It renders against the fixed machine facts of
-  `tests/fixtures/machine/golden.conf`, so the committed output never depends on
-  the hardware that produced it.
+  fallback, that it parses at every value of every knob, that the missing
+  include before the first `theme set` is reported by name, and that removing
+  the bridge breaks every include.
+- `tests/golden.bats` compares the rendered colours, the monitor layout, the
+  workspace assignment, the animations and the knob settings of every theme with
+  the committed output under `tests/golden/<knob set>/<theme>/hypr/`. It renders
+  against the fixed machine facts of `tests/fixtures/machine/golden.conf` and the
+  two fixed knob sets, so the committed output never depends on the hardware
+  that produced it or on the preferences of whoever ran it.
 
 ## What this bundle does not do
 
@@ -359,11 +405,12 @@ comes with [issue #13](https://github.com/qdrtech/xghost/issues/13), and
   Hyprland session that must not be reconfigured, so no `hyprctl reload`, no
   `hyprctl keyword` and no restart was ever run. A first login on a machine with
   a different monitor set is still unobserved.
-- **It reloads nothing.** A theme switch writes the new files and stops.
-  Picking the change up without a restart is
+- **It reloads nothing.** A theme switch and a knob change both write the new
+  files and stop. Picking the change up without a restart is
   [issue #24](https://github.com/qdrtech/xghost/issues/24).
 - **The keyboard layout is prescribed, not detected.** Detection records
   `MACHINE_KEYBOARD_LAYOUT` and its variant already. The layout in
   `conf/keyboard.conf` is a preference of this desktop rather than a fact of the
-  machine, and a preference is a knob
-  ([issue #11](https://github.com/qdrtech/xghost/issues/11)).
+  machine, so it is a knob this bundle has not asked for yet. Adding it is a
+  record in `schema/knobs.conf` and one template, and no code changes. See
+  [Knobs](../knobs.md).

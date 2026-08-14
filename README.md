@@ -23,6 +23,8 @@ This project is under initial development and is not yet installable.
   renderer that turns them into configuration.
 - [Machine facts](docs/machine-facts.md) — what detection reads, the file it
   writes, and how you correct it.
+- [Knobs](docs/knobs.md) — the preferences this desktop supports, the schema
+  behind them, and the two commands that read and change them.
 - [Linking](docs/linking.md) — how the prescribed configuration reaches
   `~/.config`.
 - [The Ghostty bundle](docs/bundles/ghostty.md) — the terminal, and the first

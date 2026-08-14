@@ -13,6 +13,7 @@
 #   XGHOST_ROOT           Override the checkout. The tests use this.
 #   XGHOST_THEMES_DIR     Override the theme directory.
 #   XGHOST_TEMPLATE_DIR   Override the template directory.
+#   XGHOST_KNOBS_SCHEMA   Override the knob schema the project owns.
 #   XDG_STATE_HOME        The state directory, per the XDG base directory
 #                         specification. An empty or relative value is ignored,
 #                         as the specification requires.
@@ -37,6 +38,8 @@ XGHOST_LIB_DIR=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$XGHOST_LIB_DIR/palette.sh"
 # shellcheck source=lib/facts.sh
 . "$XGHOST_LIB_DIR/facts.sh"
+# shellcheck source=lib/knobs.sh
+. "$XGHOST_LIB_DIR/knobs.sh"
 # shellcheck source=lib/renderer.sh
 . "$XGHOST_LIB_DIR/renderer.sh"
 
@@ -66,6 +69,11 @@ THEME_PROBLEM=
 # The machine facts file the render reads, or empty when there is none. It is
 # resolved by theme_set and read by theme_set_locked.
 THEME_FACTS_FILE=
+
+# The knobs file the render reads, or empty when there is none. Empty means
+# every knob takes the default the schema gives it, which is what a machine that
+# has never run 'xghost settings set' renders with.
+THEME_KNOBS_FILE=
 
 xghost_warn() {
 	printf '%s: %s\n' "$XGHOST_PROGRAM" "$*" >&2
@@ -99,6 +107,11 @@ theme_repo_paths() {
 	XGHOST_ROOT=${XGHOST_ROOT:-$(cd -P "$XGHOST_LIB_DIR/.." && pwd)}
 	XGHOST_THEMES_DIR=${XGHOST_THEMES_DIR:-$XGHOST_ROOT/themes}
 	XGHOST_TEMPLATE_DIR=${XGHOST_TEMPLATE_DIR:-$XGHOST_ROOT/templates}
+
+	# The knob schema belongs to the project, so it lives in the checkout beside
+	# the templates. The file that answers it belongs to the user and lives in
+	# the config directory: see knobs_path in lib/knobs.sh.
+	XGHOST_KNOBS_SCHEMA=${XGHOST_KNOBS_SCHEMA:-$XGHOST_ROOT/schema/knobs.conf}
 }
 
 # The paths under the state directory of the user.
@@ -219,7 +232,7 @@ theme_current() {
 # the renderer found is reported on standard error first.
 theme_set() {
 	local name=$1
-	local theme_facts_file=
+	local theme_facts_file= theme_knobs_file=
 
 	THEME_PROBLEM=
 
@@ -253,6 +266,19 @@ theme_set() {
 	if theme_facts_file=$(facts_path) &&
 		{ [ -e "$theme_facts_file" ] || [ -L "$theme_facts_file" ]; }; then
 		THEME_FACTS_FILE=$theme_facts_file
+	fi
+
+	# The knobs are the third input. A machine that has never changed a
+	# preference has no such file, and every knob then takes the default of the
+	# schema, so the render succeeds and the desktop carries the values the
+	# project chose. That is the whole difference from the machine facts: a knob
+	# always has a value, and a fact nobody read has none.
+	#
+	# Anything at that path is passed on, whatever it is, for the reason above.
+	THEME_KNOBS_FILE=
+	if theme_knobs_file=$(knobs_path) &&
+		{ [ -e "$theme_knobs_file" ] || [ -L "$theme_knobs_file" ]; }; then
+		THEME_KNOBS_FILE=$theme_knobs_file
 	fi
 
 	if ! command -v flock >/dev/null 2>&1; then
@@ -309,7 +335,8 @@ theme_set_locked() {
 	trap 'rm -rf "$staging"; exit 130' INT TERM HUP
 
 	local problem
-	if ! render_tree "$XGHOST_TEMPLATE_DIR" "$theme_dir" "$THEME_FACTS_FILE" '' "$staging/tree"; then
+	if ! render_tree "$XGHOST_TEMPLATE_DIR" "$theme_dir" "$THEME_FACTS_FILE" \
+		"$XGHOST_KNOBS_SCHEMA" "$THEME_KNOBS_FILE" "$staging/tree"; then
 		for problem in "${RENDER_ERRORS[@]}"; do
 			xghost_warn "$name: $problem"
 		done

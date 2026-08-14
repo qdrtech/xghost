@@ -35,6 +35,11 @@ setup() {
 	# shipped template, so the facts reach nothing it asserts on.
 	use_fixed_machine_facts
 
+	# The knobs are the third input. Every test here renders with the shipped
+	# schema and no knobs file, so every knob holds its default and no
+	# preference of whoever runs the suite reaches a render.
+	use_own_knobs
+
 	STATE_DIR="$XDG_STATE_HOME/xghost"
 	GENERATED="$STATE_DIR/generated"
 	BUILDS="$STATE_DIR/builds"
@@ -252,7 +257,7 @@ accent=10, 132, 255" ]
 	EOF
 	run "$XGHOST" theme set demo
 	[ "$status" -eq 1 ]
-	[[ $output == *"font.conf: no value for 'FONT_HEX' in the theme palette or the machine facts"* ]]
+	[[ $output == *"font.conf: no value for 'FONT_HEX' in the theme palette, the machine facts or the knobs"* ]]
 }
 
 @test "a value that holds an ampersand reaches the output unchanged" {
@@ -653,7 +658,7 @@ make_fragment() {
 	EOF
 	run "$XGHOST" theme set demo
 	[ "$status" -eq 1 ]
-	[[ $output == *"pick.conf.choice.MACHINE_NOSUCH: no value for 'MACHINE_NOSUCH' in the theme palette or the machine facts, and the structural choice is made by that value"* ]]
+	[[ $output == *"pick.conf.choice.MACHINE_NOSUCH: no value for 'MACHINE_NOSUCH' in the theme palette, the machine facts or the knobs, and the structural choice is made by that value"* ]]
 }
 
 @test "two choices that write one path are reported" {
@@ -774,7 +779,7 @@ make_fragment() {
 	EOF
 	run "$XGHOST" theme set demo
 	[ "$status" -eq 1 ]
-	[[ $output == *"broken.conf: no value for 'NOSUCH' in the theme palette or the machine facts"* ]]
+	[[ $output == *"broken.conf: no value for 'NOSUCH' in the theme palette, the machine facts or the knobs"* ]]
 	[[ $output == *"The active theme is unchanged."* ]]
 }
 

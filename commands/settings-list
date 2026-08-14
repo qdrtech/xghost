@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+#
+# Name every knob, the value it holds, and the values it takes.
+#
+# @xghost-meta
+# summary: List every knob, its value and the values it takes.
+# example: xghost settings list
+# elevated: no
+# internal: no
+# @end-xghost-meta
+
+set -euo pipefail
+
+COMMAND_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+# shellcheck source=lib/theme.sh
+. "${COMMAND_PATH%/*}/../lib/theme.sh"
+
+if [ $# -gt 0 ]; then
+	xghost_die 2 "'settings list' takes no argument, and it was given $#."
+fi
+
+theme_repo_paths
+
+if ! KNOBS_FILE=$(knobs_path); then
+	xghost_die 1 "$KNOBS_NO_HOME_MESSAGE"
+fi
+
+# A knobs file that is not there is not a problem: every knob then holds the
+# default the schema gives it, which is what a machine that has never changed a
+# preference runs.
+READ_FILE=
+if [ -e "$KNOBS_FILE" ] || [ -L "$KNOBS_FILE" ]; then
+	READ_FILE=$KNOBS_FILE
+fi
+
+if ! knobs_load "$XGHOST_KNOBS_SCHEMA" "$READ_FILE"; then
+	for problem in "${KNOBS_ERRORS[@]}"; do
+		xghost_warn "knobs: $problem"
+	done
+	xghost_die 1 "the knobs at $KNOBS_FILE cannot be read, so nothing is listed."
+fi
+
+first=1
+for name in "${KNOBS_NAMES[@]}"; do
+	if [ "$first" -eq 0 ]; then
+		printf '\n'
+	fi
+	first=0
+	printf '%s = %s\n' "$name" "${KNOBS_SCALARS[$name]}"
+	printf '  %s\n' "${KNOBS_SUMMARY[$name]}"
+	printf '  allowed: %s\n' "$(knobs_format_values "$name")"
+	printf "  default: '%s'\n" "${KNOBS_DEFAULT[$name]}"
+done
+
+printf '\n'
+printf 'the knobs are at %s\n' "$KNOBS_FILE"
+printf "run 'xghost settings set <knob> <value>' to change one.\n"

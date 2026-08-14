@@ -15,6 +15,7 @@ behaviour without reading the tree.
 | `install/`     | The installer: its steps and its package manifests. See below.                    |
 | `lib/`         | The shared shell modules the commands and the installer source.                   |
 | `migrations/`  | One script per migration, restricted by policy to system side effects.            |
+| `schema/`      | The schemas the project owns. `schema/knobs.conf` names every knob, the values it takes, and its default. |
 | `templates/`   | The templates the renderer reads to produce themed configuration.                 |
 | `tests/`       | The bats test suite, with its fixtures under `tests/fixtures/` and the helpers more than one suite needs in `tests/helpers.bash`. |
 | `themes/`      | One directory per theme: its palette, its background, and any hand-written file.  |
@@ -66,6 +67,17 @@ user, so they never land in the checkout either.
 which is usually `~/.config/xghost/machine.conf`. An update replaces the
 checkout and never writes to your config directory, so the file survives every
 update untouched. [Machine facts](machine-facts.md) documents the file.
+
+## Where the knobs go
+
+Knobs are the third file category of
+[ADR 0001](adr/0001-prescribed-config-architecture.md), and they are two files
+with two owners.
+
+`schema/knobs.conf` is in the checkout, because the project owns it and
+validates against it. `xghost settings set` writes your values to
+`$XDG_CONFIG_HOME/xghost/knobs.conf`, beside the machine facts and for the same
+reason. [Knobs](knobs.md) documents both files.
 
 ## A directory that holds only `.gitkeep`
 

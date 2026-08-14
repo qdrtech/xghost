@@ -15,11 +15,19 @@ setup() {
 
 	export XGHOST_COMMAND_DIR="$ROOT_DIR/commands"
 
+	# shellcheck source=helpers.bash
+	. "$BATS_TEST_DIRNAME/helpers.bash"
+
 	# The renderer writes under the state directory of the user, so each test
 	# gets a home of its own and touches nothing outside it.
 	export HOME="$BATS_TEST_TMPDIR/home"
 	export XDG_STATE_HOME="$HOME/.local/state"
 	mkdir -p "$XDG_STATE_HOME"
+
+	# The knobs are the third input of the renderer, and no test here asserts on
+	# one. They are pinned all the same, so a knobs file of whoever runs the
+	# suite never reaches a render.
+	use_own_knobs
 
 	GENERATED="$XDG_STATE_HOME/xghost/generated"
 
@@ -450,7 +458,7 @@ bg = #1a2b3c" ]
 	EOF
 	run "$XGHOST" theme set demo
 	[ "$status" -eq 1 ]
-	[[ $output == *"no value for 'MACHINE_MONITOR_1_NAME' in the theme palette or the machine facts"* ]]
+	[[ $output == *"no value for 'MACHINE_MONITOR_1_NAME' in the theme palette, the machine facts or the knobs"* ]]
 	[[ $output == *"The active theme is unchanged."* ]]
 }
 
@@ -526,17 +534,21 @@ bg = #1a2b3c" ]
 	[[ $output == *"'MACHINE_TIMEZONE' is declared by the theme palette as well"* ]]
 }
 
-# Knobs are issue #11. The renderer accepts the machine facts now and still
-# refuses a knobs file, rather than guessing at a format that does not exist.
-@test "the renderer still refuses a knobs file" {
+# The knobs are the third input of the renderer, beside the palette and these
+# facts. tests/knobs.bats covers them; this asserts the shape of the interface,
+# which is the promise this file made while the knobs did not exist yet.
+@test "the renderer takes the knobs as its third input" {
 	run bash -c '
 		set -uo pipefail
 		. "$1/lib/palette.sh"
 		. "$1/lib/facts.sh"
+		. "$1/lib/knobs.sh"
 		. "$1/lib/renderer.sh"
-		render_tree "$1/templates" "$1/themes/tokyonight" "" "/some/knobs.conf" "$2/out" || true
-		printf "%s\n" "${RENDER_ERRORS[@]}"
-	' _ "$ROOT_DIR" "$BATS_TEST_TMPDIR"
+		render_tree "$1/templates" "$1/themes/tokyonight" "$3" \
+			"$1/schema/knobs.conf" "" "$2/out" || true
+		printf "%s\n" ${RENDER_ERRORS[@]+"${RENDER_ERRORS[@]}"}
+		grep -Fx "    gaps_in = 10" "$2/out/hypr/knobs.conf"
+	' _ "$ROOT_DIR" "$BATS_TEST_TMPDIR" "$BATS_TEST_DIRNAME/fixtures/machine/golden.conf"
 	[ "$status" -eq 0 ]
-	[[ $output == *"knobs are not an input yet"* ]]
+	[[ $output != *"knobs are not an input"* ]]
 }

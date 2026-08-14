@@ -2,15 +2,20 @@
 #
 # The xghost renderer.
 #
-# render_tree is a pure function. It reads a template directory and a theme,
-# and it writes one output directory. The same inputs always produce the same
-# output. It writes nothing outside the output directory it is given, and it
-# never moves that directory into place: lib/theme.sh does that.
+# render_tree is a pure function. It reads a template directory, a theme, the
+# machine facts and the knobs, and it writes one output directory. The same
+# inputs always produce the same output. It writes nothing outside the output
+# directory it is given, and it never moves that directory into place:
+# lib/theme.sh does that.
 #
 # It has two substitution mechanisms, and ADR 0001 names both. A value is
 # substituted into a template by name. A structural choice picks one whole
 # prescribed fragment out of a directory of them. There is no third one: the
 # module holds no loop and no condition that a template can reach.
+#
+# Both mechanisms read one table of values, so a knob and a machine fact drive
+# either of them in exactly the same way. A knob is not a third mechanism, and
+# adding one adds no code here.
 #
 # The renderer sets the mode of everything it writes, so the umask of the
 # caller cannot change what lands on disk. See RENDER_DIR_MODE below.
@@ -20,7 +25,7 @@
 # of its own has its standard error dropped, so the collected problem is the
 # only report.
 #
-# This module needs lib/palette.sh and lib/facts.sh.
+# This module needs lib/palette.sh, lib/facts.sh and lib/knobs.sh.
 
 # The include sentinel. A library may be sourced more than once, because two
 # modules may each need it. The second source returns here, so the readonly
@@ -36,10 +41,10 @@ RENDER_ERRORS=()
 # Set by render_collect.
 RENDER_FILES=()
 
-# Every value a template may name, built by render_tree from the theme palette
-# and from the machine facts. The two sources are kept apart until here, so a
-# name that both declare is named as a problem rather than resolved by an
-# order that nobody chose.
+# Every value a template may name, built by render_tree from the theme palette,
+# from the machine facts and from the knobs. The three sources are kept apart
+# until here, so a name that two of them declare is named as a problem rather
+# than resolved by an order that nobody chose.
 declare -A RENDER_SCALARS=()
 
 # Every machine fact whose value is the word 'unknown', built by render_scalars.
@@ -107,10 +112,11 @@ readonly RENDER_EXECUTABLE_MODE=0755
 
 # Render one template directory into one output directory.
 #
-#   render_tree TEMPLATE_DIR THEME_DIR FACTS_FILE KNOBS_FILE OUT_DIR
+#   render_tree TEMPLATE_DIR THEME_DIR FACTS_FILE KNOBS_SCHEMA KNOBS_FILE OUT_DIR
 #
 # The renderer takes three inputs by design: the theme, the machine facts, and
-# the knobs.
+# the knobs. The knobs are two paths, because the project owns the schema and
+# the user owns the file that answers it.
 #
 # FACTS_FILE is the machine facts file of lib/facts.sh. Every value it declares
 # is a value a template may name, beside the values of the palette. An empty
@@ -119,9 +125,17 @@ readonly RENDER_EXECUTABLE_MODE=0755
 # fails the render by name, rather than rendering a monitor layout the renderer
 # guessed at.
 #
-# Knobs do not exist yet. Issue #11 names that file, and this slice does not
-# invent its format. Pass an empty path, and a path that is not empty is a
-# problem rather than a value the renderer guesses at.
+# KNOBS_SCHEMA and KNOBS_FILE are the two files of lib/knobs.sh. Every knob the
+# schema declares is a value a template may name, and it is the value the knobs
+# file gives it or the default of the schema. An empty KNOBS_FILE means
+# "absent", which is what a machine that has never changed a preference passes,
+# and every knob then takes its default. An empty KNOBS_SCHEMA means "no knob is
+# declared at all".
+#
+# A knob is absent from the output in no case: the schema gives every knob a
+# value, so a template that names one always renders. That is the difference
+# between a knob and a machine fact, and it is why an absent knobs file is not a
+# failure of any kind.
 #
 # THEME_DIR holds 'palette.conf' and may hold a 'files/' directory. Every file
 # under 'files/' is a hand-written file the theme ships. It is copied into the
@@ -132,13 +146,11 @@ readonly RENDER_EXECUTABLE_MODE=0755
 # Returns 1 when the render has at least one problem, and every problem lands in
 # RENDER_ERRORS.
 render_tree() {
-	local template_dir=$1 theme_dir=$2 facts_file=$3 knobs_file=$4 out_dir=$5
+	local template_dir=$1 theme_dir=$2 facts_file=$3
+	local knobs_schema=$4 knobs_file=$5 out_dir=$6
 
 	RENDER_ERRORS=()
 
-	if [ -n "$knobs_file" ]; then
-		RENDER_ERRORS+=("knobs are not an input yet; issue #11 defines that file. Pass an empty path.")
-	fi
 	if [ ! -d "$template_dir" ]; then
 		RENDER_ERRORS+=("the template directory does not exist: $template_dir")
 	fi
@@ -160,7 +172,7 @@ render_tree() {
 		return 1
 	fi
 
-	if ! render_scalars "$facts_file"; then
+	if ! render_scalars "$facts_file" "$knobs_schema" "$knobs_file"; then
 		return 1
 	fi
 
@@ -261,53 +273,79 @@ render_tree() {
 
 # Build the table of every value a template may name.
 #
-#   render_scalars FACTS_FILE
+#   render_scalars FACTS_FILE KNOBS_SCHEMA KNOBS_FILE
 #
 # The palette is loaded already. This adds the machine facts, when the caller
-# gave a path for them, and fills RENDER_SCALARS with both.
+# gave a path for them, then the knobs, and fills RENDER_SCALARS with all three.
 #
-# A name both sources declare is a problem rather than a winner. The palette
-# key of a theme holds upper case letters and the key of a machine fact starts
-# with 'MACHINE_', so a collision is a mistake in one of the two files, and
-# quietly preferring either one would make the output depend on a rule nobody
-# wrote down.
+# A name two sources declare is a problem rather than a winner, and the report
+# names both sources. The palette key of a theme holds upper case letters, the
+# key of a machine fact starts with 'MACHINE_' and a knob starts with 'KNOB_',
+# so a collision is a mistake in one of the files. Quietly preferring either
+# side would make the output depend on a rule nobody wrote down.
+#
+# The three prefixes make two of the three collisions impossible: a machine fact
+# and a knob can never carry the same name, whatever either file holds. The one
+# collision that can happen is a theme palette that declares a name in the
+# namespace of another file, and it is refused whichever of the two it hits.
 #
 # A machine fact whose value is 'unknown' is recorded in RENDER_UNKNOWN_FACTS as
-# well, so render_substitute can refuse to write it. See that array above.
+# well, so render_substitute can refuse to write it. See that array above. No
+# knob is ever recorded there: a knob holds a value the schema names, so there
+# is no such thing as a knob nobody could read.
 #
-# Returns 1 when the machine facts have at least one problem, and every problem
-# lands in RENDER_ERRORS.
+# Returns 1 when the machine facts or the knobs have at least one problem, and
+# every problem lands in RENDER_ERRORS.
 render_scalars() {
-	local facts_file=$1
+	local facts_file=$1 knobs_schema=$2 knobs_file=$3
 	local name problem
+	local -A source=()
 
 	RENDER_SCALARS=()
 	RENDER_UNKNOWN_FACTS=()
 	for name in "${!PALETTE_SCALARS[@]}"; do
 		RENDER_SCALARS[$name]=${PALETTE_SCALARS[$name]}
+		source[$name]='the theme palette'
 	done
 
-	if [ -z "$facts_file" ]; then
-		return 0
-	fi
+	if [ -n "$facts_file" ]; then
+		if ! facts_load "$facts_file"; then
+			for problem in "${FACTS_ERRORS[@]}"; do
+				RENDER_ERRORS+=("machine facts: $problem")
+			done
+			return 1
+		fi
 
-	if ! facts_load "$facts_file"; then
-		for problem in "${FACTS_ERRORS[@]}"; do
-			RENDER_ERRORS+=("machine facts: $problem")
+		for name in "${!FACTS_SCALARS[@]}"; do
+			if [ -n "${RENDER_SCALARS[$name]+set}" ]; then
+				RENDER_ERRORS+=("machine facts: '$name' is declared by ${source[$name]} as well")
+				continue
+			fi
+			RENDER_SCALARS[$name]=${FACTS_SCALARS[$name]}
+			source[$name]='the machine facts'
+			if [ "${FACTS_SCALARS[$name]}" = "$FACTS_UNKNOWN" ]; then
+				RENDER_UNKNOWN_FACTS[$name]=1
+			fi
 		done
-		return 1
 	fi
 
-	for name in "${!FACTS_SCALARS[@]}"; do
-		if [ -n "${RENDER_SCALARS[$name]+set}" ]; then
-			RENDER_ERRORS+=("machine facts: '$name' is declared by the theme palette as well")
-			continue
+	if [ -n "$knobs_schema" ] || [ -n "$knobs_file" ]; then
+		if ! knobs_load "$knobs_schema" "$knobs_file"; then
+			for problem in "${KNOBS_ERRORS[@]}"; do
+				RENDER_ERRORS+=("knobs: $problem")
+			done
+			return 1
 		fi
-		RENDER_SCALARS[$name]=${FACTS_SCALARS[$name]}
-		if [ "${FACTS_SCALARS[$name]}" = "$FACTS_UNKNOWN" ]; then
-			RENDER_UNKNOWN_FACTS[$name]=1
-		fi
-	done
+
+		for name in "${!KNOBS_SCALARS[@]}"; do
+			if [ -n "${RENDER_SCALARS[$name]+set}" ]; then
+				RENDER_ERRORS+=("knobs: '$name' is declared by ${source[$name]} as well")
+				continue
+			fi
+			RENDER_SCALARS[$name]=${KNOBS_SCALARS[$name]}
+			source[$name]='the knobs'
+		done
+	fi
 
 	[ "${#RENDER_ERRORS[@]}" -eq 0 ]
 }
@@ -510,7 +548,7 @@ render_choice_plan() {
 			continue
 		fi
 		if [ -z "${RENDER_SCALARS[$selector]+set}" ]; then
-			RENDER_ERRORS+=("$relative: no value for '$selector' in the theme palette or the machine facts, and the structural choice is made by that value")
+			RENDER_ERRORS+=("$relative: no value for '$selector' in the theme palette, the machine facts or the knobs, and the structural choice is made by that value")
 			continue
 		fi
 
@@ -626,7 +664,7 @@ render_set_mode() {
 #   render_substitute TEXT
 #
 # The values are RENDER_SCALARS, which render_scalars built from the theme
-# palette and the machine facts.
+# palette, the machine facts and the knobs.
 #
 # Sets RENDER_CONTENT to the result, and RENDER_MISSING to the name of every
 # placeholder that has no value. A name is listed once, in the order it first
@@ -732,7 +770,7 @@ render_file() {
 
 	if ! render_substitute "$content"; then
 		for name in ${RENDER_MISSING[@]+"${RENDER_MISSING[@]}"}; do
-			RENDER_ERRORS+=("$relative: no value for '$name' in the theme palette or the machine facts")
+			RENDER_ERRORS+=("$relative: no value for '$name' in the theme palette, the machine facts or the knobs")
 		done
 		for name in ${RENDER_UNKNOWN[@]+"${RENDER_UNKNOWN[@]}"}; do
 			RENDER_ERRORS+=("$relative: '$name' is '$FACTS_UNKNOWN' in the machine facts, which means detection could not read it. Correct that value by hand, or run 'xghost machine detect' again.")
