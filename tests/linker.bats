@@ -158,7 +158,8 @@ reported_backup_path() {
 	run "$XGHOST" config link
 	[ "$status" -eq 0 ]
 	[[ $output == *"already linked: $CONFIG_HOME/hypr"* ]]
-	[[ $output != *"conflict"* ]]
+	[[ $output != *"conflict:"* ]]
+	[[ $output == *"0 in conflict"* ]]
 	[ "$(readlink "$CONFIG_HOME/hypr")" = "$XGHOST_CONFIG_SOURCE/hypr" ]
 }
 
