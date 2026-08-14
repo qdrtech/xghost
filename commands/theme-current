@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#
+# Report the theme the generated output was built from.
+#
+# @xghost-meta
+# summary: Report the active theme.
+# example: xghost theme current
+# elevated: no
+# internal: no
+# @end-xghost-meta
+
+set -euo pipefail
+
+COMMAND_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+# shellcheck source=lib/theme.sh
+. "${COMMAND_PATH%/*}/../lib/theme.sh"
+
+if [ $# -gt 0 ]; then
+	xghost_die 2 "'theme current' takes no argument, and it was given $#."
+fi
+
+if ! theme_current; then
+	xghost_die 1 "$THEME_PROBLEM"
+fi

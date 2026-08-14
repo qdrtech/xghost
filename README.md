@@ -19,4 +19,6 @@ This project is under initial development and is not yet installable.
 - [Repository layout](docs/repository-layout.md) — what each directory holds.
 - [Adding a command](docs/adding-a-command.md) — the metadata contract of the
   dispatcher.
+- [Theming](docs/theming.md) — the palette format, the templates, and the
+  renderer that turns them into configuration.
 - [Architecture decision records](docs/adr/) — the decisions and their reasons.

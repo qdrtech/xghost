@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#
+# List the themes that are installed.
+#
+# @xghost-meta
+# summary: List the available themes.
+# example: xghost theme list
+# elevated: no
+# internal: no
+# @end-xghost-meta
+
+set -euo pipefail
+
+COMMAND_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+# shellcheck source=lib/theme.sh
+. "${COMMAND_PATH%/*}/../lib/theme.sh"
+
+if [ $# -gt 0 ]; then
+	xghost_die 2 "'theme list' takes no argument, and it was given $#."
+fi
+
+if ! theme_list; then
+	xghost_die 1 "$THEME_PROBLEM"
+fi
