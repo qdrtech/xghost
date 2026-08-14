@@ -267,11 +267,17 @@ verify_config() {
 	[ "$status" -eq 0 ]
 }
 
-@test "hyprpaper names no wallpaper file, because the backgrounds are issue #20" {
-	run grep -nE '^[[:space:]]*(preload|wallpaper)' "$PRESCRIBED_DIR/hyprpaper.conf"
-	[ "$status" -ne 0 ]
-	run grep -n 'issue #20' "$PRESCRIBED_DIR/hyprpaper.conf"
+# The wallpaper of the desktop is generated from the palette of the theme, so
+# the prescribed file names no image of its own and reaches the generated one
+# through the bridge. tests/background.bats proves the image and the file that
+# names it; this asserts the one line of this bundle.
+@test "hyprpaper names its wallpaper through the bridge and nowhere else" {
+	run grep -Fx "source = ../$BRIDGE_NAME/hypr/wallpaper.conf" \
+		"$PRESCRIBED_DIR/hyprpaper.conf"
 	[ "$status" -eq 0 ]
+	run grep -nE '^[[:space:]]*(preload|wallpaper|path)[[:space:]]*=' \
+		"$PRESCRIBED_DIR/hyprpaper.conf"
+	[ "$status" -ne 0 ]
 }
 
 # --- the monitor layout ------------------------------------------------------

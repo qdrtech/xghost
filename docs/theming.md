@@ -253,6 +253,28 @@ The output is read by desktop components and holds no secret, so it is readable
 by everybody and writable by its owner alone. `xghost theme set` sets the same
 modes on the state directory, the build directory, and each build it creates.
 
+## The background of the theme
+
+One file of the output is not a template and not a fragment: the background
+image. It is a raster image, so no substitution can produce it, and the
+renderer draws it from the same table of values every template reads.
+
+```
+<generated>/hypr/background.png     the image, drawn from BG and ACCENT
+<generated>/hypr/wallpaper.conf     the hyprpaper block that names it
+```
+
+It is drawn inside the render, so it is moved into place by the one rename that
+makes a theme switch atomic. It is not a third substitution mechanism: nothing
+a template writes can reach it, and [ADR 0001](adr/0001-prescribed-config-architecture.md)
+still names two.
+
+A theme that has no `BG` or no `ACCENT`, and a machine whose display resolution
+nobody has read, each get no image and one sentence on standard error. Neither
+is a failure of the render, because neither is something to invent a value for.
+[Backgrounds](backgrounds.md) documents the whole of it, and the one dependency
+it proposes.
+
 ## A file a theme ships by hand
 
 A theme may ship a finished file for any application. Put it under
@@ -265,7 +287,8 @@ themes/<name>/files/gtk/colors.css
 The renderer copies that file unchanged and does not render the template of the
 same relative path. The file is preserved exactly, placeholders included. Every
 other template is still rendered, so a theme gives up generation for one file
-only.
+only. The same rule covers the background: a theme that ships
+`files/hypr/background.png` keeps it, and nothing is drawn over it.
 
 A hand-written file needs no matching template. A file the templates do not
 mention is added to the output.
@@ -313,6 +336,11 @@ points at survives a switch.
 set, and compares the result with the expected output committed under
 `tests/golden/<knob set>/<theme>/`. A template change that breaks any theme
 fails there.
+
+Two files of the output are left out of that comparison: the background image,
+which is megapixels of generated output, and the file that names it, which
+holds a path of the machine that rendered it. `tests/background.bats` renders
+both and asserts the size, the colours and the text.
 
 The render uses fixed machine facts, `tests/fixtures/machine/golden.conf`, and
 never the facts of the computer that runs the suite. They describe two monitors

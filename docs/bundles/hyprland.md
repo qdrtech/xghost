@@ -38,10 +38,13 @@ xghost theme set NAME  $XDG_STATE_HOME/xghost/generated/hypr/colors.conf
                        $XDG_STATE_HOME/xghost/generated/hypr/animation.conf
                        $XDG_STATE_HOME/xghost/generated/hypr/knobs.conf
                        $XDG_STATE_HOME/xghost/generated/hypr/theme.conf
+                       $XDG_STATE_HOME/xghost/generated/hypr/wallpaper.conf
+                       $XDG_STATE_HOME/xghost/generated/hypr/background.png
 ```
 
-`xghost settings set` writes the same six files, because a knob change renders
-the same tree.
+`xghost settings set` writes the same files, because a knob change renders the
+same tree. The last two are the background of the theme, which no template
+produces: [Backgrounds](../backgrounds.md) documents them.
 
 The second link is the **bridge**, the same one
 [the Ghostty bundle](ghostty.md) uses. The prescribed entry point reaches each
@@ -295,9 +298,12 @@ It is dropped for a different reason. The image is a file of that machine, not
 a file this project ships, and a background this bundle cannot generate is a
 background it must not name:
 [issue #20](https://github.com/qdrtech/xghost/issues/20) owns the backgrounds
-and supplies one image per theme. Until it lands, hyprlock draws its own
-colour. The `image` block in the row above is the other case, and that file
-really never existed.
+and supplies one image per theme. That image exists now, at
+`hypr/background.png` in the generated output, and the lock screen still does
+not draw it: hyprlock has no offline check of its configuration, and "hyprlock
+is not themed yet" below records why nothing generated reaches that file. The
+`image` block in the row above is the other case, and that file really never
+existed.
 
 ### What else changed from the dotfiles
 
@@ -319,32 +325,44 @@ This bundle prescribes what ran, so the blur and the shadow are off here and the
 eleven settings are not carried over. Switching them back on is editing one
 prescribed file, and every value is in the history of the dotfiles.
 
-## hyprpaper, and what issue #20 has to supply
+## hyprpaper, and what issue #20 supplied
 
-`hyprpaper.conf` carries the daemon and no wallpaper. No background file is
-invented here. Until
-[issue #20](https://github.com/qdrtech/xghost/issues/20) lands, hyprpaper starts
-and holds no image, and `conf/misc.conf` keeps Hyprland's own wallpaper switched
-on so the desktop is never bare.
+`hyprpaper.conf` carries the daemon and names no image. The wallpaper is the
+background of the active theme, drawn from the palette of that theme by
+[issue #20](https://github.com/qdrtech/xghost/issues/20), and
+[Backgrounds](../backgrounds.md) documents the whole of it.
 
-Issue #20 has to supply three things:
+The three things this bundle asked for, and what landed:
 
-1. **One image per theme**, written by the renderer into the generated output,
-   at a fixed relative path such as `hypr/background.png`. A theme may ship it
-   by hand under `themes/<name>/files/`, or a template may generate it from the
-   palette.
-2. **A generated `hypr/wallpaper.conf`** holding one `preload` line and one
-   `wallpaper` line whose monitor is empty, so every display carries the image
-   and no output name is written down. An empty monitor is what keeps criterion
-   2 of this bundle true.
+1. **One image per theme**, at `hypr/background.png` in the generated output,
+   drawn by the renderer from the palette. A theme may still ship its own by
+   hand under `themes/<name>/files/`. **Delivered.**
+2. **A generated `hypr/wallpaper.conf`** whose monitor field is empty, so every
+   display carries the image and no output name is written down. **Delivered**,
+   and criterion 2 of this bundle is still true.
 3. **One `source` line in `config/hypr/hyprpaper.conf`**, in the form the other
-   bundles use: `../xghost-generated/hypr/wallpaper.conf`. hyprpaper resolves a
-   relative `source` against the directory of the file it opened, as Hyprland
-   does.
+   bundles use: `../xghost-generated/hypr/wallpaper.conf`. **Delivered.**
 
-The dotfiles also named a wallpaper per monitor, by output name. That shape must
+Two things this page asked for are **not** carried out, and both are recorded
+in [Backgrounds](../backgrounds.md) rather than done in silence:
+
+- **The `preload` line is not written.** The hyprpaper this manifest installs is
+  0.8.4, and it has no `preload` keyword at all: the string does not appear
+  anywhere in the program. A wallpaper is a block there, with `monitor`, `path`
+  and `fit_mode` as its keys, and the empty monitor lives inside it. The
+  `preload` line is the shape hyprpaper 0.7 read.
+- **The path of the image is written out in full.** hyprpaper resolves the path
+  of a wallpaper against the working directory of the daemon rather than
+  against the file that named it, so a relative one would not resolve. The
+  `source` line above is unaffected: it is resolved the way this page records.
+
+The dotfiles also named a wallpaper per monitor, by output name. That shape has
 not come back. One wallpaper with an empty monitor covers every display and
 names none of them.
+
+A build that has no image writes the same generated file with no wallpaper in
+it, so the `source` line always resolves. Hyprland then draws its own
+wallpaper, which `conf/misc.conf` keeps switched on for exactly that case.
 
 Reloading the running daemon after a theme switch is
 [issue #24](https://github.com/qdrtech/xghost/issues/24). `ipc = on` is set here
@@ -357,8 +375,15 @@ for it.
 would work. It is not used, because this project has no way to prove it offline:
 hyprlock has no `--verify-config`, and running it locks the screen. A lock
 screen that fails to start is a session the user cannot get back into, so the
-proof has to come first. Theming it belongs with issue #20, which touches the
-lock screen background in any case.
+proof has to come first.
+
+Issue #20 was expected to theme it, because it touches the lock screen
+background. It did not, and the reason is the paragraph above: that issue drew
+the background and found no way to prove a generated `hyprlock.conf` offline
+either. The lock screen therefore still draws its own colours, and it draws no
+wallpaper. Nothing about the background stands in the way of theming it later:
+the image is at a fixed path in the generated output, and one `source` line
+would reach it.
 
 ## The packages this bundle needs
 
@@ -421,6 +446,11 @@ does nothing on <kbd>Super</kbd>+<kbd>Space</kbd>.
   fallback, that it parses at every value of every knob, that the missing
   include before the first `theme set` is reported by name, and that removing
   the bridge breaks every include.
+- `tests/background.bats` proves the wallpaper: that every theme draws an image
+  of its own colours, that the image is the size of the displays the machine
+  facts report, that a machine with no known resolution switches theme and
+  draws none, and that the generated file names the image for every monitor and
+  no monitor by name.
 - `tests/golden.bats` compares the rendered colours, the monitor layout, the
   workspace assignment, the animations and the knob settings of every theme with
   the committed output under `tests/golden/<knob set>/<theme>/hypr/`. It renders

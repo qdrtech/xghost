@@ -118,6 +118,15 @@ for set in $KNOB_SETS; do
 			die "cannot render the theme '$theme' with the '$set' knobs. tests/golden is unchanged."
 		mkdir -p "$STAGE_DIR/$set/$theme"
 		cp -R "$state/xghost/generated/." "$STAGE_DIR/$set/$theme/"
+
+		# The two files of the generated output that are never committed. The
+		# image is megapixels of it, and issue #20 keeps a generated image out
+		# of the repository; the file that names the image holds the path of
+		# the machine that rendered it. tests/golden.bats leaves out the same
+		# two, and tests/background.bats proves both.
+		rm -f "$STAGE_DIR/$set/$theme/hypr/background.png" \
+			"$STAGE_DIR/$set/$theme/hypr/wallpaper.conf"
+
 		count=$((count + 1))
 	done <<<"$themes"
 done

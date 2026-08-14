@@ -998,9 +998,10 @@ make_many_templates() {
 	[ ! -s "$BATS_TEST_TMPDIR/first.err" ]
 	[ ! -s "$BATS_TEST_TMPDIR/second.err" ]
 
-	# The stable path resolves, and it holds a whole build.
+	# The stable path resolves, and it holds a whole build: the 200 templates,
+	# the background image of the theme, and the file that names it.
 	[ -d "$GENERATED/" ]
-	[ "$(find "$GENERATED/" -type f | wc -l)" -eq 200 ]
+	[ "$(find "$GENERATED/" -type f | wc -l)" -eq 202 ]
 
 	run "$XGHOST" theme current
 	[ "$status" -eq 0 ]

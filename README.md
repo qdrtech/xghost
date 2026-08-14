@@ -41,6 +41,8 @@ what it is, and what an installation has never been observed doing.
   dispatcher.
 - [Theming](docs/theming.md) — the palette format, the templates, and the
   renderer that turns them into configuration.
+- [Backgrounds](docs/backgrounds.md) — the wallpaper each theme draws from its
+  own colours, and the one dependency it proposes.
 - [Machine facts](docs/machine-facts.md) — what detection reads, the file it
   writes, and how you correct it.
 - [Knobs](docs/knobs.md) — the preferences this desktop supports, the schema
