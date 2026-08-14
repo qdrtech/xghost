@@ -92,6 +92,13 @@ INSTALL_THEME=${INSTALL_THEME:-${XGHOST_INSTALL_THEME:-$INSTALL_DEFAULT_THEME}}
 # because a second run of the installer must not undo a switch the user made.
 INSTALL_THEME_GIVEN=${INSTALL_THEME_GIVEN:-no}
 
+# The one report of 'xghost theme current' that means "this machine has never
+# had a theme", as against "this machine had one and its record cannot be read".
+# lib/theme.sh writes it. config/30-theme.sh tells the two apart by it, because
+# the exit status of that command is 1 for both, and reading the second as the
+# first would put the theme of the user back to the default in silence.
+readonly INSTALL_NO_THEME_REPORT='no theme is active'
+
 install_say() {
 	printf '%s\n' "$*"
 }
@@ -271,10 +278,27 @@ install_run_group() {
 	fi
 
 	for path in "$dir"/*; do
-		if [ ! -f "$path" ]; then
-			continue
-		fi
+		# A glob that matched nothing expands to the pattern itself, and that is
+		# a group with no entry. The report for it is below, once the loop has
+		# ended.
+		[ -e "$path" ] || [ -L "$path" ] || continue
 		base=${path##*/}
+
+		# A broken symbolic link fails the -e test, and it is an entry of the
+		# directory all the same. It is named for what it is: "not a step file"
+		# would send the reader to the name of the link rather than to what it
+		# points at. bin/xghost reports the entries of the command directory the
+		# same way.
+		if [ -L "$path" ] && [ ! -e "$path" ]; then
+			install_warn "$group: '$base' is a broken symbolic link; it points at a target that does not exist"
+			install_warn "what to do: point it at a step file or remove it from $dir. The installer runs every entry of a group, so it will not pass one over in silence."
+			return 1
+		fi
+		if [ ! -f "$path" ]; then
+			install_warn "$group: '$base' is not a regular file; a step is a file named NN-name.sh"
+			install_warn "what to do: remove it from $dir, or move it out of the group. The installer runs every entry of a group, so it will not pass one over in silence."
+			return 1
+		fi
 		if [[ ! $base =~ $INSTALL_STEP_PATTERN ]]; then
 			install_warn "$group: '$base' is not a step file; a step is named NN-name.sh"
 			install_warn "what to do: rename it or remove it from $dir. The installer runs every file of a group, so it will not pass one over in silence."

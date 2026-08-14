@@ -56,6 +56,17 @@ if [ "$INSTALL_DRY_RUN" = yes ]; then
 	exit 0
 fi
 
+# The one moment this installation raises privileges, announced where it
+# happens. Preflight says that sudo is installed, and that is a different
+# sentence: three steps and an unbounded amount of pacman output separate the
+# two, and a password prompt that arrives with neither warning nor context is a
+# prompt people type into without reading.
+install_say ""
+install_say "the next command needs root, and it is the only one that does:"
+install_say "  sudo pacman -S --needed -- ${missing[*]}"
+install_say "sudo asks for your password now, unless it has one from this terminal already."
+install_say ""
+
 if ! sudo pacman -S --needed -- "${missing[@]}"; then
 	install_fail \
 		"pacman could not install every package of $base_file" \

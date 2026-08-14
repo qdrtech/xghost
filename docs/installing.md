@@ -81,6 +81,7 @@ the order of their names.
 | `preflight`    | `10-system.sh`                  | Refuse a system that is not Arch, and a machine with no `pacman` or `flock`. |
 | `preflight`    | `20-privileges.sh`              | Refuse a run as root. Check that `sudo` is there for the packaging step. |
 | `preflight`    | `30-manifests.sh`               | Read both manifests, and report the file and the line of anything that is not a package name. |
+| `preflight`    | `40-checkout.sh`                | Refuse a `bin/xghost` that is not executable, and a theme name this checkout does not carry. |
 | `packaging`    | `10-official.sh`                | Install the packages of `base.txt` that this machine does not have. |
 | `packaging`    | `20-aur.sh`                     | Install the packages of `aur.txt` with an AUR helper, when there is one. |
 | `config`       | `10-link.sh`                    | `xghost config link --backup`.                                    |
@@ -90,7 +91,37 @@ the order of their names.
 | `post-install` | `20-summary.sh`                 | Prove that a theme is active, then report the end state.          |
 
 Preflight changes nothing at all. Every refusal above happens before the first
-package is installed and before the first link is created.
+package is installed and before the first link is created. The theme name is
+one of those refusals: `./install.sh --theme tokoyonight` stops in preflight and
+names the themes this checkout carries.
+
+**The window a config step can still fail in.** Preflight cannot prove that the
+render will finish. A theme directory that cannot be read, a full disk, or any
+other failure of `config/30-theme.sh` stops the installation after
+`config/10-link.sh` has linked the prescribed configuration, and the generated
+files the prescribed files include are then not on disk. Hyprland reports a
+`source` line that matches no file as an error, so a login made at that point
+does not come up. The step names the problem and what to do about it, and
+running `./install.sh` again once the problem is fixed completes the render.
+`xghost theme set NAME` does the same work on its own. The other way out is
+`xghost config unlink`, which removes the links the run created; the
+configuration it moved aside is in the backup directory the run printed, and
+moving it back is yours to do.
+
+## The one command that needs root
+
+The packaging step is the only step that raises privileges, and it announces the
+escalation immediately before it happens:
+
+```
+the next command needs root, and it is the only one that does:
+  sudo pacman -S --needed -- hyprland hypridle hyprlock
+sudo asks for your password now, unless it has one from this terminal already.
+```
+
+A run with no package missing raises nothing and prints no such notice. Every
+other step runs as you, because every other step writes into your own
+directories.
 
 ## Why the order is this one
 
@@ -139,6 +170,13 @@ still holds the file that was replaced the last time something did change.
 second login. The first login uses the layout Hyprland works out itself. The
 terminal, the colours and every other fact are right from the first login,
 because none of them needs a compositor.
+
+**A later run does not undo it.** `./install.sh` run again from a terminal, and
+`xghost machine refresh` run when `hyprctl` cannot answer, both meet the same
+absent source. Neither one puts the monitors back to `unknown`: detection keeps
+the value of the previous run for any fact whose source did not answer, names
+every fact it kept, and writes the file it was already holding. [Machine
+facts](machine-facts.md) records the rule.
 
 A step under `post-install/` was the other candidate, and it cannot work: the
 installer finishes before any session exists, so a step of the installer is
@@ -214,9 +252,49 @@ The paths the config steps write to are the paths of the commands they run.
 
 The `xghost` command is linked into the bin directory, and that link is not in
 the link record, so `xghost config unlink` does not remove it. It is the command
-itself rather than prescribed configuration. When the bin directory is not on
-your `PATH`, the step says so: the command has to be on the `PATH` of your login
-shell, because the Hyprland autostart runs `xghost machine refresh` by name.
+itself rather than prescribed configuration.
+
+## The one step the installer cannot make for you
+
+Arch puts nothing of `~/.local/bin` on the `PATH` of a login shell. `/etc/profile`
+does not name that directory, and this installer edits no shell file of yours.
+The `xghost` command therefore lands in the bin directory and may still not run
+by name.
+
+That matters because the prescribed autostart carries
+`exec-once = xghost machine refresh`, which names a program on the `PATH`. When
+the command does not run by name, the installer says so twice: the link step
+reports the directory, and the summary reports the `PATH` edit as the step that
+is left, in place of the promise that the refresh will run.
+
+```
+xghost: one step is left, and it is yours to make: 'xghost' does not run by name on this PATH
+xghost: what to do: put /home/ada/.local/bin on the PATH of your login shell, then log out and log in again.
+```
+
+Add the line the summary prints to the file your login shell reads, such as
+`~/.bash_profile` or `~/.zprofile`, and log in again. Until then the autostart
+line fails at every login, the monitors are never read, and the session keeps
+the layout Hyprland works out itself. Everything else is already in place.
+
+## What a first installation does not give you yet
+
+The prescribed configuration names two programs that no manifest declares, and
+it names them on purpose: each one is a bundle of its own, and the manifest
+takes its line when that bundle lands. A first installation therefore has two
+visible gaps, and one more thing that is simply not there yet.
+
+| What is missing              | What you see                                                     | Issue |
+| ---------------------------- | ---------------------------------------------------------------- | ----- |
+| The bar, `waybar`            | No bar. `exec-once = waybar` fails at every login, and the Hyprland log records the failure. | [#12](https://github.com/qdrtech/xghost/issues/12) |
+| The launcher, `rofi`         | <kbd>Super</kbd>+<kbd>Space</kbd> does nothing. `$menu` names `rofi`, and the binding fails the same way. | [#13](https://github.com/qdrtech/xghost/issues/13) |
+| The notifications, `swaync`  | No notification is shown. Nothing prescribes a daemon yet, so nothing fails either. | [#14](https://github.com/qdrtech/xghost/issues/14) |
+
+Nothing else in the session depends on those, so the desktop comes up, the
+terminal is themed, and every keybinding that names an installed program works.
+Install `waybar` or `rofi` by hand to have them before their bundles land. xghost
+prescribes no configuration for either one yet, so each runs with its own
+default.
 
 ## What an installation has never been observed doing
 

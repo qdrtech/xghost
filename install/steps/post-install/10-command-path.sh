@@ -12,16 +12,15 @@
 #
 # This link is not in the link record, so 'xghost config unlink' does not remove
 # it. It is not prescribed configuration: it is the command itself.
+#
+# That the command is executable is proved by preflight/40-checkout.sh. The test
+# is there rather than here because every config step runs the command, so a
+# checkout that lost the execute bit has to be refused before the first package
+# is installed and not after the last one.
 
 bin_dir=${XGHOST_BIN_DIR:-$HOME/.local/bin}
 target=$INSTALL_XGHOST
 link=$bin_dir/xghost
-
-if [ ! -x "$target" ]; then
-	install_fail \
-		"the xghost command is not an executable file: $target" \
-		"check the repository out again."
-fi
 
 if [ -L "$link" ] && [ "$(readlink -f "$link" || true)" = "$(readlink -f "$target" || true)" ]; then
 	install_say "already linked: $link -> $target"

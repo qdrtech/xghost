@@ -10,6 +10,21 @@
 # second run never undoes a switch the user made. A theme named with '--theme'
 # wins over the active one, because that is an instruction rather than a
 # default.
+#
+# 'xghost theme current' fails for two reasons that mean opposite things, and it
+# fails with status 1 for both:
+#
+#   - No theme was ever set. This is a first installation, and the theme of this
+#     run is the right one to render.
+#   - A theme was set and its record cannot be read, because the build the
+#     stable path points at was removed or the name it holds is gone. The theme
+#     of the user is not known, and rendering the default over it is the switch
+#     this step promises never to make.
+#
+# The report is what tells them apart, so this step reads it. A report it does
+# not recognise is treated as the second case, which is the safe direction: a
+# reworded message stops the step and names what it read, and it never puts the
+# theme of a working desktop back to the default.
 
 theme=$INSTALL_THEME
 kept=no
@@ -23,9 +38,26 @@ if [ "$INSTALL_DRY_RUN" = yes ]; then
 	exit 0
 fi
 
-if [ "$INSTALL_THEME_GIVEN" = no ] && current=$("$INSTALL_XGHOST" theme current 2>/dev/null); then
-	theme=$current
-	kept=yes
+if [ "$INSTALL_THEME_GIVEN" = no ]; then
+	if ! report=$(mktemp "${TMPDIR:-/tmp}/xghost-theme-current.XXXXXX"); then
+		install_fail \
+			"cannot create a temporary file in ${TMPDIR:-/tmp}, and this step reads the report of 'xghost theme current' from one" \
+			"make ${TMPDIR:-/tmp} writable, then run './install.sh' again. Nothing was changed."
+	fi
+
+	status=0
+	current=$("$INSTALL_XGHOST" theme current 2>"$report") || status=$?
+	problem=$(cat "$report")
+	rm -f "$report"
+
+	if [ "$status" -eq 0 ]; then
+		theme=$current
+		kept=yes
+	elif [[ $problem != *"$INSTALL_NO_THEME_REPORT"* ]]; then
+		install_fail \
+			"a theme is set on this machine and its record cannot be read, so the theme to render is not known: $problem" \
+			"run 'xghost theme set NAME' with the theme you want, then run './install.sh' again. Run './install.sh --theme NAME' to name it here instead. Nothing was changed, and no theme was replaced."
+	fi
 fi
 
 if [ "$kept" = yes ]; then
