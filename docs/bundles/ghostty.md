@@ -3,38 +3,42 @@
 Ghostty is the terminal of xghost. It is the first bundle, and it is the first
 application that reads the generated output of the renderer.
 
-The bundle is two files:
+The bundle is three files:
 
 | File                        | Category         | What it holds                              |
 | --------------------------- | ---------------- | ------------------------------------------ |
-| `config/ghostty/config`      | Prescribed       | Every setting except the colours.          |
+| `config/ghostty/config`      | Prescribed       | Every setting except the colours and the font family. |
 | `templates/ghostty/colors.conf` | Template      | The colours, from the palette of the theme. |
+| `templates/ghostty/font.conf`   | Template      | The font family, from `KNOB_FONT`.          |
 
-The two file categories are those of
-[ADR 0001](../adr/0001-prescribed-config-architecture.md).
+The file categories are those of
+[ADR 0001](../adr/0001-prescribed-config-architecture.md), and the knob is
+documented in [Knobs](../knobs.md).
 
 Both files are carried over from `qdrtech/dotfiles`, path
 `ghostty/.config/ghostty/config` and the Ghostty section of
 `scripts/theme-switch.sh`. The colour slots are unchanged apart from slot 8.
 What changed, and why, is recorded below.
 
-## How the two files meet
+## How the files meet
 
 `xghost config link` creates two links, and `xghost theme set` writes the
-colours:
+colours and the font:
 
 ```
 xghost config link     $XDG_CONFIG_HOME/ghostty          -> <install location>/config/ghostty
                        $XDG_CONFIG_HOME/xghost-generated -> $XDG_STATE_HOME/xghost/generated
 xghost theme set NAME  $XDG_STATE_HOME/xghost/generated/ghostty/colors.conf
+                       $XDG_STATE_HOME/xghost/generated/ghostty/font.conf
 ```
 
 The second link is the **bridge**. It gives the generated output one fixed name
-inside the config directory. The prescribed file includes the generated one
+inside the config directory. The prescribed file includes the generated ones
 through it:
 
 ```
 config-file = ?../xghost-generated/ghostty/colors.conf
+config-file = ?../xghost-generated/ghostty/font.conf
 ```
 
 Ghostty applies an included file after the file that includes it, so the
@@ -191,18 +195,40 @@ The package is declared in `install/packages/base.txt`, with `ghostty` itself.
 Both are declared in `install/packages/base.txt`, and `tests/install.bats`
 fails when a package this table lists is in no manifest.
 
+### The family is a knob, and the prescribed file names none
+
+The family above is the **default** of `KNOB_FONT`, and the same knob carries
+the font of the compositor. [Knobs](../knobs.md) names every value and the
+package each one needs.
+
+The prescribed file carries no `font-family` line at all, and that is a
+requirement rather than tidiness. Ghostty appends every `font-family` it reads
+to one list and draws with the first of them, so a family in the prescribed file
+would win over the generated one and the knob would change nothing. Every other
+font setting stays prescribed: the size, and the two `font-feature` lines.
+
+The cost is the one the colours already pay. Before the first `xghost theme
+set`, the include finds nothing and Ghostty draws with its own default family.
+The include is optional for exactly that reason, and a terminal that opens with
+the wrong font is a better first impression than one that refuses to open.
+
+`ghostty +show-config` prints the family Ghostty holds after it has read every
+file, so a second `font-family` anywhere would be visible there. The tests
+assert on it.
+
 ## What the tests prove
 
 - `tests/ghostty.bats` proves the shape of the bundle: the prescribed file is
   linked by `xghost config link`, the include reaches the file the renderer
-  wrote, the macOS font is gone, and every colour of every theme reaches the
-  slot the template names for it. One case renders under a non-default
-  `XDG_STATE_HOME`, which is the divergence that breaks a terminal.
+  wrote, the macOS font is gone, the family comes from the knob and from nowhere
+  else, and every colour of every theme reaches the slot the template names for
+  it. One case renders under a non-default `XDG_STATE_HOME`, which is the
+  divergence that breaks a terminal.
 - `tests/linker.bats` proves the bridge: it is created, it is recorded, it is
   removed by `xghost config unlink`, and it never clobbers a path the user put
   at that name.
-- `tests/golden.bats` compares the rendered colours of every theme with the
-  expected output under `tests/golden/<theme>/ghostty/colors.conf`.
+- `tests/golden.bats` compares the rendered colours and font of every theme with
+  the expected output under `tests/golden/<knob set>/<theme>/ghostty/`.
 
 The tests that need Ghostty run it and skip cleanly when it is absent, because
 continuous integration has no Ghostty. They assert on
@@ -211,7 +237,8 @@ which is zero on an unthemed terminal.
 
 ## What this bundle does not do
 
-A running Ghostty keeps the colours it started with. A theme switch writes the
-new file and stops there. Picking the change up without a restart is
+A running Ghostty keeps the colours and the font it started with. A theme switch
+and a knob change both write the new file and stop there. Picking the change up
+without a restart is
 [issue #24](https://github.com/qdrtech/xghost/issues/24), which covers every
 styling component with one reload function.

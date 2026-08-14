@@ -60,8 +60,11 @@ network-manager-applet        # nm-applet, in the autostart
 blueman                       # blueman-applet, in the autostart
 nautilus                      # $fileManager
 
-# The font of the whole desktop: the terminal and the two hyprlock labels.
+# The fonts KNOB_FONT offers. The default is the first. The second is here
+# because a font a knob offers and the machine does not carry falls back in
+# silence, which is the one failure a knob must not have.
 ttf-jetbrains-mono-nerd
+ttf-cascadia-code-nerd
 
 # What xghost itself reads. 'xdg-settings' is the source of the default browser
 # in the machine facts. docs/machine-facts.md, "Where each fact comes from".

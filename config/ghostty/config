@@ -27,12 +27,22 @@
 # colours win over anything this file sets.
 config-file = ?../xghost-generated/ghostty/colors.conf
 
-# The font.
+# The font family, written by 'xghost settings set KNOB_FONT <family>'.
 #
-# 'JetBrainsMono Nerd Font' comes from the Arch package
+# No 'font-family' line appears in this file. Ghostty appends every
+# 'font-family' it reads to one list and draws with the first of them, so a
+# family named here would win over the generated one and the knob would do
+# nothing. The generated file names the family alone, and every other font
+# setting stays here.
+#
+# 'JetBrainsMono Nerd Font' is the default of that knob, from the Arch package
 # 'ttf-jetbrains-mono-nerd'. It replaces '.SF NS Mono', which is the macOS
-# system font and exists on no Arch machine.
-font-family = JetBrainsMono Nerd Font
+# system font and exists on no Arch machine. schema/knobs.conf names every
+# family the knob offers.
+config-file = ?../xghost-generated/ghostty/font.conf
+
+# The size of the font, in points. This is prescribed: the desktop is designed
+# around it, and no knob covers it.
 font-size = 14
 
 # Contextual alternates and ligatures. JetBrains Mono carries both.

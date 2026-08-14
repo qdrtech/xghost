@@ -1,8 +1,8 @@
 # Theming
 
 One module generates all themed configuration. It is the renderer. It reads a
-theme, the machine facts, and a directory of templates, and it writes a
-directory of finished configuration files at a stable path. Applications read
+theme, the machine facts, the knobs, and a directory of templates, and it writes
+a directory of finished configuration files at a stable path. Applications read
 that path, so a theme switch never rewrites the configuration file of an
 application.
 
@@ -16,6 +16,9 @@ Three commands drive it:
 | `xghost theme list`      | Names every installed theme, one per line. |
 | `xghost theme set NAME`  | Renders that theme and moves it into place. |
 | `xghost theme current`   | Names the theme the output was built from. |
+
+`xghost settings set` drives it as well: a knob change renders the same tree
+from the same three inputs. [Knobs](knobs.md) documents that command.
 
 ## Where the generated output lands
 
@@ -141,10 +144,11 @@ Substitution is by name. `@NAME@` is replaced by the value of `NAME`. The name i
 upper case, so ordinary text such as a CSS at-rule is never mistaken for a
 placeholder.
 
-A name comes from the theme palette or from the machine facts. A machine fact
-starts with `MACHINE_`, so the two never collide, and a name that both files
-declare is a problem the renderer reports.
-[Machine facts](machine-facts.md) documents that file and every key it holds.
+A name comes from the theme palette, from the machine facts, or from the knobs.
+A machine fact starts with `MACHINE_` and a knob with `KNOB_`, so those two never
+collide, and a name that two of the three files declare is a problem the
+renderer reports. [Machine facts](machine-facts.md) documents the second file
+and every key it holds, and [knobs](knobs.md) documents the third.
 
 A machine fact whose value is `unknown` never reaches a rendered file. That word
 is what detection writes for a fact it could not read, so a template that names
@@ -197,9 +201,10 @@ The rules:
 - A value is never used to build a path. The chosen fragment is looked up among
   the files the renderer already found, so a value that holds a path separator
   can reach nothing outside the directory.
-- `NAME` has to be declared, by the theme palette or by the machine facts. A
-  choice whose value is missing fails the render and names it, exactly as a
-  template that names a missing value does.
+- `NAME` has to be declared, by the theme palette, by the machine facts or by
+  the knobs. A choice whose value is missing fails the render and names it,
+  exactly as a template that names a missing value does. A knob is always
+  declared, because the schema gives every knob a default.
 - A choice holds fragments and nothing else. A directory inside one, and a
   choice inside a choice, are both refused by name.
 - Exactly one file of the project reaches `<file>`. A choice that writes the
@@ -216,6 +221,12 @@ with three, without the project growing a template language. Adding the
 prescribed layout for a fourth monitor is adding one file, and no code changes.
 [The Hyprland bundle](bundles/hyprland.md) records the case the mechanism was
 built for.
+
+A knob drives a choice in exactly the same way, because both read one table of
+values. `templates/hypr/animation.conf.choice.KNOB_ANIMATIONS/` holds `on` and
+`off`, and the animations of the desktop are one whole prescribed file rather
+than a setting with a condition around it. [Knobs](knobs.md) documents that
+file and the two kinds of knob.
 
 A template may be a symbolic link. The renderer follows it and renders what it
 points at. A link that points at nothing fails the render and is named, because
@@ -290,27 +301,34 @@ points at survives a switch.
 
 ## What the renderer does not do yet
 
-- **Knobs.** The renderer takes three inputs by design: the theme, the machine
-  facts, and the knobs. Two of the three exist today. Issue #11 defines the
-  knobs file. The interface accepts all three now and rejects a value for the
-  one that does not exist, rather than guessing at its format. A structural
-  choice already reads any declared value, so a knob drives one the day the
-  knobs file lands, with no change to the renderer.
 - **Reloading a running component.** A switch writes the new configuration and
   stops there. It sends no signal and restarts nothing, so a running application
-  shows the new theme when it next reads its configuration. Reloading every
-  component at once is out of scope until the components exist.
+  shows the new theme when it next reads its configuration. A knob change is the
+  same: `xghost settings set` renders and stops. Reloading every component from
+  one place is [issue #24](https://github.com/qdrtech/xghost/issues/24).
 
 ## The golden-file tests
 
-`tests/golden.bats` renders every theme against every template and compares the
-result with the expected output committed under `tests/golden/`. A template
-change that breaks any theme fails there.
+`tests/golden.bats` renders every theme against every template, at every knob
+set, and compares the result with the expected output committed under
+`tests/golden/<knob set>/<theme>/`. A template change that breaks any theme
+fails there.
 
 The render uses fixed machine facts, `tests/fixtures/machine/golden.conf`, and
 never the facts of the computer that runs the suite. They describe two monitors
-that never change, so the committed output depends on the templates and the
-palettes alone. `tests/regenerate-golden` reads the same file.
+that never change. It uses two fixed knob sets, and never the preferences of
+whoever runs the suite:
+
+| Knob set    | The knobs                                                            |
+| ----------- | --------------------------------------------------------------------- |
+| `default`   | No knobs file at all, so every knob holds the default of `schema/knobs.conf`. |
+| `alternate` | `tests/fixtures/knobs/alternate.conf`, which holds every knob at a value that is not its default. |
+
+The committed output therefore depends on the templates, the palettes and the
+schema alone. Two knob sets are what prove that a knob reaches the output: one
+tree alone would pass with a knob that no template consumes, and one test
+asserts that the two trees differ. `tests/regenerate-golden` reads the same
+files.
 
 `tests/renderer.bats` covers the behaviour around the render: the commands, the
 three scalar forms, the hand-written file, the palette rules, the structural

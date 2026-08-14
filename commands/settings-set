@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+#
+# Give one knob a value, and render the configuration again.
+#
+# @xghost-meta
+# summary: Set one knob and render the configuration again.
+# arg: KNOB   The knob to change. Run 'xghost settings list' for the names.
+# arg: VALUE  The value to give it.
+# example: xghost settings set KNOB_ANIMATIONS off
+# example: xghost settings set KNOB_GAP_SIZE 20
+# elevated: no
+# internal: no
+# @end-xghost-meta
+
+set -euo pipefail
+
+COMMAND_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+# shellcheck source=lib/theme.sh
+. "${COMMAND_PATH%/*}/../lib/theme.sh"
+
+if [ $# -ne 2 ]; then
+	xghost_die 2 "'settings set' takes one knob and one value, and it was given $#. Run 'xghost settings list'."
+fi
+
+KNOB=$1
+VALUE=$2
+
+theme_repo_paths
+
+if ! KNOBS_FILE=$(knobs_path); then
+	xghost_die 1 "$KNOBS_NO_HOME_MESSAGE"
+fi
+
+# The read and the write are one step, and the lock is what makes them one. Two
+# 'settings set' commands at once otherwise read the same file and the second
+# rename drops the knob the first one wrote, while both report success. A
+# settings application is the case where two writers are expected.
+#
+# The lock is released before the render below, so this command never waits on
+# itself: 'theme set' takes a lock of its own on the state directory.
+if ! knobs_lock "$KNOBS_FILE"; then
+	xghost_die 1 "$KNOBS_PROBLEM"
+fi
+
+READ_FILE=
+if [ -e "$KNOBS_FILE" ] || [ -L "$KNOBS_FILE" ]; then
+	READ_FILE=$KNOBS_FILE
+fi
+
+# The whole file is read before anything is written. A file with a problem in it
+# is reported and left exactly as it is, so one bad line never costs a user the
+# rest of their preferences.
+if ! knobs_load "$XGHOST_KNOBS_SCHEMA" "$READ_FILE"; then
+	for problem in "${KNOBS_ERRORS[@]}"; do
+		xghost_warn "knobs: $problem"
+	done
+	# The schema and the knobs file have two owners, so the report names the
+	# file that failed. Sending somebody to correct a file of the project, or a
+	# file of their own that has nothing wrong with it, sends them nowhere.
+	if [ "$KNOBS_ERROR_SOURCE" = schema ]; then
+		xghost_die 1 "the knob schema has a problem: $XGHOST_KNOBS_SCHEMA. The project owns that file, so this is a defect of xghost rather than of your machine. Nothing is changed."
+	fi
+	xghost_die 1 "the knobs at $KNOBS_FILE have a problem. Correct that file. Nothing is changed."
+fi
+
+# The name is checked for its shape before it is looked up, because a name that
+# is not one, such as an empty one, is not an array subscript either.
+if [[ ! $KNOB =~ $KNOBS_KEY_PATTERN ]] || [ -z "${KNOBS_DEFAULT[$KNOB]+set}" ]; then
+	xghost_die 2 "'$KNOB' is not a knob. Run 'xghost settings list' for every knob and every value. Nothing is changed."
+fi
+if ! knobs_allows "$KNOB" "$VALUE"; then
+	xghost_die 2 "'$VALUE' is not a value of '$KNOB'. It takes $(knobs_format_values "$KNOB"). Nothing is changed."
+fi
+
+if ! knobs_write "$KNOBS_FILE" "$KNOB" "$VALUE"; then
+	xghost_die 1 "$KNOBS_PROBLEM"
+fi
+
+knobs_unlock
+
+printf "%s is now '%s'\n" "$KNOB" "$VALUE"
+printf 'the knobs are at %s\n' "$KNOBS_FILE"
+
+# The value applies by rendering the configuration again, which is what a theme
+# switch does. A machine with no active theme has nothing to render into, and
+# that is the one case where the value is stored and nothing else happens.
+if ! THEME_NAME=$(theme_current 2>/dev/null); then
+	printf 'no theme is active, so nothing was rendered.\n'
+	printf "run 'xghost theme set <name>' to build the configuration with it.\n"
+	exit 0
+fi
+
+if ! theme_set "$THEME_NAME"; then
+	xghost_die 1 "$THEME_PROBLEM The knob is set all the same; render again once the problem is corrected."
+fi
+
+printf 'the generated output is rebuilt at %s\n' "$XGHOST_GENERATED_DIR"
+printf 'a program that is already running keeps the configuration it started with. Restart it to see the change.\n'

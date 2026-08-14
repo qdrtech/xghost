@@ -5,9 +5,12 @@
 #   tests/regenerate-golden --update
 #
 # The golden files under tests/golden/ are the expected output of the renderer:
-# every theme rendered against every template. tests/golden.bats compares the
-# real output against them, so a template change that breaks a theme fails the
-# suite.
+# every theme rendered against every template, at every knob set. tests/golden.bats
+# compares the real output against them, so a template change that breaks a
+# theme fails the suite.
+#
+# The tree is tests/golden/<knob set>/<theme>/. There are two knob sets, and
+# "The knob sets" below records what each one is.
 #
 # Run this script when such a change is intentional, then read the difference it
 # reports before you commit it. The '--update' flag is required, because a bare
@@ -18,9 +21,10 @@
 #
 # The script writes the output of each theme into a temporary state directory of
 # its own, so it never touches the theme the machine is running. It renders
-# against the fixed machine facts under tests/fixtures/machine/, never against
-# the facts of the machine it runs on, so the committed output is the same
-# whatever hardware regenerated it.
+# against the fixed machine facts under tests/fixtures/machine/ and the fixed
+# knobs under tests/fixtures/knobs/, never against the facts or the preferences
+# of the machine it runs on, so the committed output is the same whatever
+# hardware regenerated it and whatever its owner prefers.
 #
 # Every theme is rendered first, into a temporary directory. tests/golden/ is
 # replaced only once all of them have succeeded, so a render that fails leaves
@@ -60,13 +64,32 @@ GOLDEN_DIR=$TESTS_DIR/golden
 XGHOST=$ROOT_DIR/bin/xghost
 
 # The fixed machine facts of the golden output. ADR 0001 names the golden tests
-# as every theme against every template with fixed machine facts, and a
-# template that names a fact fails the render without them. tests/golden.bats
-# renders against this same file.
+# as every theme against every template with fixed machine facts and fixed
+# knobs, and a template that names a fact fails the render without them.
+# tests/golden.bats renders against this same file.
 MACHINE_FACTS=$TESTS_DIR/fixtures/machine/golden.conf
 [ -f "$MACHINE_FACTS" ] ||
 	die "the fixed machine facts are missing: $MACHINE_FACTS"
 export XGHOST_MACHINE_FACTS=$MACHINE_FACTS
+
+# The knobs of the golden output, which are the third input. Every theme is
+# rendered once per knob set.
+#
+#   default    no knobs file at all, so every knob holds the default of
+#              schema/knobs.conf. It is what a machine that has never run
+#              'xghost settings set' renders.
+#   alternate  every knob at a value that is not its default.
+#
+# Two sets are what prove that a knob reaches the output: one tree alone would
+# pass with a knob that no template consumes.
+KNOB_SETS='default alternate'
+ALTERNATE_KNOBS=$TESTS_DIR/fixtures/knobs/alternate.conf
+[ -f "$ALTERNATE_KNOBS" ] ||
+	die "the alternate knobs are missing: $ALTERNATE_KNOBS"
+
+# The schema of the checkout, whatever the environment of whoever runs this
+# holds. The committed output is of this project and of no other.
+unset XGHOST_KNOBS_SCHEMA
 
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
@@ -79,16 +102,25 @@ STAGE_DIR=$WORK_DIR/golden
 mkdir -p "$STAGE_DIR"
 
 count=0
-while IFS= read -r theme; do
-	[ -n "$theme" ] || continue
-	state=$WORK_DIR/state/$theme
-	mkdir -p "$state"
-	XDG_STATE_HOME=$state "$XGHOST" theme set "$theme" >/dev/null ||
-		die "cannot render the theme '$theme'. tests/golden is unchanged."
-	mkdir -p "$STAGE_DIR/$theme"
-	cp -R "$state/xghost/generated/." "$STAGE_DIR/$theme/"
-	count=$((count + 1))
-done <<<"$themes"
+for set in $KNOB_SETS; do
+	if [ "$set" = default ]; then
+		# A path that holds no file. An absent knobs file is the default set.
+		export XGHOST_KNOBS_FILE=$WORK_DIR/no-knobs.conf
+	else
+		export XGHOST_KNOBS_FILE=$ALTERNATE_KNOBS
+	fi
+
+	while IFS= read -r theme; do
+		[ -n "$theme" ] || continue
+		state=$WORK_DIR/state/$set/$theme
+		mkdir -p "$state"
+		XDG_STATE_HOME=$state "$XGHOST" theme set "$theme" >/dev/null ||
+			die "cannot render the theme '$theme' with the '$set' knobs. tests/golden is unchanged."
+		mkdir -p "$STAGE_DIR/$set/$theme"
+		cp -R "$state/xghost/generated/." "$STAGE_DIR/$set/$theme/"
+		count=$((count + 1))
+	done <<<"$themes"
+done
 
 if [ "$count" -eq 0 ]; then
 	die "no theme rendered, so there is nothing to write. tests/golden is unchanged."
@@ -98,6 +130,6 @@ rm -rf "$GOLDEN_DIR"
 mkdir -p "$GOLDEN_DIR"
 cp -R "$STAGE_DIR/." "$GOLDEN_DIR/"
 
-printf '%s: rewrote the golden output of %d themes\n' "$PROGRAM" "$count"
+printf '%s: rewrote the golden output of %d renders\n' "$PROGRAM" "$count"
 printf '%s: run "git diff -- %s" and read the difference before you commit it.\n' \
 	"$PROGRAM" "tests/golden"

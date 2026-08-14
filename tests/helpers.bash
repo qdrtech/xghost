@@ -52,3 +52,22 @@ use_fixed_machine_facts() {
 
 	export XGHOST_MACHINE_FACTS=$copy
 }
+
+# Give the commands a knobs file of this test, at a path that holds no file.
+#
+# The knobs are the third input of the renderer, and an absent file means every
+# knob takes the default of the schema. That is what a machine which has never
+# run 'xghost settings set' renders with, and it is the state every suite wants
+# unless it says otherwise: without this, a knobs file in the config directory
+# of whoever runs the suite would reach the render and change what it produces.
+#
+# A test that wants a knob at another value writes the file this names, or runs
+# 'xghost settings set'. The schema stays the shipped one, because the project
+# owns it and a test of a schema of its own would prove nothing about the knobs
+# this desktop offers.
+#
+# Call this from setup().
+use_own_knobs() {
+	export XGHOST_KNOBS_FILE=$BATS_TEST_TMPDIR/knobs.conf
+	unset XGHOST_KNOBS_SCHEMA
+}

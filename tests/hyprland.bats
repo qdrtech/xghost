@@ -26,6 +26,10 @@ setup() {
 	TEMPLATE_DIR="$ROOT_DIR/templates/hypr"
 	MONITOR_CHOICE="$TEMPLATE_DIR/monitors.conf.choice.MACHINE_MONITOR_COUNT"
 	WORKSPACE_CHOICE="$TEMPLATE_DIR/workspaces.conf.choice.MACHINE_MONITOR_COUNT"
+	ANIMATION_CHOICE="$TEMPLATE_DIR/animation.conf.choice.KNOB_ANIMATIONS"
+
+	# shellcheck source=helpers.bash
+	. "$BATS_TEST_DIRNAME/helpers.bash"
 
 	# The shipped commands, never the fixture directory of another test file.
 	export XGHOST_COMMAND_DIR="$ROOT_DIR/commands"
@@ -46,6 +50,12 @@ setup() {
 	export XDG_CONFIG_HOME="$HOME/.config"
 	export XDG_STATE_HOME="$HOME/.local/state"
 	mkdir -p "$XDG_CONFIG_HOME" "$XDG_STATE_HOME"
+
+	# The knobs are the third input, and this bundle carries three of them. A
+	# test starts from a machine with no knobs file, so every knob holds the
+	# default of schema/knobs.conf. A test that wants another value runs
+	# 'xghost settings set'.
+	use_own_knobs
 
 	GENERATED="$XDG_STATE_HOME/xghost/generated"
 	FACTS="$BATS_TEST_TMPDIR/machine.conf"
@@ -129,6 +139,47 @@ workspace_lines() {
 	grep '^workspace = ' "$GENERATED/hypr/workspaces.conf"
 }
 
+# Print every value the schema declares for one knob, one per line.
+#
+#   schema_values KNOB_NAME
+#
+# The values are read from schema/knobs.conf itself rather than written out
+# here, so a value added to the schema without a fragment beside it fails the
+# test that reads this.
+schema_values() {
+	local knob=$1
+	awk -v knob="$knob" '
+		{
+			position = index($0, "=")
+			if (position == 0) { next }
+			field = substr($0, 1, position - 1)
+			value = substr($0, position + 1)
+			if (field == "knob") { current = value }
+			else if (field == "value" && current == knob) { print value }
+		}
+	' "$ROOT_DIR/schema/knobs.conf"
+}
+
+# Print the default the schema declares for one knob.
+#
+#   schema_default KNOB_NAME
+#
+# The value is read from schema/knobs.conf itself, so a test that compares a
+# prescribed file with it follows the schema when the schema changes.
+schema_default() {
+	local knob=$1
+	awk -v knob="$knob" '
+		{
+			position = index($0, "=")
+			if (position == 0) { next }
+			field = substr($0, 1, position - 1)
+			value = substr($0, position + 1)
+			if (field == "knob") { current = value }
+			else if (field == "default" && current == knob) { print value }
+		}
+	' "$ROOT_DIR/schema/knobs.conf"
+}
+
 # A test that needs Hyprland itself. Continuous integration has none.
 #
 # '--verify-config' parses the configuration and prints the result. It starts no
@@ -183,7 +234,7 @@ verify_config() {
 # default.
 @test "the prescribed configuration includes the generated files through the bridge" {
 	local include
-	for include in colors monitors workspaces theme; do
+	for include in colors monitors animation knobs workspaces theme; do
 		run grep -Fx "source = ../$BRIDGE_NAME/hypr/$include.conf" \
 			"$PRESCRIBED_DIR/hyprland.conf"
 		[ "$status" -eq 0 ]
@@ -429,6 +480,149 @@ monitor = HDMI-A-2,3840x2160@30.00,4480x0,2,transform,0' ]
 	[[ $output == *"The active theme is unchanged."* ]]
 }
 
+# --- the knobs ---------------------------------------------------------------
+
+# The animations are a structural choice driven by a knob, which is the same
+# mechanism the monitor layout uses with a machine fact. The schema names two
+# values, and the choice holds one fragment for each: a value the choice cannot
+# answer would fail every render of that value.
+@test "the animation choice holds one fragment for every value of the knob" {
+	local value count=0
+	while IFS= read -r value; do
+		[ -n "$value" ]
+		[ -f "$ANIMATION_CHOICE/$value" ]
+		count=$((count + 1))
+	done < <(schema_values KNOB_ANIMATIONS)
+
+	# More than one value, or the knob chooses nothing, and exactly as many
+	# fragments as values, so no fragment is reachable by no value at all.
+	[ "$count" -gt 1 ]
+	[ "$(find "$ANIMATION_CHOICE" -type f | wc -l)" -eq "$count" ]
+}
+
+@test "the animation knob selects the fragment of its value" {
+	# A line the compositor acts on, which is a setting rather than a comment.
+	# Both fragments describe themselves in a comment that holds the words
+	# 'bezier' and 'animation', so a pattern that reads the whole line matches
+	# the prose of the fragment for 'off' and proves nothing.
+	local curve='^[[:space:]]*(bezier|animation)[[:space:]]*='
+
+	facts_two
+	"$XGHOST" theme set tokyonight >/dev/null
+
+	# The default of the knob. The same pattern is asserted here and below, so
+	# the assertion that it matches nothing cannot pass by matching nothing
+	# anywhere.
+	run grep -Fx '    enabled = true' "$GENERATED/hypr/animation.conf"
+	[ "$status" -eq 0 ]
+	run grep -E "$curve" "$GENERATED/hypr/animation.conf"
+	[ "$status" -eq 0 ]
+	run grep -Fx '    bezier = wind, 0.05, 0.9, 0.1, 1.05' "$GENERATED/hypr/animation.conf"
+	[ "$status" -eq 0 ]
+
+	"$XGHOST" settings set KNOB_ANIMATIONS off >/dev/null
+	run grep -Fx '    enabled = false' "$GENERATED/hypr/animation.conf"
+	[ "$status" -eq 0 ]
+	# The fragment for 'off' carries no curve, so nothing is left that names an
+	# animation the compositor never plays.
+	run grep -E "$curve" "$GENERATED/hypr/animation.conf"
+	[ "$status" -ne 0 ]
+}
+
+@test "the gap knob reaches the window gaps of the compositor" {
+	facts_two
+	"$XGHOST" theme set tokyonight >/dev/null
+
+	run grep -Fx '    gaps_in = 10' "$GENERATED/hypr/knobs.conf"
+	[ "$status" -eq 0 ]
+	run grep -Fx '    gaps_out = 10' "$GENERATED/hypr/knobs.conf"
+	[ "$status" -eq 0 ]
+
+	"$XGHOST" settings set KNOB_GAP_SIZE 20 >/dev/null
+	run grep -Fx '    gaps_in = 20' "$GENERATED/hypr/knobs.conf"
+	[ "$status" -eq 0 ]
+	run grep -Fx '    gaps_out = 20' "$GENERATED/hypr/knobs.conf"
+	[ "$status" -eq 0 ]
+
+	# The prescribed file no longer holds a gap of its own. Two writers of one
+	# setting would leave the knob winning by the order of the includes alone.
+	run grep -nE '^[[:space:]]*gaps_(in|out)' "$PRESCRIBED_DIR/conf/window.conf"
+	[ "$status" -ne 0 ]
+}
+
+@test "the font knob reaches the font of the compositor" {
+	facts_two
+	"$XGHOST" theme set tokyonight >/dev/null
+
+	run grep -Fx '    font_family = JetBrainsMono Nerd Font' "$GENERATED/hypr/knobs.conf"
+	[ "$status" -eq 0 ]
+
+	"$XGHOST" settings set KNOB_FONT 'CaskaydiaCove Nerd Font' >/dev/null
+	run grep -Fx '    font_family = CaskaydiaCove Nerd Font' "$GENERATED/hypr/knobs.conf"
+	[ "$status" -eq 0 ]
+
+	run grep -nE '^[[:space:]]*font_family' "$PRESCRIBED_DIR/conf/misc.conf"
+	[ "$status" -ne 0 ]
+}
+
+# A setting a knob owns is written in one place. A second writer of the same
+# setting leaves the knob winning by the order of the includes alone, and the
+# two guards above name one file each by hand: a 'gaps_in' added to any other
+# file passes them both. This reads every prescribed file and every template.
+#
+# One pair per line: the pattern of the setting, and the files that may hold it,
+# in sorted order. The font of the lock screen is the one deliberate second
+# writer, and the test below pins it to the default of the knob.
+@test "every setting a knob owns is written in one place" {
+	local pattern expected found
+	while read -r pattern expected; do
+		[ -n "$pattern" ] || continue
+		found=$(cd "$ROOT_DIR" && grep -rlE "$pattern" config templates |
+			LC_ALL=C sort | paste -sd, -)
+		if [ "$found" != "$expected" ]; then
+			printf 'the setting %s is written in %s, and it may be written in %s\n' \
+				"$pattern" "$found" "$expected" >&2
+		fi
+		[ "$found" = "$expected" ]
+	done <<-'EOF'
+		^[[:space:]]*gaps_(in|out)[[:space:]]*= templates/hypr/knobs.conf
+		^[[:space:]]*font_family[[:space:]]*= config/hypr/hyprlock.conf,templates/hypr/knobs.conf
+		^[[:space:]]*font-family[[:space:]]*= templates/ghostty/font.conf
+		^[[:space:]]*animations[[:space:]]*\{ templates/hypr/animation.conf.choice.KNOB_ANIMATIONS/off,templates/hypr/animation.conf.choice.KNOB_ANIMATIONS/on
+	EOF
+}
+
+# The font knob does not reach the lock screen, and this is the decision rather
+# than an omission. hyprlock has no offline check of its configuration, so a
+# generated file it refused would reach a machine unproven, and what that costs
+# is a machine that goes idle and never locks. docs/knobs.md records it.
+#
+# The family in the prescribed file is therefore pinned to the default of the
+# knob: a change of that default fails here rather than leaving the lock screen
+# on a family this desktop no longer ships.
+@test "the lock screen draws in the default family of the font knob" {
+	local default family count=0
+	default=$(schema_default KNOB_FONT)
+	[ -n "$default" ]
+
+	while IFS= read -r family; do
+		[ "$family" = "$default" ]
+		count=$((count + 1))
+	done < <(sed -n 's/^[[:space:]]*font_family[[:space:]]*=[[:space:]]*//p' \
+		"$PRESCRIBED_DIR/hyprlock.conf")
+	[ "$count" -gt 0 ]
+
+	# The lock screen reads no generated file, which is what makes the line
+	# above the whole of the story.
+	run grep -nE '^[[:space:]]*source[[:space:]]*=' "$PRESCRIBED_DIR/hyprlock.conf"
+	[ "$status" -ne 0 ]
+
+	# And the schema says so, so the summary a user reads is not a promise the
+	# lock screen breaks.
+	run sed -n '/^knob=KNOB_FONT$/,/^$/s/^summary=//p' "$ROOT_DIR/schema/knobs.conf"
+	[[ $output == *"not of the lock screen"* ]]
+}
+
 # --- Hyprland itself ---------------------------------------------------------
 
 @test "Hyprland parses the configuration for one, two and three monitors" {
@@ -443,6 +637,28 @@ monitor = HDMI-A-2,3840x2160@30.00,4480x0,2,transform,0' ]
 		run verify_config
 		[ "$status" -eq 0 ]
 		[[ $output == *"config ok"* ]]
+	done
+}
+
+# Every knob reaches a real setting of the compositor, so every value of every
+# knob has to parse. A knob whose value Hyprland refuses is a desktop that does
+# not come up, and 'xghost settings set' would have reported success.
+@test "Hyprland parses the configuration at every value of every knob" {
+	require_hyprland
+	run link_prescribed
+	[ "$status" -eq 0 ]
+	facts_two
+	"$XGHOST" theme set tokyonight >/dev/null
+
+	local knob value
+	for knob in KNOB_ANIMATIONS KNOB_GAP_SIZE KNOB_FONT; do
+		while IFS= read -r value; do
+			run "$XGHOST" settings set "$knob" "$value"
+			[ "$status" -eq 0 ]
+			run verify_config
+			[ "$status" -eq 0 ]
+			[[ $output == *"config ok"* ]]
+		done < <(schema_values "$knob")
 	done
 }
 

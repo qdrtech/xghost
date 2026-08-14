@@ -334,8 +334,11 @@ fails the render by name. A structural choice fails the same way, so
 
 A name the palette and the machine facts both declare is a problem the renderer
 reports. The two files have two owners, so preferring either one quietly would
-make the output depend on a rule nobody wrote down. Read
-[Theming](theming.md) for the rest of the renderer.
+make the output depend on a rule nobody wrote down. The same answer covers the
+third input: a knob starts with `KNOB_`, so a knob and a machine fact can never
+collide, and a palette that declares either name is refused. Read
+[Knobs](knobs.md) for that file, and [Theming](theming.md) for the rest of the
+renderer.
 
 ## Detection during an installation
 

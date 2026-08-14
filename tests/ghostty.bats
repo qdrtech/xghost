@@ -54,6 +54,11 @@ setup() {
 	# wanted. tests/helpers.bash records the rule.
 	use_fixed_machine_facts
 
+	# The knobs are the third input, and one of them is the font family this
+	# bundle draws with. Every test starts from a machine with no knobs file, so
+	# the font is the default of schema/knobs.conf.
+	use_own_knobs
+
 	GENERATED="$XDG_STATE_HOME/xghost/generated"
 
 	# The name 'xghost config link' gives the generated output inside the
@@ -165,18 +170,44 @@ require_ghostty() {
 	[ ! -e "$XDG_CONFIG_HOME/$BRIDGE_NAME" ]
 }
 
-@test "the prescribed configuration names a font that exists on Arch" {
-	# One 'font-family' line, and it names the font the Arch package
-	# 'ttf-jetbrains-mono-nerd' provides.
+# The font is a knob, so the prescribed file names no family at all. Ghostty
+# appends every 'font-family' it reads to one list and draws with the first of
+# them, so a family here would win over the generated one and the knob would
+# change nothing.
+@test "the font family comes from the knob and not from the prescribed file" {
 	run grep -E '^[[:space:]]*font-family' "$PRESCRIBED"
+	[ "$status" -ne 0 ]
+	run grep -Fx "config-file = ?../$BRIDGE_NAME/ghostty/font.conf" "$PRESCRIBED"
 	[ "$status" -eq 0 ]
-	[ "$output" = 'font-family = JetBrainsMono Nerd Font' ]
+
+	# The generated file names one family, and it is the knob.
+	run grep -E '^[[:space:]]*font-family' "$ROOT_DIR/templates/ghostty/font.conf"
+	[ "$status" -eq 0 ]
+	[ "$output" = 'font-family = @KNOB_FONT@' ]
 
 	# '.SF NS Mono' is the macOS system font, and no Arch machine has it. The
 	# comments still name it as the font that was replaced, so the test reads
 	# the settings alone: a comment line starts with a hash.
 	run grep -E '^[^#]*\.SF NS Mono' "$PRESCRIBED"
 	[ "$status" -ne 0 ]
+}
+
+# The default of the knob is the family the Arch package
+# 'ttf-jetbrains-mono-nerd' provides, so a machine that changes nothing gets the
+# font this bundle was designed around.
+@test "the font knob reaches the generated Ghostty configuration" {
+	"$XGHOST" theme set tokyonight >/dev/null
+	run grep -Fx 'font-family = JetBrainsMono Nerd Font' "$GENERATED/ghostty/font.conf"
+	[ "$status" -eq 0 ]
+
+	run "$XGHOST" settings set KNOB_FONT 'CaskaydiaCove Nerd Font'
+	[ "$status" -eq 0 ]
+	run grep -Fx 'font-family = CaskaydiaCove Nerd Font' "$GENERATED/ghostty/font.conf"
+	[ "$status" -eq 0 ]
+
+	# One family reaches the terminal, whatever the knob holds.
+	run grep -c '^font-family' "$GENERATED/ghostty/font.conf"
+	[ "$output" = 1 ]
 }
 
 # 'background-blur-radius' is an undocumented compatibility alias. Ghostty
@@ -320,6 +351,37 @@ require_ghostty() {
 	run grep '^palette = 8=' "$shown"
 	[ "$status" -eq 0 ]
 	[ "$output" = "palette = 8=${bright_black,,}" ]
+}
+
+# The font knob has to reach the terminal that runs, not only the file the
+# renderer wrote. '+show-config' prints the family Ghostty holds after it has
+# read every file, so a second 'font-family' anywhere would show up here.
+@test "ghostty draws with the family the font knob names" {
+	require_ghostty
+	export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config"
+	export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
+	mkdir -p "$XDG_CONFIG_HOME" "$XDG_STATE_HOME"
+
+	run link_prescribed
+	[ "$status" -eq 0 ]
+	"$XGHOST" theme set tokyonight >/dev/null
+
+	local shown="$BATS_TEST_TMPDIR/show-config"
+	run --separate-stderr ghostty +show-config
+	[ "$status" -eq 0 ]
+	printf '%s\n' "$output" >"$shown"
+	run grep '^font-family = ' "$shown"
+	[ "$status" -eq 0 ]
+	[ "$output" = 'font-family = JetBrainsMono Nerd Font' ]
+
+	run "$XGHOST" settings set KNOB_FONT 'CaskaydiaCove Nerd Font'
+	[ "$status" -eq 0 ]
+	run --separate-stderr ghostty +show-config
+	[ "$status" -eq 0 ]
+	printf '%s\n' "$output" >"$shown"
+	run grep '^font-family = ' "$shown"
+	[ "$status" -eq 0 ]
+	[ "$output" = 'font-family = CaskaydiaCove Nerd Font' ]
 }
 
 # The bridge is what makes the relative include resolve. Without it the include
