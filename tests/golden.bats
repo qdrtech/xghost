@@ -194,7 +194,7 @@ tokyonight" ]
 	[ "$count" -gt 0 ]
 }
 
-# The three knobs of schema/knobs.conf, each one at both of its golden values.
+# The four knobs of schema/knobs.conf, each one at both of its golden values.
 # A knob reaches a real file of a real bundle, and this is where that is proved
 # against committed text rather than against a render.
 @test "each knob reaches the generated output at both knob sets" {
@@ -224,6 +224,22 @@ tokyonight" ]
 		[ "$status" -eq 0 ]
 		run grep -Fx 'font-family = CaskaydiaCove Nerd Font' \
 			"$GOLDEN_DIR/alternate/$theme/ghostty/font.conf"
+		[ "$status" -eq 0 ]
+		run grep -F 'font-family: "JetBrainsMono Nerd Font", sans-serif;' \
+			"$GOLDEN_DIR/default/$theme/waybar/knobs.css"
+		[ "$status" -eq 0 ]
+		run grep -F 'font-family: "CaskaydiaCove Nerd Font", sans-serif;' \
+			"$GOLDEN_DIR/alternate/$theme/waybar/knobs.css"
+		[ "$status" -eq 0 ]
+
+		# KNOB_BAR_POSITION is a scalar, and it reaches the one key of the bar
+		# that the prescribed configuration is not allowed to hold. The golden
+		# trees are therefore every theme at every bar position.
+		run grep -Fx '  "position": "top"' \
+			"$GOLDEN_DIR/default/$theme/waybar/position.json"
+		[ "$status" -eq 0 ]
+		run grep -Fx '  "position": "bottom"' \
+			"$GOLDEN_DIR/alternate/$theme/waybar/position.json"
 		[ "$status" -eq 0 ]
 	done < <("$XGHOST" theme list)
 }

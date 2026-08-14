@@ -1,0 +1,162 @@
+/* The Waybar style sheet of xghost.
+ *
+ * Prescribed configuration. The project owns it, and 'xghost config link'
+ * symlinks the directory that holds it to ~/.config/waybar. Do not edit it: an
+ * edit dirties the checkout and conflicts on the next pull. See
+ * docs/adr/0001-prescribed-config-architecture.md.
+ *
+ * The two imports below are the generated half of the styling, and they come
+ * first for two reasons. A colour has to be defined before a rule names it, and
+ * a rule of this file wins over a rule of the same weight above it. The second
+ * reason is the rule this file lives by, and it is the rule the configuration
+ * file beside it lives by as well: a property the generated files set must not
+ * be set here, or the generated value would be overruled and the theme, or the
+ * knob, would change nothing.
+ *
+ * So this file names no colour of its own beyond the greys of a shadow, and no
+ * font family at all. Every colour it names is defined by colors.css.
+ *
+ * GTK expands neither an environment variable nor '~' in an '@import', and an
+ * import that reaches nothing is fatal: Waybar exits 1. The path is therefore
+ * relative to this file, and it travels through the bridge that 'xghost config
+ * link' creates. Both of its ends follow the environment.
+ * docs/adr/0002-the-bridge-to-the-generated-output.md records it.
+ */
+
+@import "../xghost-generated/waybar/colors.css";
+@import "../xghost-generated/waybar/knobs.css";
+
+* {
+  font-size: 13px;
+}
+
+window#waybar {
+  background: @bg;
+  color: @text;
+}
+
+.modules-left,
+.modules-center,
+.modules-right {
+  padding: 10px;
+  margin: 10px;
+  border-radius: 8px;
+  background: alpha(@surface, 0.85);
+  box-shadow: 0px 0px 6px rgba(0, 0, 0, 0.35);
+}
+
+tooltip {
+  background: @surface;
+  color: @text;
+}
+
+#clock:hover,
+#custom-pacman:hover,
+#custom-notification:hover,
+#bluetooth:hover,
+#network:hover,
+#cpu:hover,
+#memory:hover,
+#temperature:hover {
+  transition: all 0.3s ease;
+  color: @accent;
+}
+#custom-notification {
+  padding: 0px 5px;
+  transition: all 0.3s ease;
+  color: @text;
+}
+#clock {
+  margin-top: 5px;
+  padding: 0px 10px 0px 10px;
+  color: @text;
+  transition: all 0.3s ease;
+}
+#custom-pacman {
+  padding: 0px 5px;
+  transition: all 0.3s ease;
+  color: @text;
+}
+#workspaces {
+  padding: 0px 5px;
+}
+#workspaces button {
+  all: unset;
+  padding: 0px 5px;
+  color: alpha(@text_muted, 0.4);
+  transition: all 0.2s ease;
+}
+#workspaces button:hover {
+  color: rgba(0, 0, 0, 0);
+  border: none;
+  text-shadow: 0px 0px 1.5px rgba(0, 0, 0, 0.5);
+  transition: all 1s ease;
+}
+#workspaces button.active {
+  color: @text;
+  border: none;
+  text-shadow: 0px 0px 2px rgba(0, 0, 0, 0.5);
+}
+#workspaces button.empty {
+  color: rgba(0, 0, 0, 0);
+  border: none;
+  text-shadow: 0px 0px 1.5px rgba(0, 0, 0, 0.2);
+}
+#workspaces button.empty:hover {
+  color: rgba(0, 0, 0, 0);
+  border: none;
+  text-shadow: 0px 0px 1.5px rgba(0, 0, 0, 0.5);
+  transition: all 1s ease;
+}
+#workspaces button.empty.active {
+  color: @text_muted;
+  border: none;
+  text-shadow: 0px 0px 2px rgba(0, 0, 0, 0.5);
+}
+#bluetooth {
+  padding: 0px 5px;
+  transition: all 0.3s ease;
+  color: @text;
+}
+#network {
+  padding: 0px 10px;
+  transition: all 0.3s ease;
+  color: @text;
+}
+#group-expand {
+  padding: 0px 5px;
+  transition: all 0.3s ease;
+}
+#custom-expand {
+  padding: 0px 5px;
+  color: alpha(@text, 0.2);
+  text-shadow: 0px 0px 2px rgba(0, 0, 0, 0.7);
+  transition: all 0.3s ease;
+}
+#custom-expand:hover {
+  color: rgba(255, 255, 255, 0.2);
+  text-shadow: 0px 0px 2px rgba(255, 255, 255, 0.5);
+}
+#cpu,
+#memory,
+#temperature {
+  padding: 0px 5px;
+  transition: all 0.3s ease;
+  color: @text;
+}
+#custom-endpoint {
+  color: transparent;
+  text-shadow: 0px 0px 1.5px rgba(0, 0, 0, 1);
+}
+#tray {
+  padding: 0px 5px;
+  transition: all 0.3s ease;
+}
+#tray menu * {
+  padding: 0px 5px;
+  transition: all 0.3s ease;
+}
+#tray menu separator {
+  padding: 0px 5px;
+  transition: all 0.3s ease;
+}

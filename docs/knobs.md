@@ -127,19 +127,27 @@ therefore names the schema and never sends you to correct a file of your own.
 
 ## The knobs of today
 
-| Knob              | Values                                              | Default                 |
-| ----------------- | --------------------------------------------------- | ----------------------- |
-| `KNOB_ANIMATIONS` | `on`, `off`                                         | `on`                    |
-| `KNOB_GAP_SIZE`   | `0`, `5`, `10`, `15`, `20`                          | `10`                    |
-| `KNOB_FONT`       | `JetBrainsMono Nerd Font`, `CaskaydiaCove Nerd Font` | `JetBrainsMono Nerd Font` |
+| Knob                 | Values                                              | Default                 |
+| -------------------- | --------------------------------------------------- | ----------------------- |
+| `KNOB_ANIMATIONS`    | `on`, `off`                                         | `on`                    |
+| `KNOB_GAP_SIZE`      | `0`, `5`, `10`, `15`, `20`                          | `10`                    |
+| `KNOB_FONT`          | `JetBrainsMono Nerd Font`, `CaskaydiaCove Nerd Font` | `JetBrainsMono Nerd Font` |
+| `KNOB_BAR_POSITION`  | `top`, `bottom`                                     | `top`                   |
 
 Where each one lands:
 
-| Knob              | Reaches                                                              |
-| ----------------- | --------------------------------------------------------------------- |
-| `KNOB_ANIMATIONS` | `generated/hypr/animation.conf`, the whole `animations` block of Hyprland. |
-| `KNOB_GAP_SIZE`   | `generated/hypr/knobs.conf`, `gaps_in` and `gaps_out` of Hyprland.    |
-| `KNOB_FONT`       | `generated/hypr/knobs.conf`, `misc:font_family` of Hyprland, and `generated/ghostty/font.conf`, `font-family` of Ghostty. Not the lock screen. |
+| Knob                 | Reaches                                                              |
+| -------------------- | --------------------------------------------------------------------- |
+| `KNOB_ANIMATIONS`    | `generated/hypr/animation.conf`, the whole `animations` block of Hyprland. |
+| `KNOB_GAP_SIZE`      | `generated/hypr/knobs.conf`, `gaps_in` and `gaps_out` of Hyprland.    |
+| `KNOB_FONT`          | `generated/hypr/knobs.conf`, `misc:font_family` of Hyprland, `generated/ghostty/font.conf`, `font-family` of Ghostty, and `generated/waybar/knobs.css`, the family the bar draws in. Not the lock screen. |
+| `KNOB_BAR_POSITION`  | `generated/waybar/position.json`, the `position` of the bar.          |
+
+`KNOB_BAR_POSITION` names two of the four positions Waybar draws. `left` and
+`right` turn the bar into a column, and the style sheet of
+[the Waybar bundle](bundles/waybar.md) lays every module out across the screen
+rather than down it, so a value reaches the list only with the styling that
+makes it a bar somebody would want.
 
 `KNOB_GAP_SIZE` is one number for both gaps: between two windows, and between a
 window and the edge of the screen. The dotfiles this desktop comes from used 10
@@ -158,7 +166,7 @@ package:
 
 ### The lock screen keeps its own font
 
-`KNOB_FONT` reaches the compositor and the terminal. It does not reach
+`KNOB_FONT` reaches the compositor, the terminal and the bar. It does not reach
 `hyprlock`, which draws the clock and your user name in the family written out
 in `config/hypr/hyprlock.conf`.
 
@@ -179,8 +187,8 @@ The renderer has two substitution mechanisms, and a knob drives either one. It
 is the same table of values a machine fact and a theme colour reach, so a knob
 adds no mechanism of its own. [Theming](theming.md) documents both.
 
-**A scalar knob** is substituted into a template by name. `KNOB_GAP_SIZE` and
-`KNOB_FONT` are scalars:
+**A scalar knob** is substituted into a template by name. `KNOB_GAP_SIZE`,
+`KNOB_FONT` and `KNOB_BAR_POSITION` are scalars:
 
 ```
 gaps_in = @KNOB_GAP_SIZE@
@@ -195,6 +203,13 @@ templates/hypr/animation.conf.choice.KNOB_ANIMATIONS/
   on       the prescribed animation set
   off      animations { enabled = false }
 ```
+
+`KNOB_BAR_POSITION` is the case that shows where the line between the two lies.
+It moves the bar from one edge of the screen to the other, which sounds
+structural, and it is a scalar: the position is one word of one key, and the
+styling of the bar is symmetric, so nothing else moves with it.
+[The Waybar bundle](bundles/waybar.md) records the decision and what would
+reverse it.
 
 The value is never used to build a path. The chosen fragment is looked up among
 the files the renderer already found, so a value can reach nothing outside that
