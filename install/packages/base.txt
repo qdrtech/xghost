@@ -1,0 +1,71 @@
+# The base package manifest.
+#
+# Every package an xghost desktop needs from an official Arch repository. This
+# file is the single source of truth for those dependencies: the packaging step
+# installs exactly what is here, and nothing installs a package this file does
+# not name.
+#
+# The format:
+#
+#   - One package per line.
+#   - A '#' starts a comment. It may open a line or follow a package name.
+#   - An empty line is allowed, and the white space at both ends is dropped.
+#
+# A comment carries no meaning to the installer. The file a package is in is
+# what says which tool installs it: pacman installs this file, and an AUR helper
+# installs aur.txt beside it. docs/installing.md records why the two are two
+# files.
+#
+# Where the list comes from:
+#
+#   - The package table of each bundle page under docs/bundles/.
+#   - The dependency tables of qdrtech/dotfiles, docs/installation.md, section
+#     "Required for the desktop session".
+#
+# One name moved between the two manifests. Both of those tables call hyprshot
+# an AUR package, and it is in the 'extra' repository today, so pacman installs
+# it and the base installation needs no AUR helper for it. 'pacman -Si hyprshot'
+# names the repository.
+#
+# What is not here:
+#
+#   - A package a later bundle owns. The bar (waybar, issue #12), the launcher
+#     (rofi, issue #13) and the notifications (swaync, issue #14) arrive with
+#     their own bundles, and each one adds its line here then.
+#   - A package of the Arch 'base' group, such as util-linux for 'flock' and
+#     systemd for 'localectl'. Every Arch installation already has those, and
+#     declaring them would say that this project chose them.
+
+# The terminal. docs/bundles/ghostty.md.
+ghostty
+
+# The compositor and its daemons. docs/bundles/hyprland.md.
+hyprland
+hypridle
+hyprlock
+hyprpaper
+
+# What a desktop session needs behind the compositor.
+xdg-desktop-portal            # the portal front end
+xdg-desktop-portal-hyprland   # the backend, for screen sharing
+polkit-gnome                  # the authentication agent
+
+# The programs the keybindings and the autostart name.
+hyprshot                      # the two screenshot keybindings
+psmisc                        # killall, in the two restart keybindings
+wireplumber                   # wpctl, in the volume keybindings
+brightnessctl                 # the brightness keybindings
+playerctl                     # the media keybindings
+network-manager-applet        # nm-applet, in the autostart
+blueman                       # blueman-applet, in the autostart
+nautilus                      # $fileManager
+
+# The fonts KNOB_FONT offers. The default is the first. The second is here
+# because a font a knob offers and the machine does not carry falls back in
+# silence, which is the one failure a knob must not have.
+ttf-jetbrains-mono-nerd
+ttf-cascadia-code-nerd
+
+# What xghost itself reads. 'xdg-settings' is the source of the default browser
+# in the machine facts. docs/machine-facts.md, "Where each fact comes from".
+xdg-utils

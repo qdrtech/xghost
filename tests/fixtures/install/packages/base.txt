@@ -1,0 +1,10 @@
+# A base manifest for the tests. Every name here is a package the machine that
+# runs the suite may or may not have; the stub pacman decides that, never the
+# real one.
+
+fixture-one
+fixture-two   # a trailing comment carries no meaning
+
+# A comment on its own line, then an empty line.
+
+fixture-three

@@ -182,10 +182,18 @@ ligatures that the `font-feature` lines of the prescribed file switch on. It
 also carries the Nerd Font glyphs that the bar and the shell prompt need, so
 one font serves the whole desktop.
 
-The package belongs in the package manifest, which
-[issue #7](https://github.com/qdrtech/xghost/issues/7) builds. Until that
-manifest exists, the font is a dependency this document records and the
-installer does not yet place.
+The package is declared in `install/packages/base.txt`, with `ghostty` itself.
+[Installing](../installing.md) records the manifest.
+
+## The packages this bundle needs
+
+| Package                   | Repository | What needs it                                  |
+| ------------------------- | ---------- | ---------------------------------------------- |
+| `ghostty`                 | `extra`    | The terminal itself.                           |
+| `ttf-jetbrains-mono-nerd` | `extra`    | The font of the prescribed configuration. The Hyprland bundle names it as well. |
+
+Both are declared in `install/packages/base.txt`, and `tests/install.bats`
+fails when a package this table lists is in no manifest.
 
 ### The family is a knob, and the prescribed file names none
 
