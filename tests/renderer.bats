@@ -866,6 +866,8 @@ tokyonight" ]
 		. "$1/lib/detect.sh"
 		. "$1/lib/theme.sh"
 		. "$1/lib/theme.sh"
+		. "$1/lib/linker.sh"
+		. "$1/lib/linker.sh"
 		printf "sound\n"
 	' _ "$ROOT_DIR"
 	[ "$status" -eq 0 ]

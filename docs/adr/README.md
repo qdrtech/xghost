@@ -9,9 +9,10 @@ learn how.
 
 ## Index
 
-| ADR                                            | Title                          | Status   |
-| ---------------------------------------------- | ------------------------------ | -------- |
-| [0001](0001-prescribed-config-architecture.md) | Prescribed config architecture | accepted |
+| ADR                                                | Title                              | Status   |
+| -------------------------------------------------- | ---------------------------------- | -------- |
+| [0001](0001-prescribed-config-architecture.md)     | Prescribed config architecture     | accepted |
+| [0002](0002-the-bridge-to-the-generated-output.md) | The bridge to the generated output | accepted |
 
 ## Format
 
