@@ -35,6 +35,8 @@ XGHOST_LIB_DIR=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # shellcheck source=lib/palette.sh
 . "$XGHOST_LIB_DIR/palette.sh"
+# shellcheck source=lib/facts.sh
+. "$XGHOST_LIB_DIR/facts.sh"
 # shellcheck source=lib/renderer.sh
 . "$XGHOST_LIB_DIR/renderer.sh"
 
@@ -60,6 +62,10 @@ readonly THEME_FILE_MODE=0644
 
 # Set by the functions below when they return non-zero.
 THEME_PROBLEM=
+
+# The machine facts file the render reads, or empty when there is none. It is
+# resolved by theme_set and read by theme_set_locked.
+THEME_FACTS_FILE=
 
 xghost_warn() {
 	printf '%s: %s\n' "$XGHOST_PROGRAM" "$*" >&2
@@ -213,6 +219,7 @@ theme_current() {
 # the renderer found is reported on standard error first.
 theme_set() {
 	local name=$1
+	local theme_facts_file=
 
 	THEME_PROBLEM=
 
@@ -231,6 +238,21 @@ theme_set() {
 
 	if ! theme_state_paths; then
 		return 1
+	fi
+
+	# The machine facts are the second input of the renderer. A machine that
+	# has not run 'xghost machine detect' has no such file, and the render then
+	# has the palette alone. That is not a failure here: a template that names
+	# a machine fact fails the render itself, and names the value it wanted.
+	#
+	# Anything at that path is passed on, whatever it is. A directory or a link
+	# that points at nothing is a broken file rather than an absent one, and
+	# facts_load names which of the two it found. Testing for a regular file
+	# here would report a missing value instead of a broken file.
+	THEME_FACTS_FILE=
+	if theme_facts_file=$(facts_path) &&
+		{ [ -e "$theme_facts_file" ] || [ -L "$theme_facts_file" ]; }; then
+		THEME_FACTS_FILE=$theme_facts_file
 	fi
 
 	if ! command -v flock >/dev/null 2>&1; then
@@ -287,7 +309,7 @@ theme_set_locked() {
 	trap 'rm -rf "$staging"; exit 130' INT TERM HUP
 
 	local problem
-	if ! render_tree "$XGHOST_TEMPLATE_DIR" "$theme_dir" '' '' "$staging/tree"; then
+	if ! render_tree "$XGHOST_TEMPLATE_DIR" "$theme_dir" "$THEME_FACTS_FILE" '' "$staging/tree"; then
 		for problem in "${RENDER_ERRORS[@]}"; do
 			xghost_warn "$name: $problem"
 		done

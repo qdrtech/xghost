@@ -55,6 +55,17 @@ The renderer writes it to `$XDG_STATE_HOME/xghost/generated`, which is usually
 rebuilds it on demand and nobody edits it. [Theming](theming.md) records why the
 state directory holds it.
 
+## Where the machine facts go
+
+Machine facts are the second file category of
+[ADR 0001](adr/0001-prescribed-config-architecture.md). They belong to the
+user, so they never land in the checkout either.
+
+`xghost machine detect` writes them to `$XDG_CONFIG_HOME/xghost/machine.conf`,
+which is usually `~/.config/xghost/machine.conf`. An update replaces the
+checkout and never writes to your config directory, so the file survives every
+update untouched. [Machine facts](machine-facts.md) documents the file.
+
 ## A directory that holds only `.gitkeep`
 
 Several directories are empty today, because their content arrives with a later

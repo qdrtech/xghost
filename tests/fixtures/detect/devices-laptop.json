@@ -1,0 +1,57 @@
+{
+"mice": [
+    {
+        "address": "0x5581aa1f0000",
+        "name": "elan1200:00-04f3:30fc-touchpad",
+        "defaultSpeed": 0.00000
+    },    {
+        "address": "0x5581aa1f1000",
+        "name": "logitech-usb-receiver-mouse",
+        "defaultSpeed": 0.00000
+    }
+],
+"keyboards": [
+    {
+        "address": "0x5581aa1f2000",
+        "name": "at-translated-set-2-keyboard",
+        "rules": "",
+        "model": "pc105",
+        "layout": "gb",
+        "variant": "",
+        "options": "",
+        "active_layout_index": 0,
+        "active_keymap": "English (UK)",
+        "capsLock": false,
+        "numLock": false,
+        "main": true
+    },    {
+        "address": "0x5581aa1f3000",
+        "name": "power-button",
+        "rules": "",
+        "model": "",
+        "layout": "us",
+        "variant": "",
+        "options": "",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": false,
+        "main": false
+    }
+],
+"tablets": [
+
+],
+"touch": [
+    {
+        "address": "0x5581aa1f4000",
+        "name": "elan901c:00-04f3:2c2a"
+    }
+],
+"switches": [
+    {
+        "address": "0x5581aa1f5000",
+        "name": "lid-switch"
+    }
+]
+}

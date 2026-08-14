@@ -1,0 +1,6 @@
+   System Locale: LANG=en_US.UTF-8
+       VC Keymap: dvorak
+      X11 Layout: n/a
+       X11 Model: n/a
+     X11 Variant: n/a
+     X11 Options: n/a

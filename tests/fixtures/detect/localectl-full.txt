@@ -1,0 +1,6 @@
+   System Locale: LANG=en_GB.UTF-8
+       VC Keymap: uk
+      X11 Layout: gb
+       X11 Model: pc105
+     X11 Variant: colemak
+     X11 Options: ctrl:nocaps,compose:ralt
