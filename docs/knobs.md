@@ -78,6 +78,8 @@ The rules:
   reader drops.
 - The white space at both ends of a name and of a value is dropped.
 - A value holds no control character. It is one line of plain text.
+- The file holds no NUL byte. It is a text file, and a reader that dropped the
+  byte without a word would run a value that is not the one in the file.
 - A value is text. The reader never expands a variable and never runs a command
   in it.
 
@@ -119,7 +121,9 @@ The rules the project holds itself to:
 
 A schema that breaks any of these fails the render and names the line, exactly
 as a bad palette does. A schema is a file of the project, so such a failure is a
-defect of xghost rather than of your machine.
+defect of xghost rather than of your machine. `xghost settings list` and
+`xghost settings set` say which of the two files failed, and a schema defect
+therefore names the schema and never sends you to correct a file of your own.
 
 ## The knobs of today
 
@@ -135,7 +139,7 @@ Where each one lands:
 | ----------------- | --------------------------------------------------------------------- |
 | `KNOB_ANIMATIONS` | `generated/hypr/animation.conf`, the whole `animations` block of Hyprland. |
 | `KNOB_GAP_SIZE`   | `generated/hypr/knobs.conf`, `gaps_in` and `gaps_out` of Hyprland.    |
-| `KNOB_FONT`       | `generated/hypr/knobs.conf`, `misc:font_family` of Hyprland, and `generated/ghostty/font.conf`, `font-family` of Ghostty. |
+| `KNOB_FONT`       | `generated/hypr/knobs.conf`, `misc:font_family` of Hyprland, and `generated/ghostty/font.conf`, `font-family` of Ghostty. Not the lock screen. |
 
 `KNOB_GAP_SIZE` is one number for both gaps: between two windows, and between a
 window and the edge of the screen. The dotfiles this desktop comes from used 10
@@ -151,6 +155,23 @@ package:
 | ------------------------- | -------------------------- | ---------- |
 | `JetBrainsMono Nerd Font` | `ttf-jetbrains-mono-nerd`  | `extra`    |
 | `CaskaydiaCove Nerd Font` | `ttf-cascadia-code-nerd`   | `extra`    |
+
+### The lock screen keeps its own font
+
+`KNOB_FONT` reaches the compositor and the terminal. It does not reach
+`hyprlock`, which draws the clock and your user name in the family written out
+in `config/hypr/hyprlock.conf`.
+
+The reason is the one the colours of that file already carry. hyprlock has no
+offline check of its configuration, the way Hyprland has `--verify-config` and
+Ghostty has `+validate-config`, so a generated file it refused would reach a
+machine unproven. What that costs is a lock screen that does not start, and a
+machine that goes idle and never locks. The project takes a lock screen on the
+default family over that risk, and issue #20 owns theming the file as a whole.
+
+A test in `tests/hyprland.bats` pins the family in `hyprlock.conf` to the
+default of `KNOB_FONT`, so the lock screen cannot drift onto a family this
+desktop no longer ships.
 
 ## The two kinds of knob
 
@@ -189,9 +210,28 @@ place.
 2. writes the value into your file. The line that declares the knob is replaced
    where it stands, and a knob your file does not yet name is appended. Every
    comment you wrote, and every other line, is kept exactly as it is. The write
-   is one rename, so an interrupted write leaves the previous file whole.
+   is one rename of a complete new file, so an interrupted write, and a write
+   that ran out of room, both leave the previous file whole.
 3. renders the configuration again, which is what `xghost theme set` does. The
    generated output carries the new value the moment the command returns.
+
+Four properties of that write, and each one is the arrangement you made rather
+than a detail of the writer:
+
+- **Your symbolic link is kept.** A knobs file you link in from a dotfiles
+  repository is written through the link, so the file in your repository carries
+  the new value and the link is still a link. The command never puts a regular
+  file in its place.
+- **The mode of your file is kept.** A file you set to `0600` stays `0600`. A
+  file the command creates is `0644`, because the file holds no secret and the
+  renderer reads it.
+- **Two commands at once do not lose an update.** The read and the write are one
+  step under a lock, at `knobs.conf.lock` beside your file, so a second
+  `settings set` waits for the first instead of writing over it. A settings
+  application is the case this is for.
+- **A write that fails changes nothing.** The new file is written whole before
+  anything is renamed, and a failure part way through is reported and dropped.
+  The temporary file goes with it, and so does the one an interrupt leaves.
 
 What it does **not** do: it reloads nothing. A program that is already running
 keeps the configuration it started with, and shows the change when it next reads
@@ -255,6 +295,17 @@ ADR 0001 records that decision, and records that it is reversible.
 two commands: every way a schema can be wrong, every way a knobs file can be
 wrong, a scalar knob, a structural knob, the collision above, and what each
 command writes and prints.
+
+It covers the write itself as well, because what goes wrong there costs a user
+their preferences and never shows up in the value the command prints: a knobs
+file that is a symbolic link, the mode of a file that is already there, two
+`settings set` commands at once, and a write that runs out of room. The last one
+sets `ulimit -f` and ignores `SIGXFSZ`, so the write is refused with `EFBIG`
+exactly as a full disk refuses it.
+
+`tests/hyprland.bats` reads every prescribed file and every template, and
+asserts that a setting a knob owns is written in one place. A guard that named
+the files by hand let the same setting be added to a third file and stay green.
 
 `tests/golden.bats` renders every theme at two knob sets and compares both with
 the committed output under `tests/golden/<knob set>/<theme>/`. One of its tests

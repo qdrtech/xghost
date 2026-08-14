@@ -48,8 +48,21 @@ declare -A KNOBS_DECLARED=()
 # Set by both readers.
 KNOBS_ERRORS=()
 
-# Set by knobs_write.
+# Set by both readers beside KNOBS_ERRORS: which of the two files the problems
+# above belong to, as 'schema' or 'knobs'. It is empty when neither failed.
+#
+# The two files have two owners, so the report a caller prints differs by that
+# much: a broken knobs file is a file the user corrects, and a broken schema is
+# a defect of xghost. Without this a caller can only name the file it asked
+# about, which is how a schema defect came to tell a user to correct a knobs
+# file that did not exist.
+KNOBS_ERROR_SOURCE=
+
+# Set by knobs_write and by knobs_lock.
 KNOBS_PROBLEM=
+
+# Set by knobs_lock and closed by knobs_unlock. Empty when no lock is held.
+KNOBS_LOCK_FD=
 
 # Every knob key starts with this prefix. The prefix is what keeps a knob, a
 # machine fact and a theme colour in three namespaces, so the renderer can hold
@@ -67,11 +80,27 @@ readonly KNOBS_SCHEMA_FIELDS="'knob', 'summary', 'value' and 'default'"
 readonly KNOBS_DIR_NAME=xghost
 readonly KNOBS_FILE_NAME=knobs.conf
 
-# The mode of the knobs file. The file holds no secret and it is read by the
-# renderer, so it is readable by everybody and writable by its owner alone. The
-# mode is set by the writer rather than left to the umask, so 'xghost settings
-# set' produces the same file on every machine.
+# The mode of a knobs file this module creates. The file holds no secret and it
+# is read by the renderer, so it is readable by everybody and writable by its
+# owner alone. The mode is set by the writer rather than left to the umask, so
+# 'xghost settings set' produces the same file on every machine.
+#
+# It is the mode of a new file alone. A file that is already there keeps the
+# mode it has: a user who narrowed their own file to 0600 chose that, and a
+# writer that widened it again would undo the choice without saying so.
 readonly KNOBS_FILE_MODE=0644
+
+# The suffix of the lock file that makes one write of the knobs exclude
+# another. The lock sits beside the knobs file, at 'knobs.conf.lock', because
+# that is the one directory both writers can always reach: a machine with no
+# state directory still sets a knob. See knobs_lock.
+readonly KNOBS_LOCK_SUFFIX=.lock
+
+# How much of an offending line an error message carries. A knobs file is a
+# text file a person edits, and a line of it that is not a pair may be as long
+# as the file itself. The report names enough of it to recognise, and never
+# empties a screen for one line.
+readonly KNOBS_EXCERPT_LENGTH=80
 
 # The message every caller prints when the file has no home. It is written once
 # here, so the commands and the renderer name the same three variables.
@@ -148,6 +177,52 @@ knobs_readable() {
 	fi
 }
 
+# Print as much of one piece of text as an error message carries.
+#
+#   knobs_excerpt TEXT
+#
+# The text comes out of a file, so its length is the length of a line of that
+# file. Text longer than KNOBS_EXCERPT_LENGTH is cut there and marked, so a
+# report names the line without printing 200 KB of it.
+knobs_excerpt() {
+	local text=$1
+
+	if [ "${#text}" -le "$KNOBS_EXCERPT_LENGTH" ]; then
+		printf '%s' "$text"
+		return 0
+	fi
+
+	printf '%s... (%s characters in all)' \
+		"${text:0:$KNOBS_EXCERPT_LENGTH}" "${#text}"
+}
+
+# Return 0 when one file holds a NUL byte.
+#
+#   knobs_holds_nul FILE
+#
+# Both files are text files, and the reader below reads them a line at a time.
+# 'read' drops a NUL byte without a word, so 'KNOB_ANIMATIONS=of<NUL>f' would
+# reach the schema as 'off' and be accepted: the file on disk and the value the
+# desktop runs would differ, and nothing would say so. The renderer refuses a
+# template that holds one for the same reason; see render_file in
+# lib/renderer.sh.
+#
+# 'read' with NUL as its delimiter returns zero only when the file holds one.
+knobs_holds_nul() {
+	local file=$1
+	local content fd
+
+	if ! { exec {fd}<"$file"; } 2>/dev/null; then
+		return 1
+	fi
+	if IFS= read -r -d '' content <&"$fd"; then
+		{ exec {fd}<&-; } 2>/dev/null
+		return 0
+	fi
+	{ exec {fd}<&-; } 2>/dev/null
+	return 1
+}
+
 # Split one line of a data file into KNOBS_KEY and KNOBS_VALUE.
 #
 #   knobs_split_line LINE
@@ -220,7 +295,15 @@ knobs_schema_load() {
 	KNOBS_DEFAULT=()
 	KNOBS_ERRORS=()
 
+	# Every problem this function finds belongs to the schema, which is a file
+	# of the project.
+	KNOBS_ERROR_SOURCE=schema
+
 	if ! knobs_readable "$file" 'the knob schema'; then
+		return 1
+	fi
+	if knobs_holds_nul "$file"; then
+		KNOBS_ERRORS+=("the schema holds a NUL byte, and it is a text file: $file")
 		return 1
 	fi
 
@@ -236,7 +319,7 @@ knobs_schema_load() {
 			continue
 		fi
 		if [ "$status" -eq 2 ]; then
-			KNOBS_ERRORS+=("the schema, line $lineno: expected 'field=value', found '$line'")
+			KNOBS_ERRORS+=("the schema, line $lineno: expected 'field=value', found '$(knobs_excerpt "$line")'")
 			continue
 		fi
 		key=$KNOBS_KEY
@@ -351,7 +434,11 @@ knobs_schema_load() {
 		KNOBS_ERRORS+=("the schema declares no knob: $file")
 	fi
 
-	[ "${#KNOBS_ERRORS[@]}" -eq 0 ]
+	if [ "${#KNOBS_ERRORS[@]}" -eq 0 ]; then
+		KNOBS_ERROR_SOURCE=
+		return 0
+	fi
+	return 1
 }
 
 # Return 0 when one value is one of the values a knob takes.
@@ -429,6 +516,7 @@ knobs_load() {
 	KNOBS_SCALARS=()
 	KNOBS_DECLARED=()
 	KNOBS_ERRORS=()
+	KNOBS_ERROR_SOURCE=
 
 	if [ -z "$schema_file" ]; then
 		KNOBS_NAMES=()
@@ -439,6 +527,7 @@ knobs_load() {
 		# and reading it as though every value were allowed is the guess this
 		# project does not make.
 		if [ -n "$knobs_file" ]; then
+			KNOBS_ERROR_SOURCE=schema
 			KNOBS_ERRORS+=("no knob schema was given, so the knobs file cannot be read: $knobs_file")
 			return 1
 		fi
@@ -457,7 +546,14 @@ knobs_load() {
 		return 0
 	fi
 
+	# Every problem below belongs to the file the user owns.
+	KNOBS_ERROR_SOURCE=knobs
+
 	if ! knobs_readable "$knobs_file" 'the knobs file'; then
+		return 1
+	fi
+	if knobs_holds_nul "$knobs_file"; then
+		KNOBS_ERRORS+=("the knobs file holds a NUL byte, and it is a text file: $knobs_file")
 		return 1
 	fi
 
@@ -473,18 +569,18 @@ knobs_load() {
 			continue
 		fi
 		if [ "$status" -eq 2 ]; then
-			KNOBS_ERRORS+=("line $lineno: expected 'KNOB_NAME=value', found '$line'")
+			KNOBS_ERRORS+=("line $lineno: expected 'KNOB_NAME=value', found '$(knobs_excerpt "$line")'")
 			continue
 		fi
 		key=$KNOBS_KEY
 		value=$KNOBS_VALUE
 
 		if [[ ! $key =~ $KNOBS_KEY_PATTERN ]]; then
-			KNOBS_ERRORS+=("line $lineno: '$key' is not a knob; a knob starts with '$KNOBS_PREFIX' and then holds upper case letters, digits and underscores")
+			KNOBS_ERRORS+=("line $lineno: '$(knobs_excerpt "$key")' is not a knob; a knob starts with '$KNOBS_PREFIX' and then holds upper case letters, digits and underscores")
 			continue
 		fi
 		if [ -z "${KNOBS_DEFAULT[$key]+set}" ]; then
-			KNOBS_ERRORS+=("line $lineno: '$key' is not a knob this version of xghost has. Run 'xghost settings list' for every knob it has.")
+			KNOBS_ERRORS+=("line $lineno: '$(knobs_excerpt "$key")' is not a knob this version of xghost has. Run 'xghost settings list' for every knob it has.")
 			continue
 		fi
 		if [ -n "${seen[$key]+set}" ]; then
@@ -496,7 +592,7 @@ knobs_load() {
 			continue
 		fi
 		if ! knobs_allows "$key" "$value"; then
-			KNOBS_ERRORS+=("line $lineno: '$value' is not a value of '$key'. It takes $(knobs_format_values "$key").")
+			KNOBS_ERRORS+=("line $lineno: '$(knobs_excerpt "$value")' is not a value of '$key'. It takes $(knobs_format_values "$key").")
 			continue
 		fi
 
@@ -505,7 +601,11 @@ knobs_load() {
 		KNOBS_SCALARS[$key]=$value
 	done <"$knobs_file"
 
-	[ "${#KNOBS_ERRORS[@]}" -eq 0 ]
+	if [ "${#KNOBS_ERRORS[@]}" -eq 0 ]; then
+		KNOBS_ERROR_SOURCE=
+		return 0
+	fi
+	return 1
 }
 
 # Write one knob into the knobs file.
@@ -519,19 +619,172 @@ knobs_load() {
 # header that says who owns it.
 #
 # The write is atomic. The new file is built beside the old one and moved onto
-# it in one rename, so an interrupted write leaves the previous file whole.
+# it in one rename, so an interrupted write leaves the previous file whole. The
+# rename happens only when every line of the new file was written, so a write
+# that ran out of room leaves the previous file whole as well.
+#
+# A path the user made a symbolic link is written through the link, and the
+# link is kept. Somebody who keeps their knobs in a dotfiles repository and
+# links them here made that arrangement on purpose, and a writer that replaced
+# the link with a regular file would take it apart without a word: the next
+# 'stow' would put the old values back and nothing would say why. It is the
+# rule the linker already follows, which never clobbers a path the user made.
+#
+# The mode of a file that is already there is kept. A new file gets
+# KNOBS_FILE_MODE.
 #
 # The caller has read the file with knobs_load already, so no line of it is
-# invalid and no knob is declared twice.
+# invalid and no knob is declared twice. Two callers at once are kept apart by
+# knobs_lock, which the caller holds across the pair.
 #
 # Returns 1 and sets KNOBS_PROBLEM when the file is not written.
 knobs_write() {
 	local file=$1 name=$2 value=$3
-	local dir=${file%/*}
-	local temp line replaced=0 status
+	local target dir temp
 
 	KNOBS_PROBLEM=
 
+	# The write goes through a link rather than over it, so the temporary file
+	# is made beside the target and renamed onto it. Both are then in one
+	# directory, which is what keeps the rename a rename.
+	target=$file
+	if [ -L "$file" ]; then
+		if ! target=$(readlink -f -- "$file" 2>/dev/null) || [ -z "$target" ]; then
+			KNOBS_PROBLEM="the knobs file is a symbolic link that points at nothing, so there is nothing to write: $file"
+			return 1
+		fi
+	fi
+
+	dir=${target%/*}
+	if [ "$dir" = "$target" ]; then
+		dir=.
+	fi
+	if ! mkdir -p "$dir" 2>/dev/null; then
+		KNOBS_PROBLEM="cannot create the directory that holds the knobs: $dir"
+		return 1
+	fi
+
+	if ! temp=$(mktemp "$target.XXXXXXXX" 2>/dev/null); then
+		KNOBS_PROBLEM="cannot create a temporary file beside the knobs: $target"
+		return 1
+	fi
+
+	# An interrupted write leaves no temporary file behind. Without this a kill
+	# between the line above and the rename below drops one copy of the knobs
+	# file into the config directory of the user, and they collect there.
+	trap 'rm -f "$temp"; exit 130' INT TERM HUP
+
+	if ! knobs_write_lines "$target" "$name" "$value" 2>/dev/null >"$temp"; then
+		rm -f "$temp" 2>/dev/null
+		trap - INT TERM HUP
+		KNOBS_PROBLEM="cannot write the knobs, so the file is unchanged: $target"
+		return 1
+	fi
+
+	# A file that is already there keeps its own mode, and a new one is given
+	# the mode of the project.
+	if [ -e "$target" ]; then
+		if ! chmod --reference="$target" "$temp" 2>/dev/null; then
+			rm -f "$temp" 2>/dev/null
+			trap - INT TERM HUP
+			KNOBS_PROBLEM="cannot copy the mode of the knobs onto the new file: $target"
+			return 1
+		fi
+	elif ! chmod "$KNOBS_FILE_MODE" "$temp" 2>/dev/null; then
+		rm -f "$temp" 2>/dev/null
+		trap - INT TERM HUP
+		KNOBS_PROBLEM="cannot set the mode of the knobs: $target"
+		return 1
+	fi
+
+	if ! mv -f "$temp" "$target" 2>/dev/null; then
+		rm -f "$temp" 2>/dev/null
+		trap - INT TERM HUP
+		KNOBS_PROBLEM="cannot move the new knobs into place: $target"
+		return 1
+	fi
+
+	trap - INT TERM HUP
+}
+
+# Write the whole of the new knobs file to standard output.
+#
+#   knobs_write_lines FILE NAME VALUE
+#
+# The line that declares NAME is replaced where it stands, and a file that does
+# not name it gets the new pair at its end. Every other line is copied exactly
+# as it is.
+#
+# Every write is checked, and the first one that fails ends the function. A
+# group of commands carries the status of its last command alone, so a printf
+# that failed on a full disk in the middle of the copy would leave the caller
+# reading the status of the test that follows the loop, and the caller would
+# then rename a file cut off mid-word over the knobs of the user. 'set -e' is
+# off inside a function the caller tests, which is why each write says so
+# itself.
+#
+# Returns 1 when any part of the file was not written.
+knobs_write_lines() {
+	local file=$1 name=$2 value=$3
+	local line replaced=0 status
+
+	if [ -f "$file" ]; then
+		while IFS= read -r line || [ -n "$line" ]; do
+			status=0
+			knobs_split_line "$line" || status=$?
+			if [ "$status" -eq 0 ] && [ "$KNOBS_KEY" = "$name" ]; then
+				printf '%s=%s\n' "$name" "$value" || return 1
+				replaced=1
+				continue
+			fi
+			printf '%s\n' "$line" || return 1
+		done <"$file"
+	else
+		knobs_header || return 1
+	fi
+
+	if [ "$replaced" -eq 0 ]; then
+		printf '%s=%s\n' "$name" "$value" || return 1
+	fi
+}
+
+# Print the path of the lock file that guards one knobs file.
+#
+#   knobs_lock_path FILE
+knobs_lock_path() {
+	printf '%s\n' "$1$KNOBS_LOCK_SUFFIX"
+}
+
+# Take the exclusive lock on the knobs file.
+#
+#   knobs_lock FILE
+#
+# 'xghost settings set' reads the whole file, changes one line of it, and
+# renames the result into place. Two of them at once read the same file, and
+# the second rename then drops the knob the first one wrote, while both commands
+# report success. A settings application is the case where two writers are
+# expected rather than exotic, so the pair is locked: the caller holds this
+# across knobs_load and knobs_write, and the second command waits for the first.
+#
+# It is the primitive theme_set already holds across a theme switch, on a lock
+# file of its own. The two locks are separate files, so a command may hold this
+# one and then switch a theme without waiting on itself.
+#
+# Sets KNOBS_LOCK_FD, which knobs_unlock closes. Returns 1 and sets
+# KNOBS_PROBLEM when the lock is not taken.
+knobs_lock() {
+	local file=$1
+	local dir path fd
+
+	KNOBS_PROBLEM=
+	KNOBS_LOCK_FD=
+
+	if ! command -v flock >/dev/null 2>&1; then
+		KNOBS_PROBLEM="the 'flock' program is not installed, and a write of the knobs needs it to keep two writers apart. It ships in util-linux."
+		return 1
+	fi
+
+	dir=${file%/*}
 	if [ "$dir" = "$file" ]; then
 		dir=.
 	fi
@@ -540,45 +793,29 @@ knobs_write() {
 		return 1
 	fi
 
-	if ! temp=$(mktemp "$file.XXXXXXXX" 2>/dev/null); then
-		KNOBS_PROBLEM="cannot create a temporary file beside the knobs: $file"
+	# The lock file is opened by descriptor and never removed, because a lock on
+	# a file another process has already unlinked locks nothing.
+	path=$(knobs_lock_path "$file")
+	if ! { exec {fd}>"$path"; } 2>/dev/null; then
+		KNOBS_PROBLEM="cannot open the lock file $path"
+		return 1
+	fi
+	if ! flock -x "$fd" 2>/dev/null; then
+		{ exec {fd}>&-; } 2>/dev/null
+		KNOBS_PROBLEM="cannot lock the knobs at $file"
 		return 1
 	fi
 
-	{
-		if [ -f "$file" ]; then
-			while IFS= read -r line || [ -n "$line" ]; do
-				status=0
-				knobs_split_line "$line" || status=$?
-				if [ "$status" -eq 0 ] && [ "$KNOBS_KEY" = "$name" ]; then
-					printf '%s=%s\n' "$name" "$value"
-					replaced=1
-					continue
-				fi
-				printf '%s\n' "$line"
-			done <"$file"
-		else
-			knobs_header
-		fi
-		if [ "$replaced" -eq 0 ]; then
-			printf '%s=%s\n' "$name" "$value"
-		fi
-	} 2>/dev/null >"$temp" || {
-		rm -f "$temp" 2>/dev/null
-		KNOBS_PROBLEM="cannot write the knobs: $file"
-		return 1
-	}
+	KNOBS_LOCK_FD=$fd
+}
 
-	if ! chmod "$KNOBS_FILE_MODE" "$temp" 2>/dev/null; then
-		rm -f "$temp" 2>/dev/null
-		KNOBS_PROBLEM="cannot set the mode of the knobs: $file"
-		return 1
+# Release the lock knobs_lock took. Closing the descriptor releases it.
+knobs_unlock() {
+	if [ -z "$KNOBS_LOCK_FD" ]; then
+		return 0
 	fi
-	if ! mv -f "$temp" "$file" 2>/dev/null; then
-		rm -f "$temp" 2>/dev/null
-		KNOBS_PROBLEM="cannot move the new knobs into place: $file"
-		return 1
-	fi
+	{ exec {KNOBS_LOCK_FD}>&-; } 2>/dev/null
+	KNOBS_LOCK_FD=
 }
 
 # The header of a knobs file this module creates.

@@ -477,6 +477,33 @@ KNOB_LABEL=Plain Label" ]
 	[[ $output == *"line 1: expected 'KNOB_NAME=value'"* ]]
 }
 
+# 'read' drops a NUL byte without a word, so 'of<NUL>f' would reach the schema
+# as 'off' and be accepted: the file on disk and the value the desktop runs
+# would differ, and nothing would say so. The renderer refuses a template that
+# holds one for the same reason.
+@test "the knobs file reports a NUL byte rather than dropping it" {
+	plain_schema | use_own_schema
+	printf 'KNOB_SHAPE=squ\000are\n' >"$XGHOST_KNOBS_FILE"
+	load KNOB_SHAPE
+	[ "$status" -eq 1 ]
+	[[ $output == *"holds a NUL byte"* ]]
+	[[ $output != *"KNOB_SHAPE=square"* ]]
+}
+
+# A line of a knobs file may be as long as the file. The report names enough of
+# it to recognise and never empties a screen for one line.
+@test "an error message carries the start of a very long line and no more" {
+	plain_schema | use_own_schema
+	local junk
+	junk=$(printf 'J%.0s' $(seq 1 2000))
+	printf '%s\n' "$junk" >"$XGHOST_KNOBS_FILE"
+	load
+	[ "$status" -eq 1 ]
+	[[ $output == *"expected 'KNOB_NAME=value'"* ]]
+	[[ $output == *"... (2000 characters in all)"* ]]
+	[ "${#output}" -lt 400 ]
+}
+
 @test "the knobs file is never run" {
 	local evidence="$BATS_TEST_TMPDIR/evidence"
 	use_own_schema <<-EOF
@@ -717,6 +744,36 @@ label = Plain Label" ]
 	[[ $output != *"KNOB_ANIMATIONS = "* ]]
 }
 
+# The schema is a file of the project and the knobs file is a file of the user.
+# A schema defect that told the user to correct their own file would name a file
+# that has nothing wrong with it, and that a machine which has never run
+# 'settings set' does not even have.
+@test "settings list names the schema when the schema is what failed" {
+	use_own_schema <<-'EOF'
+		knob=KNOB_SHAPE
+		summary=The shape.
+		value=round
+		default=oval
+	EOF
+	[ ! -e "$XGHOST_KNOBS_FILE" ]
+	run "$XGHOST" settings list
+	[ "$status" -eq 1 ]
+	[[ $output == *"the knob schema has a problem: $XGHOST_KNOBS_SCHEMA"* ]]
+	[[ $output == *"defect of xghost rather than of your machine"* ]]
+	[[ $output != *"Correct that file"* ]]
+	[[ $output != *"the knobs at $XGHOST_KNOBS_FILE"* ]]
+}
+
+@test "settings list names the knobs file when the knobs file is what failed" {
+	make_knobs <<-'EOF'
+		KNOB_GAP_SIZE=7
+	EOF
+	run "$XGHOST" settings list
+	[ "$status" -eq 1 ]
+	[[ $output == *"the knobs at $XGHOST_KNOBS_FILE cannot be read"* ]]
+	[[ $output != *"defect of xghost"* ]]
+}
+
 @test "settings list takes no argument" {
 	run "$XGHOST" settings list extra
 	[ "$status" -eq 2 ]
@@ -891,6 +948,154 @@ KNOB_ANIMATIONS=off" ]
 	[[ $output == *"knobs: line 1: '7' is not a value of 'KNOB_GAP_SIZE'"* ]]
 	[[ $output == *"Nothing is changed."* ]]
 	run grep -Fx 'KNOB_ANIMATIONS=off' "$XGHOST_KNOBS_FILE"
+	[ "$status" -eq 0 ]
+}
+
+@test "settings set names the schema when the schema is what failed" {
+	use_own_schema <<-'EOF'
+		knob=KNOB_SHAPE
+		summary=The shape.
+		value=round
+		default=oval
+	EOF
+	[ ! -e "$XGHOST_KNOBS_FILE" ]
+	run "$XGHOST" settings set KNOB_SHAPE round
+	[ "$status" -eq 1 ]
+	[[ $output == *"the knob schema has a problem: $XGHOST_KNOBS_SCHEMA"* ]]
+	[[ $output == *"defect of xghost rather than of your machine"* ]]
+	[[ $output != *"Correct that file"* ]]
+	[ ! -e "$XGHOST_KNOBS_FILE" ]
+}
+
+# --- the write itself --------------------------------------------------------
+#
+# These tests are about what the write does to the file of the user rather than
+# about the value in it: the link they made, the mode they set, a write that
+# runs out of room, a write two commands make at once, and an interrupt. Every
+# one of them costs a user their preferences when it goes wrong, and none of
+# them shows up in the value the command prints.
+
+# Somebody who keeps their knobs in a dotfiles repository links the file into
+# the config directory. The write goes through the link, and the link is still a
+# link afterwards. A regular file in its place is a preference that the next
+# 'stow' silently puts back, with nothing to say why the desktop changed.
+@test "settings set writes through a symbolic link and keeps the link" {
+	local repo="$BATS_TEST_TMPDIR/dotfiles"
+	mkdir -p "$repo"
+	cat >"$repo/knobs.conf" <<-'EOF'
+		# My knobs, kept in a dotfiles repository.
+		KNOB_GAP_SIZE=5
+	EOF
+	ln -s "$repo/knobs.conf" "$XGHOST_KNOBS_FILE"
+
+	run "$XGHOST" settings set KNOB_GAP_SIZE 20
+	[ "$status" -eq 0 ]
+
+	[ -L "$XGHOST_KNOBS_FILE" ]
+	[ "$(readlink "$XGHOST_KNOBS_FILE")" = "$repo/knobs.conf" ]
+	run grep -Fx 'KNOB_GAP_SIZE=20' "$repo/knobs.conf"
+	[ "$status" -eq 0 ]
+	# The comment of the user survives the trip through the link.
+	run grep -F 'kept in a dotfiles repository' "$repo/knobs.conf"
+	[ "$status" -eq 0 ]
+	# The temporary file was made beside the target and renamed onto it, so
+	# neither end of the link holds one now.
+	run find "$BATS_TEST_TMPDIR" "$repo" -maxdepth 1 -name 'knobs.conf.????????'
+	[ -z "$output" ]
+}
+
+@test "settings set reports a knobs link that points at nothing" {
+	ln -s "$BATS_TEST_TMPDIR/nowhere/knobs.conf" "$XGHOST_KNOBS_FILE"
+	run "$XGHOST" settings set KNOB_GAP_SIZE 20
+	[ "$status" -eq 1 ]
+	[[ $output == *"points at nothing"* ]]
+}
+
+# A user who narrowed their own file chose that. A writer that widened it again
+# would undo the choice and say nothing.
+@test "settings set keeps the mode of a file that is already there" {
+	make_knobs <<-'EOF'
+		KNOB_GAP_SIZE=5
+	EOF
+	chmod 0600 "$XGHOST_KNOBS_FILE"
+	"$XGHOST" settings set KNOB_GAP_SIZE 20 >/dev/null
+	[ "$(stat -c '%a' "$XGHOST_KNOBS_FILE")" = 600 ]
+}
+
+# A write that runs out of room fails part way through the copy. The rename must
+# not happen, because the file it would install is cut off mid-line and the
+# knobs of the user are on the other end of it.
+#
+# The limit is set with 'ulimit -f', and SIGXFSZ is ignored so that an
+# over-limit write returns EFBIG to the writer rather than killing it. That is
+# the failure a full disk gives, and it is the one shape of it a test can make
+# without a full disk.
+@test "settings set reports a write that fails, and leaves the knobs whole" {
+	local line
+	{
+		printf '# My preferences.\n'
+		for line in $(seq 1 200); do
+			printf '# comment line %03d: a line of prose the user wrote by hand.\n' "$line"
+		done
+		printf 'KNOB_GAP_SIZE=5\n'
+	} >"$XGHOST_KNOBS_FILE"
+	local before
+	before=$(md5sum <"$XGHOST_KNOBS_FILE")
+	[ "$(stat -c %s "$XGHOST_KNOBS_FILE")" -gt 2048 ]
+
+	cat >"$BATS_TEST_TMPDIR/limited" <<-'EOF'
+		#!/usr/bin/env bash
+		# An over-limit write returns EFBIG instead of raising SIGXFSZ. The
+		# ignored signal survives the exec, and so does the limit.
+		trap '' XFSZ
+		ulimit -f 2
+		exec "$@"
+	EOF
+	chmod +x "$BATS_TEST_TMPDIR/limited"
+
+	run "$BATS_TEST_TMPDIR/limited" "$XGHOST" settings set KNOB_GAP_SIZE 20
+	[ "$status" -ne 0 ]
+	[[ $output == *"cannot write the knobs"* ]]
+	[[ $output != *"KNOB_GAP_SIZE is now"* ]]
+
+	# The file of the user is exactly as it was.
+	[ "$(md5sum <"$XGHOST_KNOBS_FILE")" = "$before" ]
+	# And the file that was cut off is gone.
+	run find "$BATS_TEST_TMPDIR" -maxdepth 1 -name 'knobs.conf.????????'
+	[ -z "$output" ]
+}
+
+# Two 'settings set' commands at once. Without a lock both read the same file
+# and the second rename drops the knob the first one wrote, while both commands
+# report success. Issue #11 names a settings application, so two writers are
+# expected rather than exotic.
+@test "two settings set commands at once keep both knobs" {
+	local trial first second
+	for trial in 1 2 3 4 5 6 7 8 9 10; do
+		rm -f "$XGHOST_KNOBS_FILE"
+		"$XGHOST" settings set KNOB_GAP_SIZE 20 >/dev/null 2>&1 &
+		first=$!
+		"$XGHOST" settings set KNOB_ANIMATIONS off >/dev/null 2>&1 &
+		second=$!
+		wait "$first"
+		wait "$second"
+		run grep -Fx 'KNOB_GAP_SIZE=20' "$XGHOST_KNOBS_FILE"
+		[ "$status" -eq 0 ]
+		run grep -Fx 'KNOB_ANIMATIONS=off' "$XGHOST_KNOBS_FILE"
+		[ "$status" -eq 0 ]
+	done
+}
+
+# The lock sits beside the knobs file rather than under the state directory,
+# because a machine that has never rendered anything still sets a knob.
+@test "the knobs are locked beside the file, and need no state directory" {
+	unset XDG_STATE_HOME
+	unset HOME
+	run "$XGHOST" settings set KNOB_GAP_SIZE 20
+	[ "$status" -eq 0 ]
+	[[ $output == *"no theme is active"* ]]
+	[ -f "$XGHOST_KNOBS_FILE.lock" ]
+	run grep -Fx 'KNOB_GAP_SIZE=20' "$XGHOST_KNOBS_FILE"
 	[ "$status" -eq 0 ]
 }
 

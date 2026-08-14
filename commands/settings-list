@@ -37,6 +37,13 @@ if ! knobs_load "$XGHOST_KNOBS_SCHEMA" "$READ_FILE"; then
 	for problem in "${KNOBS_ERRORS[@]}"; do
 		xghost_warn "knobs: $problem"
 	done
+	# The schema and the knobs file have two owners, so the report names the
+	# file that failed. A schema defect that told a user to correct their own
+	# file would name a file that has nothing wrong with it, and that a machine
+	# which has never run 'settings set' does not even have.
+	if [ "$KNOBS_ERROR_SOURCE" = schema ]; then
+		xghost_die 1 "the knob schema has a problem: $XGHOST_KNOBS_SCHEMA. The project owns that file, so this is a defect of xghost rather than of your machine. Nothing is listed."
+	fi
 	xghost_die 1 "the knobs at $KNOBS_FILE cannot be read, so nothing is listed."
 fi
 

@@ -181,7 +181,7 @@ commands.
 | ----------------- | ---------------------------------------------------------- |
 | `KNOB_ANIMATIONS` | The whole `animations` block, as a structural choice.      |
 | `KNOB_GAP_SIZE`   | `general:gaps_in` and `general:gaps_out`.                  |
-| `KNOB_FONT`       | `misc:font_family`, and the terminal of [the Ghostty bundle](ghostty.md). |
+| `KNOB_FONT`       | `misc:font_family`, and the terminal of [the Ghostty bundle](ghostty.md). Not `hyprlock.conf`: see below. |
 
 The two generated files are sourced after every prescribed file, so a preference
 wins over the value the project prescribes for the same setting. Neither setting
@@ -287,7 +287,7 @@ is a deliberate change of the configuration itself.
 
 | Change                                                    | Why                                                                  |
 | --------------------------------------------------------- | -------------------------------------------------------------------- |
-| `hyprlock.conf`: `font_family` is `JetBrainsMono Nerd Font`, and the dotfiles wrote `Fira Semibold`, in both labels | One font serves the whole desktop. [The Ghostty bundle](ghostty.md) already ships that family, from `ttf-jetbrains-mono-nerd`, and nothing here ships a Fira package. |
+| `hyprlock.conf`: `font_family` is `JetBrainsMono Nerd Font`, and the dotfiles wrote `Fira Semibold`, in both labels | The desktop draws in one family. [The Ghostty bundle](ghostty.md) already ships that one, from `ttf-jetbrains-mono-nerd`, and nothing here ships a Fira package. It is the **default** of `KNOB_FONT` and it is written out rather than generated, so the lock screen keeps that family when the knob moves: hyprlock has no offline check of its configuration, and a generated file it refused would leave the machine going idle and never locking. `tests/hyprland.bats` pins the two together, and [Knobs](../knobs.md) records the decision. |
 | `hyprpaper.conf`: `ipc = on`, which the dotfiles never set | The control socket. [Issue #24](https://github.com/qdrtech/xghost/issues/24) reloads the wallpaper of a running daemon through it. |
 | `hyprland.conf`: `source = conf/decoration.conf`, which the dotfiles never had | The dotfiles carried `conf/decoration.conf` and sourced it from nowhere, so the file was dead and every decoration value came from `conf/theme.conf`. |
 | `conf/decoration.conf` and `conf/window.conf` hold the values of the dotfiles' `conf/theme.conf` | `conf/theme.conf` was sourced last, so it overrode `conf/window.conf`, and `conf/decoration.conf` was never sourced at all. Its values are the ones that reached the compositor. The rounding is 6 rather than 10, and the border width is 1 rather than 3. |

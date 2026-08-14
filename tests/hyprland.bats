@@ -160,6 +160,26 @@ schema_values() {
 	' "$ROOT_DIR/schema/knobs.conf"
 }
 
+# Print the default the schema declares for one knob.
+#
+#   schema_default KNOB_NAME
+#
+# The value is read from schema/knobs.conf itself, so a test that compares a
+# prescribed file with it follows the schema when the schema changes.
+schema_default() {
+	local knob=$1
+	awk -v knob="$knob" '
+		{
+			position = index($0, "=")
+			if (position == 0) { next }
+			field = substr($0, 1, position - 1)
+			value = substr($0, position + 1)
+			if (field == "knob") { current = value }
+			else if (field == "default" && current == knob) { print value }
+		}
+	' "$ROOT_DIR/schema/knobs.conf"
+}
+
 # A test that needs Hyprland itself. Continuous integration has none.
 #
 # '--verify-config' parses the configuration and prints the result. It starts no
@@ -543,6 +563,64 @@ monitor = HDMI-A-2,3840x2160@30.00,4480x0,2,transform,0' ]
 
 	run grep -nE '^[[:space:]]*font_family' "$PRESCRIBED_DIR/conf/misc.conf"
 	[ "$status" -ne 0 ]
+}
+
+# A setting a knob owns is written in one place. A second writer of the same
+# setting leaves the knob winning by the order of the includes alone, and the
+# two guards above name one file each by hand: a 'gaps_in' added to any other
+# file passes them both. This reads every prescribed file and every template.
+#
+# One pair per line: the pattern of the setting, and the files that may hold it,
+# in sorted order. The font of the lock screen is the one deliberate second
+# writer, and the test below pins it to the default of the knob.
+@test "every setting a knob owns is written in one place" {
+	local pattern expected found
+	while read -r pattern expected; do
+		[ -n "$pattern" ] || continue
+		found=$(cd "$ROOT_DIR" && grep -rlE "$pattern" config templates |
+			LC_ALL=C sort | paste -sd, -)
+		if [ "$found" != "$expected" ]; then
+			printf 'the setting %s is written in %s, and it may be written in %s\n' \
+				"$pattern" "$found" "$expected" >&2
+		fi
+		[ "$found" = "$expected" ]
+	done <<-'EOF'
+		^[[:space:]]*gaps_(in|out)[[:space:]]*= templates/hypr/knobs.conf
+		^[[:space:]]*font_family[[:space:]]*= config/hypr/hyprlock.conf,templates/hypr/knobs.conf
+		^[[:space:]]*font-family[[:space:]]*= templates/ghostty/font.conf
+		^[[:space:]]*animations[[:space:]]*\{ templates/hypr/animation.conf.choice.KNOB_ANIMATIONS/off,templates/hypr/animation.conf.choice.KNOB_ANIMATIONS/on
+	EOF
+}
+
+# The font knob does not reach the lock screen, and this is the decision rather
+# than an omission. hyprlock has no offline check of its configuration, so a
+# generated file it refused would reach a machine unproven, and what that costs
+# is a machine that goes idle and never locks. docs/knobs.md records it.
+#
+# The family in the prescribed file is therefore pinned to the default of the
+# knob: a change of that default fails here rather than leaving the lock screen
+# on a family this desktop no longer ships.
+@test "the lock screen draws in the default family of the font knob" {
+	local default family count=0
+	default=$(schema_default KNOB_FONT)
+	[ -n "$default" ]
+
+	while IFS= read -r family; do
+		[ "$family" = "$default" ]
+		count=$((count + 1))
+	done < <(sed -n 's/^[[:space:]]*font_family[[:space:]]*=[[:space:]]*//p' \
+		"$PRESCRIBED_DIR/hyprlock.conf")
+	[ "$count" -gt 0 ]
+
+	# The lock screen reads no generated file, which is what makes the line
+	# above the whole of the story.
+	run grep -nE '^[[:space:]]*source[[:space:]]*=' "$PRESCRIBED_DIR/hyprlock.conf"
+	[ "$status" -ne 0 ]
+
+	# And the schema says so, so the summary a user reads is not a promise the
+	# lock screen breaks.
+	run sed -n '/^knob=KNOB_FONT$/,/^$/s/^summary=//p' "$ROOT_DIR/schema/knobs.conf"
+	[[ $output == *"not of the lock screen"* ]]
 }
 
 # --- Hyprland itself ---------------------------------------------------------

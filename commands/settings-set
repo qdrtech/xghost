@@ -31,6 +31,17 @@ if ! KNOBS_FILE=$(knobs_path); then
 	xghost_die 1 "$KNOBS_NO_HOME_MESSAGE"
 fi
 
+# The read and the write are one step, and the lock is what makes them one. Two
+# 'settings set' commands at once otherwise read the same file and the second
+# rename drops the knob the first one wrote, while both report success. A
+# settings application is the case where two writers are expected.
+#
+# The lock is released before the render below, so this command never waits on
+# itself: 'theme set' takes a lock of its own on the state directory.
+if ! knobs_lock "$KNOBS_FILE"; then
+	xghost_die 1 "$KNOBS_PROBLEM"
+fi
+
 READ_FILE=
 if [ -e "$KNOBS_FILE" ] || [ -L "$KNOBS_FILE" ]; then
 	READ_FILE=$KNOBS_FILE
@@ -43,6 +54,12 @@ if ! knobs_load "$XGHOST_KNOBS_SCHEMA" "$READ_FILE"; then
 	for problem in "${KNOBS_ERRORS[@]}"; do
 		xghost_warn "knobs: $problem"
 	done
+	# The schema and the knobs file have two owners, so the report names the
+	# file that failed. Sending somebody to correct a file of the project, or a
+	# file of their own that has nothing wrong with it, sends them nowhere.
+	if [ "$KNOBS_ERROR_SOURCE" = schema ]; then
+		xghost_die 1 "the knob schema has a problem: $XGHOST_KNOBS_SCHEMA. The project owns that file, so this is a defect of xghost rather than of your machine. Nothing is changed."
+	fi
 	xghost_die 1 "the knobs at $KNOBS_FILE have a problem. Correct that file. Nothing is changed."
 fi
 
@@ -58,6 +75,8 @@ fi
 if ! knobs_write "$KNOBS_FILE" "$KNOB" "$VALUE"; then
 	xghost_die 1 "$KNOBS_PROBLEM"
 fi
+
+knobs_unlock
 
 printf "%s is now '%s'\n" "$KNOB" "$VALUE"
 printf 'the knobs are at %s\n' "$KNOBS_FILE"
