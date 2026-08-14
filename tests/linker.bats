@@ -34,6 +34,20 @@ setup() {
 	BACKUP_DIR="$STATE_DIR/backups"
 }
 
+# A test that takes a permission away must give it back, or the temporary
+# directory of that test cannot be removed.
+teardown() {
+	chmod -R u+rwX "$BATS_TEST_TMPDIR" 2>/dev/null || true
+}
+
+# A permission stops every user except the one that owns the machine. A test
+# that works by taking a permission away proves nothing as root.
+skip_when_root() {
+	if [ "$(id -u)" -eq 0 ]; then
+		skip "file permissions do not stop the root user"
+	fi
+}
+
 # Add one prescribed directory with one file in it.
 prescribe_directory() {
 	local name=$1
@@ -534,4 +548,352 @@ reported_backup_path() {
 	run "$XGHOST" config link
 	[ "$status" -eq 1 ]
 	[[ $output == *"is not absolute"* ]]
+}
+
+@test "a path override that holds a control character is reported" {
+	prescribe_directory hypr
+	export XGHOST_CONFIG_HOME="$BATS_TEST_TMPDIR/two"$'\n'"lines"
+	mkdir -p "$XGHOST_CONFIG_HOME"
+
+	run "$XGHOST" config link
+	[ "$status" -eq 1 ]
+	[[ $output == *"holds a control character"* ]]
+	# One record line would become two, and 'unlink' would then act on a path
+	# that xghost never wrote.
+	[ ! -e "$RECORD" ]
+	[ ! -L "$XGHOST_CONFIG_HOME/hypr" ]
+}
+
+@test "a state directory path that holds a control character is reported" {
+	prescribe_directory hypr
+	export XGHOST_STATE_DIR="$BATS_TEST_TMPDIR/state"$'\n'"two"
+
+	run "$XGHOST" config link
+	[ "$status" -eq 1 ]
+	[[ $output == *"holds a control character"* ]]
+	[ ! -L "$CONFIG_HOME/hypr" ]
+}
+
+# --- the destination and the prescribed entry are one file ------------------
+
+@test "link refuses when the config directory is the prescribed configuration directory" {
+	prescribe_directory nvim
+	export XGHOST_CONFIG_HOME="$XGHOST_CONFIG_SOURCE"
+
+	run "$XGHOST" config link --backup
+	[ "$status" -eq 1 ]
+	[[ $output == *"are the same directory"* ]]
+	# The prescribed configuration is still where it belongs.
+	[ -d "$XGHOST_CONFIG_SOURCE/nvim" ]
+	[ "$(cat "$XGHOST_CONFIG_SOURCE/nvim/settings.conf")" = "prescribed nvim" ]
+	[ ! -e "$BACKUP_DIR" ]
+}
+
+@test "link refuses when the config directory reaches the prescribed configuration directory through a symbolic link" {
+	prescribe_directory nvim
+	# The user already points the config directory at the checkout.
+	ln -s "$XGHOST_CONFIG_SOURCE" "$CONFIG_HOME"
+
+	run "$XGHOST" config link --backup
+	[ "$status" -eq 1 ]
+	[[ $output == *"are the same directory"* ]]
+	[ -d "$XGHOST_CONFIG_SOURCE/nvim" ]
+	[ "$(cat "$XGHOST_CONFIG_SOURCE/nvim/settings.conf")" = "prescribed nvim" ]
+	[ ! -e "$BACKUP_DIR" ]
+}
+
+@test "unlink refuses when the config directory is the prescribed configuration directory" {
+	prescribe_directory nvim
+	export XGHOST_CONFIG_HOME="$XGHOST_CONFIG_SOURCE"
+
+	run "$XGHOST" config unlink
+	[ "$status" -eq 1 ]
+	[[ $output == *"are the same directory"* ]]
+	[ -d "$XGHOST_CONFIG_SOURCE/nvim" ]
+}
+
+@test "link reports a destination that is the same file as its prescribed entry" {
+	# The prescribed entry points back at the path it would be linked to.
+	mkdir -p "$CONFIG_HOME/nvim"
+	printf 'the work of the user\n' >"$CONFIG_HOME/nvim/init.lua"
+	ln -s "$CONFIG_HOME/nvim" "$XGHOST_CONFIG_SOURCE/nvim"
+
+	run "$XGHOST" config link --backup
+	[ "$status" -eq 1 ]
+	[[ $output == *"are the same file"* ]]
+	# Nothing was moved aside, and no link points at itself.
+	[ ! -e "$BACKUP_DIR" ]
+	[ ! -L "$CONFIG_HOME/nvim" ]
+	[ "$(cat "$CONFIG_HOME/nvim/init.lua")" = "the work of the user" ]
+}
+
+@test "link reports a destination that is a hard link to its prescribed entry" {
+	prescribe_file mimeapps.list
+	mkdir -p "$CONFIG_HOME"
+	ln "$XGHOST_CONFIG_SOURCE/mimeapps.list" "$CONFIG_HOME/mimeapps.list"
+
+	run "$XGHOST" config link --backup
+	[ "$status" -eq 1 ]
+	[[ $output == *"are the same file"* ]]
+	[ ! -e "$BACKUP_DIR" ]
+	[ "$(cat "$XGHOST_CONFIG_SOURCE/mimeapps.list")" = "prescribed mimeapps.list" ]
+}
+
+# --- the link record ---------------------------------------------------------
+
+@test "link refuses when the link record path is a directory" {
+	prescribe_directory hypr
+	mkdir -p "$RECORD"
+
+	run "$XGHOST" config link
+	[ "$status" -eq 1 ]
+	[[ $output == *"must be a regular file"* ]]
+	# A link that cannot be recorded is a link 'unlink' cannot remove, so no
+	# link is created at all.
+	[ ! -L "$CONFIG_HOME/hypr" ]
+	[ -z "$(ls -A "$RECORD")" ]
+}
+
+@test "unlink refuses when the link record path is a directory" {
+	prescribe_directory hypr
+	mkdir -p "$CONFIG_HOME"
+	ln -s "$XGHOST_CONFIG_SOURCE/hypr" "$CONFIG_HOME/hypr"
+	mkdir -p "$RECORD"
+
+	run "$XGHOST" config unlink
+	[ "$status" -eq 1 ]
+	[[ $output == *"must be a regular file"* ]]
+	# To report that there is nothing to remove would be a false report.
+	[[ $output != *"nothing to remove"* ]]
+}
+
+@test "link creates no link when the state directory cannot be written" {
+	skip_when_root
+	prescribe_directory hypr
+	mkdir -p "$STATE_DIR"
+	chmod 500 "$STATE_DIR"
+
+	run "$XGHOST" config link
+	[ "$status" -eq 1 ]
+	[[ $output == *"cannot write in the state directory"* ]]
+	# The module knows it can undo the change before it makes it.
+	[ ! -L "$CONFIG_HOME/hypr" ]
+	[ ! -e "$CONFIG_HOME/hypr" ]
+}
+
+@test "link creates no link when the link record cannot be read" {
+	skip_when_root
+	prescribe_directory hypr
+	run "$XGHOST" config link
+	[ "$status" -eq 0 ]
+
+	prescribe_directory waybar
+	chmod 000 "$RECORD"
+
+	run "$XGHOST" config link
+	[ "$status" -eq 1 ]
+	[[ $output == *"cannot read the link record"* ]]
+	[[ $output != *"Permission denied"* ]]
+	[ ! -L "$CONFIG_HOME/waybar" ]
+}
+
+@test "unlink reports a link record it cannot read and removes nothing" {
+	skip_when_root
+	prescribe_directory hypr
+	run "$XGHOST" config link
+	[ "$status" -eq 0 ]
+	chmod 000 "$RECORD"
+
+	run "$XGHOST" config unlink
+	[ "$status" -eq 1 ]
+	# The failure is reported in the words of the module, not as a line
+	# number of a shell script.
+	[[ $output == *"xghost: cannot read the link record $RECORD"* ]]
+	[[ $output != *"Permission denied"* ]]
+	[ -L "$CONFIG_HOME/hypr" ]
+}
+
+# --- one run at a time -------------------------------------------------------
+
+@test "two link runs at one moment record every link they create" {
+	local one="$BATS_TEST_TMPDIR/source-one"
+	local two="$BATS_TEST_TMPDIR/source-two"
+	mkdir -p "$one/alpha" "$one/beta" "$two/gamma" "$two/delta"
+
+	(
+		while [ ! -e "$BATS_TEST_TMPDIR/go" ]; do :; done
+		XGHOST_CONFIG_SOURCE="$one" "$XGHOST" config link
+	) >/dev/null 2>&1 &
+	local first=$!
+	(
+		while [ ! -e "$BATS_TEST_TMPDIR/go" ]; do :; done
+		XGHOST_CONFIG_SOURCE="$two" "$XGHOST" config link
+	) >/dev/null 2>&1 &
+	local second=$!
+
+	: >"$BATS_TEST_TMPDIR/go"
+	wait "$first"
+	wait "$second"
+
+	# An unrecorded link is an orphan that 'unlink' never removes, so the
+	# record holds one line for every link on disk.
+	[ "$(find "$CONFIG_HOME" -maxdepth 1 -type l | wc -l)" -eq 4 ]
+	[ "$(wc -l <"$RECORD")" -eq 4 ]
+
+	run "$XGHOST" config unlink
+	[ "$status" -eq 0 ]
+	[ "$(find "$CONFIG_HOME" -maxdepth 1 -type l | wc -l)" -eq 0 ]
+}
+
+@test "two backup runs at one moment keep both files" {
+	prescribe_directory hypr
+	local shared="$BATS_TEST_TMPDIR/backups"
+	mkdir -p "$shared" "$BATS_TEST_TMPDIR/one/.config" "$BATS_TEST_TMPDIR/two/.config"
+	printf 'the work of one\n' >"$BATS_TEST_TMPDIR/one/.config/hypr"
+	printf 'the work of two\n' >"$BATS_TEST_TMPDIR/two/.config/hypr"
+
+	(
+		while [ ! -e "$BATS_TEST_TMPDIR/go" ]; do :; done
+		XGHOST_CONFIG_HOME="$BATS_TEST_TMPDIR/one/.config" \
+			XGHOST_STATE_DIR="$BATS_TEST_TMPDIR/one/state" \
+			XGHOST_BACKUP_DIR="$shared" \
+			"$XGHOST" config link --backup
+	) >/dev/null 2>&1 &
+	local first=$!
+	(
+		while [ ! -e "$BATS_TEST_TMPDIR/go" ]; do :; done
+		XGHOST_CONFIG_HOME="$BATS_TEST_TMPDIR/two/.config" \
+			XGHOST_STATE_DIR="$BATS_TEST_TMPDIR/two/state" \
+			XGHOST_BACKUP_DIR="$shared" \
+			"$XGHOST" config link --backup
+	) >/dev/null 2>&1 &
+	local second=$!
+
+	: >"$BATS_TEST_TMPDIR/go"
+	wait "$first"
+	wait "$second"
+
+	# Both runs back up a path called 'hypr'. Neither file may land on the
+	# other one.
+	run grep -rlx 'the work of one' "$shared"
+	[ "$status" -eq 0 ]
+	run grep -rlx 'the work of two' "$shared"
+	[ "$status" -eq 0 ]
+	[ "$(find "$shared" -type f | wc -l)" -eq 2 ]
+}
+
+# --- one backup directory for one run ----------------------------------------
+
+@test "one link run puts every backup in one directory" {
+	prescribe_directory hypr
+	prescribe_directory waybar
+	mkdir -p "$CONFIG_HOME"
+	printf 'the hypr of the user\n' >"$CONFIG_HOME/hypr"
+	printf 'the waybar of the user\n' >"$CONFIG_HOME/waybar"
+
+	run "$XGHOST" config link --backup
+	[ "$status" -eq 0 ]
+	[ "$(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 1 ]
+	[ "$(find "$BACKUP_DIR" -type f | wc -l)" -eq 2 ]
+}
+
+@test "two link runs in the same second use two backup directories" {
+	prescribe_directory hypr
+	mkdir -p "$CONFIG_HOME"
+	printf 'the first file\n' >"$CONFIG_HOME/hypr"
+	run "$XGHOST" config link --backup
+	[ "$status" -eq 0 ]
+	run "$XGHOST" config unlink
+	[ "$status" -eq 0 ]
+
+	printf 'the second file\n' >"$CONFIG_HOME/hypr"
+	run "$XGHOST" config link --backup
+	[ "$status" -eq 0 ]
+
+	[ "$(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 2 ]
+	run grep -rlx 'the first file' "$BACKUP_DIR"
+	[ "$status" -eq 0 ]
+	run grep -rlx 'the second file' "$BACKUP_DIR"
+	[ "$status" -eq 0 ]
+}
+
+@test "--backup writes out the target of a relative symbolic link in full" {
+	prescribe_directory hypr
+	mkdir -p "$CONFIG_HOME" "$HOME/dots/hypr"
+	printf 'the work of the user\n' >"$HOME/dots/hypr/mine.conf"
+	ln -s ../dots/hypr "$CONFIG_HOME/hypr"
+
+	run "$XGHOST" config link --backup
+	[ "$status" -eq 0 ]
+
+	local backup_path
+	backup_path=$(reported_backup_path "$CONFIG_HOME/hypr")
+	[ -L "$backup_path" ]
+	# The backup reaches the file the original link reached.
+	[ "$(cat "$backup_path/mine.conf")" = "the work of the user" ]
+}
+
+# --- a link that cannot be created -------------------------------------------
+
+@test "a link that cannot be created is counted apart from a conflict" {
+	skip_when_root
+	prescribe_directory hypr
+	mkdir -p "$CONFIG_HOME"
+	chmod 500 "$CONFIG_HOME"
+
+	run "$XGHOST" config link
+	[ "$status" -eq 1 ]
+	[[ $output == *"cannot create the symbolic link $CONFIG_HOME/hypr"* ]]
+	[[ $output == *"0 in conflict"* ]]
+	[[ $output == *"1 failed"* ]]
+}
+
+@test "a skipped entry is named in the message" {
+	mkdir -p "$XGHOST_CONFIG_SOURCE/$(printf 'alpha\tone')"
+	mkdir -p "$XGHOST_CONFIG_SOURCE/$(printf 'beta\ttwo')"
+
+	run "$XGHOST" config link
+	[ "$status" -eq 1 ]
+	[[ $output == *"skipped: the name \$'alpha\tone'"* ]]
+	[[ $output == *"skipped: the name \$'beta\ttwo'"* ]]
+}
+
+# --- one file, two names -----------------------------------------------------
+
+@test "a trailing slash on the prescribed configuration directory writes one link text" {
+	prescribe_directory hypr
+	export XGHOST_CONFIG_SOURCE="$BATS_TEST_TMPDIR/source/"
+
+	run "$XGHOST" config link
+	[ "$status" -eq 0 ]
+	[ "$(readlink "$CONFIG_HOME/hypr")" = "$BATS_TEST_TMPDIR/source/hypr" ]
+
+	export XGHOST_CONFIG_SOURCE="$BATS_TEST_TMPDIR/source"
+	run "$XGHOST" config link
+	[ "$status" -eq 0 ]
+	[[ $output == *"already linked: $CONFIG_HOME/hypr"* ]]
+
+	run "$XGHOST" config unlink
+	[ "$status" -eq 0 ]
+	[ ! -L "$CONFIG_HOME/hypr" ]
+}
+
+@test "an install location reached through a symbolic link leaves no orphan" {
+	mkdir -p "$BATS_TEST_TMPDIR/real/hypr"
+	ln -s "$BATS_TEST_TMPDIR/real" "$BATS_TEST_TMPDIR/reached"
+	export XGHOST_CONFIG_SOURCE="$BATS_TEST_TMPDIR/reached"
+
+	run "$XGHOST" config link
+	[ "$status" -eq 0 ]
+	[ "$(readlink "$CONFIG_HOME/hypr")" = "$BATS_TEST_TMPDIR/reached/hypr" ]
+
+	# The same install location, reached by its own name this time.
+	export XGHOST_CONFIG_SOURCE="$BATS_TEST_TMPDIR/real"
+	run "$XGHOST" config link
+	[ "$status" -eq 0 ]
+	[[ $output == *"already linked: $CONFIG_HOME/hypr"* ]]
+
+	run "$XGHOST" config unlink
+	[ "$status" -eq 0 ]
+	[ ! -L "$CONFIG_HOME/hypr" ]
 }
