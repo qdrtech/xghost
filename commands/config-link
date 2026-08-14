@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# @xghost-meta
+# summary: Link the prescribed configuration into your config directory.
+# arg: [--dry-run]  Report every change and change nothing.
+# arg: [--backup]  Move a path that is in the way into the backup directory, then link.
+# example: xghost config link
+# example: xghost config link --dry-run
+# example: xghost config link --backup
+# elevated: no
+# internal: no
+# @end-xghost-meta
+
+set -euo pipefail
+
+XGHOST_ROOT_DIR=$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+
+# shellcheck source=../lib/linker.sh
+. "$XGHOST_ROOT_DIR/lib/linker.sh"
+
+linker_link "$@"

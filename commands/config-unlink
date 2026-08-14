@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# @xghost-meta
+# summary: Remove the configuration links that xghost created.
+# arg: [--dry-run]  Report every change and change nothing.
+# example: xghost config unlink
+# example: xghost config unlink --dry-run
+# elevated: no
+# internal: no
+# @end-xghost-meta
+
+set -euo pipefail
+
+XGHOST_ROOT_DIR=$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+
+# shellcheck source=../lib/linker.sh
+. "$XGHOST_ROOT_DIR/lib/linker.sh"
+
+linker_unlink "$@"
