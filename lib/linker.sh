@@ -33,6 +33,14 @@
 #   XGHOST_BACKUP_DIR     The directory that holds the backups.
 #                         Default: <state directory>/backups
 
+# The include sentinel. A library may be sourced more than once, because two
+# modules may each need it. The second source returns here, so the declarations
+# below run exactly once.
+if [ -n "${XGHOST_LINKER_SOURCED:-}" ]; then
+	return 0
+fi
+XGHOST_LINKER_SOURCED=1
+
 # The environment may carry BASHOPTS or SHELLOPTS, and both change how the
 # globs in this module behave. Normalise every option the module depends on.
 shopt -u dotglob nocaseglob failglob
