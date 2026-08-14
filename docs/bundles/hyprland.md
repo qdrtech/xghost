@@ -172,19 +172,22 @@ may name `$bg`, `$accent` and the rest.
 `templates/hypr/theme.conf` holds the styling that depends on those colours, and
 it is sourced last, so the theme wins over every prescribed file. Today it is
 the two border colours. The dotfiles carried a `conf/theme.conf` that set the
-rounding, the gaps and the border width a second time as well; those values are
-prescribed now, in `conf/decoration.conf` and `conf/window.conf`, with the
-values that actually reached the compositor.
+rounding, the gaps, the border width, the blur and the shadow as well, and it
+was sourced last there too. Those values are prescribed now, in
+`conf/decoration.conf` and `conf/window.conf`, and they are the values that
+reached the compositor. "What else changed from the dotfiles" below records
+what that cost.
 
 ## The dead `xdg.sh` reference
 
 `conf/autostart.conf` in the dotfiles ran `~/.config/hypr/scripts/xdg.sh` at
 every login. No commit on any branch of that repository ever contained that
 script, and the line had been there since March 2025. It failed in silence at
-every login for over a year.
+every login for over a year. The dotfiles have since dropped it too, in commit
+`682f9a9` of 12 August 2026, so the line survives in neither repository.
 
-The line is **dropped**, and nothing replaces it, because the work it named is
-already done. Hyprland performs the environment import itself. The binary of
+The line is **dropped** here, and nothing replaces it, because the work it named
+is already done. Hyprland performs the environment import itself. The binary of
 Hyprland 0.56.2 carries it as a literal string:
 
 ```
@@ -215,10 +218,47 @@ program on the `PATH`.
 | `bind = $SUPER_SHIFT, f, fullscreen`               | `bind = $mainMod SHIFT, F, fullscreen`. No file ever defined `$SUPER_SHIFT`, so neither key that used it worked. |
 | `bind = $SUPER_SHIFT, l, exec, hyprlock`           | `bind = $mainMod SHIFT, L, exec, hyprlock`. The same fault.             |
 | `input-field { monitor = DP-1 }` in `hyprlock.conf` | `monitor =`, which is every monitor. No output name may appear.        |
-| `background { path = …/blurred_wallpaper.png }`    | Dropped. No commit of the dotfiles ever held that file.                 |
-| `image { path = …/ml4w/cache/square_wallpaper.png }` | Dropped. The same fault, and the tool it named is not used here.      |
+| `background { path = $HOME/.config/cache/blurred_wallpaper.png }` | Dropped, and the block was live. See below.               |
+| `image { path = …/ml4w/cache/square_wallpaper.png }` | Dropped. No commit of the dotfiles ever held that file, and the tool it named is not used here. |
 | `conf/environment.conf`                            | Dropped. The file was empty, so the fragment and its `source` line both did nothing. |
 | The ML4W comments in `hypridle.conf`               | Dropped. They instruct a settings application this project does not use. |
+
+### The lock-screen background was live, and it is still dropped
+
+The `background` block of `hyprlock.conf` named
+`$HOME/.config/cache/blurred_wallpaper.png`, and that file is real. It is
+`config/.config/cache/blurred_wallpaper.png` in the dotfiles, added in commit
+`8c6033a`, and it is still there at `HEAD`. It sits in the `config` stow
+package, which stows to `~/.config/`, so it lands at exactly the path the block
+names. The lock screen drew that image at every lock.
+
+It is dropped for a different reason. The image is a file of that machine, not
+a file this project ships, and a background this bundle cannot generate is a
+background it must not name:
+[issue #20](https://github.com/qdrtech/xghost/issues/20) owns the backgrounds
+and supplies one image per theme. Until it lands, hyprlock draws its own
+colour. The `image` block in the row above is the other case, and that file
+really never existed.
+
+### What else changed from the dotfiles
+
+Four changes that are neither a dropped reference nor a monitor name. Each one
+is a deliberate change of the configuration itself.
+
+| Change                                                    | Why                                                                  |
+| --------------------------------------------------------- | -------------------------------------------------------------------- |
+| `hyprlock.conf`: `font_family` is `JetBrainsMono Nerd Font`, and the dotfiles wrote `Fira Semibold`, in both labels | One font serves the whole desktop. [The Ghostty bundle](ghostty.md) already ships that family, from `ttf-jetbrains-mono-nerd`, and nothing here ships a Fira package. |
+| `hyprpaper.conf`: `ipc = on`, which the dotfiles never set | The control socket. [Issue #24](https://github.com/qdrtech/xghost/issues/24) reloads the wallpaper of a running daemon through it. |
+| `hyprland.conf`: `source = conf/decoration.conf`, which the dotfiles never had | The dotfiles carried `conf/decoration.conf` and sourced it from nowhere, so the file was dead and every decoration value came from `conf/theme.conf`. |
+| `conf/decoration.conf` and `conf/window.conf` hold the values of the dotfiles' `conf/theme.conf` | `conf/theme.conf` was sourced last, so it overrode `conf/window.conf`, and `conf/decoration.conf` was never sourced at all. Its values are the ones that reached the compositor. The rounding is 6 rather than 10, and the border width is 1 rather than 3. |
+
+The last row has a cost, and it is the one to weigh. The dead
+`conf/decoration.conf` of the dotfiles carried eleven blur and shadow settings —
+seven in `blur`, four in `shadow` — and no file ever sourced them.
+`conf/theme.conf` switched both blocks off, and that is what the compositor ran.
+This bundle prescribes what ran, so the blur and the shadow are off here and the
+eleven settings are not carried over. Switching them back on is editing one
+prescribed file, and every value is in the history of the dotfiles.
 
 ## hyprpaper, and what issue #20 has to supply
 
@@ -282,6 +322,7 @@ Nothing here installs them.
 | `network-manager-applet`       | `extra`    | `nm-applet`, in the autostart.                 |
 | `blueman`                      | `extra`    | `blueman-applet`, in the autostart.            |
 | `nautilus`                     | `extra`    | `$fileManager`.                                |
+| `ttf-jetbrains-mono-nerd`      | `extra`    | The two labels of `hyprlock.conf`. The Ghostty bundle names it as well. |
 | `hyprshot`                     | AUR        | The two screenshot keybindings.                |
 
 Three more programs are named by this bundle and belong to another one:

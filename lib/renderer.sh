@@ -42,9 +42,25 @@ RENDER_FILES=()
 # order that nobody chose.
 declare -A RENDER_SCALARS=()
 
+# Every machine fact whose value is the word 'unknown', built by render_scalars.
+#
+# lib/facts.sh defines that word: detection could not read the source of this
+# fact. It is therefore the one value in the table that is not a value, and a
+# template that writes it produces a configuration file that states something
+# about the machine that nobody read. A monitor line is the case this was found
+# in: 'MACHINE_MONITOR_1_MODE=unknown' renders a line the compositor refuses,
+# and the switch would report success.
+#
+# So the renderer refuses the substitution and names it, exactly as it names a
+# value that is missing. Selection is not substitution and is untouched: a
+# structural choice keyed on 'MACHINE_MONITOR_COUNT' still selects its 'default'
+# fragment for the value 'unknown', which is the fragment that names no monitor.
+declare -A RENDER_UNKNOWN_FACTS=()
+
 # Set by render_substitute.
 RENDER_CONTENT=
 RENDER_MISSING=()
+RENDER_UNKNOWN=()
 
 # A placeholder in a template. The name is upper case, so ordinary text such as
 # a CSS at-rule is never mistaken for one.
@@ -67,9 +83,11 @@ readonly RENDER_CHOICE_MARKER='.choice.'
 readonly RENDER_CHOICE_PATTERN='^(.+)\.choice\.([A-Z][A-Z0-9_]*)$'
 readonly RENDER_CHOICE_DEFAULT=default
 
-# Set by render_choice_plan. The two arrays hold one entry per choice, at the
-# same index: the template file that was chosen, and the path it takes in the
-# output.
+# Set by render_choice_plan. RENDER_CHOICE_DIRS holds every directory that is
+# named like a choice, including one the plan refused, because it is what tells
+# render_tree which files are fragments rather than templates of their own. The
+# two arrays hold one entry per choice that writes, at the same index: the
+# template file that was chosen, and the path it takes in the output.
 declare -A RENDER_CHOICE_DIRS=()
 RENDER_CHOICE_SOURCES=()
 RENDER_CHOICE_TARGETS=()
@@ -254,6 +272,9 @@ render_tree() {
 # quietly preferring either one would make the output depend on a rule nobody
 # wrote down.
 #
+# A machine fact whose value is 'unknown' is recorded in RENDER_UNKNOWN_FACTS as
+# well, so render_substitute can refuse to write it. See that array above.
+#
 # Returns 1 when the machine facts have at least one problem, and every problem
 # lands in RENDER_ERRORS.
 render_scalars() {
@@ -261,6 +282,7 @@ render_scalars() {
 	local name problem
 
 	RENDER_SCALARS=()
+	RENDER_UNKNOWN_FACTS=()
 	for name in "${!PALETTE_SCALARS[@]}"; do
 		RENDER_SCALARS[$name]=${PALETTE_SCALARS[$name]}
 	done
@@ -282,6 +304,9 @@ render_scalars() {
 			continue
 		fi
 		RENDER_SCALARS[$name]=${FACTS_SCALARS[$name]}
+		if [ "${FACTS_SCALARS[$name]}" = "$FACTS_UNKNOWN" ]; then
+			RENDER_UNKNOWN_FACTS[$name]=1
+		fi
 	done
 
 	[ "${#RENDER_ERRORS[@]}" -eq 0 ]
@@ -349,6 +374,13 @@ render_collect() {
 # looked up among the files the walk already found, so a value that holds a
 # path separator can name nothing outside the choice directory.
 #
+# Exactly one file reaches each path of the output, and this is where that is
+# proved. 'targets' holds every path already spoken for: first every plain
+# template, then each choice as it is resolved. A choice that lands on a path
+# either of them already writes is a problem rather than a silent overwrite,
+# because the two writers are both templates of the project and no rule says
+# which one should win.
+#
 # Returns 1 when at least one choice has a problem, and every problem lands in
 # RENDER_ERRORS.
 render_choice_plan() {
@@ -358,7 +390,7 @@ render_choice_plan() {
 	local listing path relative base selector parent target ancestor
 	local member chosen
 	local -a dirs=() members=()
-	local -A targets=()
+	local -A targets=() refused=() reported=()
 
 	RENDER_CHOICE_DIRS=()
 	RENDER_CHOICE_SOURCES=()
@@ -406,19 +438,41 @@ render_choice_plan() {
 	# refused. One choice holds fragments and nothing else, so the rule stays
 	# one sentence long and a reader of the tree never has to work out which
 	# choice a file belongs to.
+	#
+	# A refused choice is recorded here and stays in RENDER_CHOICE_DIRS, because
+	# that array is what tells render_tree which files are fragments. Dropping it
+	# would turn the fragments of the refused choice into plain templates, and
+	# the render that is already failing would report them at their literal
+	# paths as well, which is noise in the report a user is reading.
+	#
+	# The ancestors are walked in the sorted order, so the choice named is the
+	# outermost one that is still a choice, whichever order the array happens to
+	# hold its keys in.
 	for relative in "${ordered[@]}"; do
-		for ancestor in "${!RENDER_CHOICE_DIRS[@]}"; do
+		for ancestor in "${ordered[@]}"; do
+			[ -z "${refused[$ancestor]+set}" ] || continue
 			if [ "$ancestor" != "$relative" ] && [ "${relative#"$ancestor"/}" != "$relative" ]; then
 				RENDER_ERRORS+=("$relative: a structural choice cannot hold another one, and this one is inside '$ancestor'")
-				unset 'RENDER_CHOICE_DIRS[$relative]'
+				refused[$relative]=1
 				break
 			fi
 		done
 	done
 
+	# Every plain template holds its own path, before any choice is resolved. A
+	# file inside a choice directory is a fragment rather than a template of its
+	# own, and that is true of a refused choice too.
+	for path in ${files_ref[@]+"${files_ref[@]}"}; do
+		relative=${path#"$template_dir/"}
+		if render_in_choice "$relative"; then
+			continue
+		fi
+		targets[$relative]=$relative
+	done
+
 	for relative in "${ordered[@]}"; do
-		# A choice the check above refused is no longer one.
-		[ -n "${RENDER_CHOICE_DIRS[$relative]+set}" ] || continue
+		# A choice the check above refused writes nothing.
+		[ -z "${refused[$relative]+set}" ] || continue
 		selector=${RENDER_CHOICE_DIRS[$relative]}
 		base=${relative##*/}
 		[[ $base =~ $RENDER_CHOICE_PATTERN ]] || continue
@@ -432,14 +486,20 @@ render_choice_plan() {
 
 		# Every fragment of this choice, which is every collected file whose
 		# directory is this one. A file deeper inside is a directory the choice
-		# must not hold.
+		# must not hold. Such a directory is named once, however many files it
+		# holds: it is one mistake for the reader of the report.
 		members=()
+		reported=()
 		for path in ${files_ref[@]+"${files_ref[@]}"}; do
 			member=${path#"$template_dir/"}
 			[ "${member#"$relative"/}" != "$member" ] || continue
 			member=${member#"$relative"/}
 			if [ "${member%%/*}" != "$member" ]; then
-				RENDER_ERRORS+=("$relative: a structural choice holds fragments and no directory, and it holds the directory '${member%%/*}'")
+				member=${member%%/*}
+				if [ -z "${reported[$member]+set}" ]; then
+					reported[$member]=1
+					RENDER_ERRORS+=("$relative: a structural choice holds fragments and no directory, and it holds the directory '$member'")
+				fi
 				continue
 			fi
 			members+=("$member")
@@ -505,6 +565,8 @@ render_choice_member() {
 
 # Return 0 when one relative template path is a fragment of a structural
 # choice, which is a file the choice writes rather than a template of its own.
+# A choice the plan refused still holds fragments, so its files are still not
+# templates of their own.
 render_in_choice() {
 	local relative=$1
 	local parent=${relative%/*}
@@ -570,6 +632,11 @@ render_set_mode() {
 # placeholder that has no value. A name is listed once, in the order it first
 # appears.
 #
+# RENDER_UNKNOWN holds the name of every placeholder whose machine fact is
+# 'unknown', which is a fact detection could not read rather than a value. It is
+# refused for the reason RENDER_UNKNOWN_FACTS records, and it is listed the same
+# way: once, in the order it first appears.
+#
 # The pass reads the text once and never reads back what it wrote, so a value
 # is copied through as the text it is. Two consequences follow, and both are
 # the documented promise that a value is text:
@@ -584,10 +651,11 @@ render_set_mode() {
 render_substitute() {
 	local rest=$1
 	local out= match prefix name
-	local -A seen=()
+	local -A seen=() seen_unknown=()
 
 	RENDER_CONTENT=
 	RENDER_MISSING=()
+	RENDER_UNKNOWN=()
 
 	while [[ $rest =~ $RENDER_PLACEHOLDER_PATTERN ]]; do
 		match=${BASH_REMATCH[0]}
@@ -598,6 +666,14 @@ render_substitute() {
 		rest=${rest#"$prefix$match"}
 		name=${match:1:${#match}-2}
 
+		if [ -n "${RENDER_UNKNOWN_FACTS[$name]+set}" ]; then
+			out=$out$prefix$match
+			if [ -z "${seen_unknown[$name]+set}" ]; then
+				seen_unknown[$name]=1
+				RENDER_UNKNOWN+=("$name")
+			fi
+			continue
+		fi
 		if [ -n "${RENDER_SCALARS[$name]+set}" ]; then
 			out=$out$prefix${RENDER_SCALARS[$name]}
 			continue
@@ -612,14 +688,16 @@ render_substitute() {
 
 	RENDER_CONTENT=$out$rest
 
-	[ "${#RENDER_MISSING[@]}" -eq 0 ]
+	[ "${#RENDER_MISSING[@]}" -eq 0 ] && [ "${#RENDER_UNKNOWN[@]}" -eq 0 ]
 }
 
 # Substitute every known value into one template file and write the result.
 #
 # Every '@NAME@' is replaced by the value of NAME. A placeholder that has no
 # value is a problem: the renderer reports it and writes no file, rather than
-# leaving the name in the output for a user to find later.
+# leaving the name in the output for a user to find later. A placeholder whose
+# machine fact is 'unknown' is the same problem, because that word is what
+# lib/facts.sh writes for a fact nobody could read.
 #
 # A template is a text file. One that holds a NUL byte is refused by name,
 # because reading it into a string would drop that byte and write a file that
@@ -653,8 +731,11 @@ render_file() {
 	done
 
 	if ! render_substitute "$content"; then
-		for name in "${RENDER_MISSING[@]}"; do
+		for name in ${RENDER_MISSING[@]+"${RENDER_MISSING[@]}"}; do
 			RENDER_ERRORS+=("$relative: no value for '$name' in the theme palette or the machine facts")
+		done
+		for name in ${RENDER_UNKNOWN[@]+"${RENDER_UNKNOWN[@]}"}; do
+			RENDER_ERRORS+=("$relative: '$name' is '$FACTS_UNKNOWN' in the machine facts, which means detection could not read it. Correct that value by hand, or run 'xghost machine detect' again.")
 		done
 		return 1
 	fi

@@ -146,6 +146,16 @@ starts with `MACHINE_`, so the two never collide, and a name that both files
 declare is a problem the renderer reports.
 [Machine facts](machine-facts.md) documents that file and every key it holds.
 
+A machine fact whose value is `unknown` never reaches a rendered file. That word
+is what detection writes for a fact it could not read, so a template that names
+one fails the render and reports the file and the name, exactly as a template
+that names a value nobody declares does. Writing it would produce a
+configuration file that states something about the machine nobody read:
+`monitor = eDP-1,unknown,0x0,1.5,transform,0` is a line Hyprland refuses, and
+the theme switch that wrote it would report success. A structural choice still
+selects on `unknown`, because selection picks a whole file and `default` is the
+file for a fact nobody read.
+
 There is no template language. A template holds no condition, no loop, and no
 expression. A choice between two blocks of configuration is a structural choice,
 which selects between prescribed fragments rather than templating them. The next
@@ -192,8 +202,13 @@ The rules:
   template that names a missing value does.
 - A choice holds fragments and nothing else. A directory inside one, and a
   choice inside a choice, are both refused by name.
+- Exactly one file of the project reaches `<file>`. A choice that writes the
+  path another choice writes, or the path an ordinary template writes, fails
+  the render and names both. Neither one wins, because no rule says which
+  should.
 - A hand-written file the theme ships at `<file>` wins over the choice, as it
-  wins over a template.
+  wins over a template. That is the one rule of precedence, and it is written
+  down here.
 
 This is a selection, never a loop and never a condition inside a template. It is
 what lets one prescribed layout serve a machine with one monitor and a machine
@@ -298,8 +313,8 @@ that never change, so the committed output depends on the templates and the
 palettes alone. `tests/regenerate-golden` reads the same file.
 
 `tests/renderer.bats` covers the behaviour around the render: the commands, the
-three scalar forms, the hand-written file, the palette rules, and what a failed
-switch leaves behind.
+three scalar forms, the hand-written file, the palette rules, the structural
+choice and every way one can be wrong, and what a failed switch leaves behind.
 
 When a change to a template, a palette, or the renderer is intentional, rewrite
 the expected output with the `--update` flag:

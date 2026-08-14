@@ -24,11 +24,19 @@
 # renders the same machine and no assertion depends on the hardware that ran
 # the tests. tests/regenerate-golden reads the same file.
 #
+# The commands are pointed at a copy of the fixture, never at the fixture
+# itself. 'xghost machine detect' writes the path XGHOST_MACHINE_FACTS names,
+# and it leaves a '.previous' copy beside it, so a suite that ever runs that
+# command against the fixture itself would rewrite a committed file and drop an
+# untracked one into the working tree. No suite runs it today. The copy is what
+# keeps that true of every suite written later.
+#
 # Call this from setup(). A suite that proves the behaviour when facts are
 # absent does not call it, and writes facts of its own instead:
 # tests/hyprland.bats and tests/facts.bats both do that.
 use_fixed_machine_facts() {
 	local facts=$BATS_TEST_DIRNAME/fixtures/machine/golden.conf
+	local copy=$BATS_TEST_TMPDIR/machine.conf
 
 	# A fixture that moved would otherwise reach the suite as a render error
 	# that names a missing fact, which sends the reader to the templates rather
@@ -37,6 +45,10 @@ use_fixed_machine_facts() {
 		printf 'the fixed machine facts are missing: %s\n' "$facts" >&2
 		return 1
 	fi
+	if ! cp -- "$facts" "$copy"; then
+		printf 'cannot copy the fixed machine facts to %s\n' "$copy" >&2
+		return 1
+	fi
 
-	export XGHOST_MACHINE_FACTS=$facts
+	export XGHOST_MACHINE_FACTS=$copy
 }

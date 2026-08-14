@@ -54,7 +54,13 @@ setup() {
 
 	# A monitor output name, as the kernel names a connector. No file the
 	# project owns may hold one.
-	CONNECTOR_PATTERN='(^|[^A-Za-z0-9-])(eDP|DP|HDMI-A|HDMI-B|DVI-D|DVI-I|DVI-A|VGA|LVDS|DSI|Virtual)-[0-9]+'
+	#
+	# The last three are named by Hyprland rather than by the kernel: 'Unknown-1'
+	# is the name it falls back to for an output it cannot identify, and
+	# 'HEADLESS-1' and 'WL-1' are the outputs of its own headless and nested
+	# backends. A prescribed file that named one of those would be as wrong as
+	# one that named 'DP-1'.
+	CONNECTOR_PATTERN='(^|[^A-Za-z0-9-])(eDP|DP|HDMI-A|HDMI-B|DVI-D|DVI-I|DVI-A|VGA|LVDS|DSI|Virtual|Unknown|HEADLESS|WL)-[0-9]+'
 }
 
 # Write a machine facts file describing a monitor set.
@@ -279,6 +285,22 @@ monitor = HDMI-A-2,3840x2160@30.00,4480x0,2,transform,0' ]
 	run monitor_lines
 	[ "$status" -eq 0 ]
 	[ "$output" = 'monitor = ,preferred,auto,auto' ]
+}
+
+# The count is only one of the facts a fragment names. A machine facts file that
+# carries a count and an unknown field of one of its monitors reaches this
+# fragment, and 'monitor = eDP-1,unknown,0x0,1.5,transform,0' is a line Hyprland
+# refuses with "invalid resolution". Detection writes such a file when it reads
+# a monitor whose mode the compositor reported as null, and a user writes one by
+# hand, which the file itself invites. The render fails by name instead.
+@test "an unknown field of a monitor fails the render, and writes no monitor line" {
+	write_facts 1 'eDP-1:unknown:0x0:1.5:0'
+
+	run "$XGHOST" theme set tokyonight
+	[ "$status" -ne 0 ]
+	[[ $output == *"hypr/monitors.conf: 'MACHINE_MONITOR_1_MODE' is 'unknown' in the machine facts"* ]]
+	[[ $output == *"The active theme is unchanged."* ]]
+	[ ! -e "$GENERATED/hypr/monitors.conf" ]
 }
 
 # --- the workspace assignment ------------------------------------------------
