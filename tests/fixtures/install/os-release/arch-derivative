@@ -1,0 +1,5 @@
+# A derivative that names arch in ID_LIKE. It runs pacman against the same
+# repositories, so preflight accepts it.
+NAME="EndeavourOS"
+ID=endeavouros
+ID_LIKE=arch

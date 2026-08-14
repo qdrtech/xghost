@@ -40,8 +40,8 @@ Three variables move the path, and the first one that is set wins:
 
 Two rules pull against each other, and ADR 0001 states both:
 
-- Detection **replaces the whole file**. It never patches it, never merges into
-  it, and never reads a line of what was there.
+- Detection **replaces the whole file**. It never patches it and never merges
+  into it.
 - You **correct a wrong detection by editing that file**.
 
 The resolution is an order of precedence, and the file states it in its own
@@ -55,9 +55,44 @@ header, so a reader of the file never has to find this page:
    `machine.conf.previous`. A correction you lose that way is still on disk,
    and the command prints the path of the copy.
 
-The copy is not a merge. Detection still writes every line, and it still reads
-nothing of what was there. The copy exists so that replacing a hand-written
-correction is reversible.
+The copy is not a merge. Detection still writes every line. The copy exists so
+that replacing a hand-written correction is reversible.
+
+## A fact whose source did not answer keeps its value
+
+Detection reads exactly one thing from the file it is about to replace: the
+value of a fact that this run could not read at all.
+
+`hyprctl` answers only inside a running Hyprland session. The same computer
+therefore answers with two monitors during a session and with nothing over ssh,
+and a run that recorded `unknown` there would replace a monitor layout that was
+read correctly with the fallback one. The copy at `machine.conf.previous` would
+then be the only record of the layout, and the next run would overwrite that
+copy in turn.
+
+The rule that prevents it:
+
+> A fact whose source did not answer this run keeps the value the previous run
+> wrote for it. A fact whose source did answer is written from that answer,
+> always.
+
+What follows from it:
+
+- A run over ssh, at a virtual console, or from a session that has just crashed
+  keeps the monitors, the input devices and the compositor of the last run that
+  could read them.
+- Every fact that was kept is named on standard error, in one line. Nothing is
+  kept in silence.
+- A run that keeps every fact writes the file it was already holding, byte for
+  byte, so it makes no `machine.conf.previous` copy at all. The undo of your own
+  edit stays the undo of your own edit.
+- A value that carries forward may be one you edited by hand, because this file
+  is the only record of what was last true. The next run whose source does
+  answer replaces it.
+- Nothing carries forward from a file the reader does not accept, such as one
+  that declares another format version. The run says so and records `unknown`.
+- A machine that has never been read has nothing to carry forward, so a first
+  detection records `unknown` exactly as it always did.
 
 A run that writes exactly the file that is already there makes no copy, and
 prints no copy. Such a copy would carry nothing, and it would replace one that
@@ -111,10 +146,12 @@ The reader reports every problem of one file, not only the first.
 | `none`    | The source answered, and its answer was that nothing is set.       |
 
 Detection never invents a plausible value. A machine with no Hyprland running
-records `MACHINE_MONITOR_COUNT=unknown` and no monitor block, because a wrong
-monitor layout presented as fact is worse than an absent one. A machine whose
-keyboard has no variant records `MACHINE_KEYBOARD_VARIANT=none`, because the
-system answered and its answer was "nothing".
+and no monitor ever read records `MACHINE_MONITOR_COUNT=unknown` and no monitor
+block, because a wrong monitor layout presented as fact is worse than an absent
+one. A machine whose monitors were read by an earlier run keeps what that run
+read, and the section above states that rule in full. A machine whose keyboard
+has no variant records `MACHINE_KEYBOARD_VARIANT=none`, because the system
+answered and its answer was "nothing".
 
 The renderer never writes `unknown` into a configuration file. A template that
 names a fact of that value fails the render and reports the file and the name,
@@ -302,9 +339,8 @@ make the output depend on a rule nobody wrote down. Read
 
 ## Detection during an installation
 
-The installer is [issue #7](https://github.com/qdrtech/xghost/issues/7) and
-does not exist yet. Detection is ready for it, and this is the contract the
-installer wires up.
+The installer runs detection twice, and [Installing](installing.md) records the
+order it chose. This is the contract it is wired up to.
 
 An installation step runs one command:
 
@@ -328,19 +364,32 @@ One ordering rule matters, and it is the reason a monitor layout can still be
 wrong at first login:
 
 > `hyprctl` answers only inside a running Hyprland session. A step that runs
-> before the session starts records `MACHINE_MONITOR_COUNT=unknown`.
+> before the session starts records `MACHINE_MONITOR_COUNT=unknown`, unless a
+> run inside a session read the monitors already.
 
 [Repository layout](repository-layout.md) puts detection in
 `install/steps/config/`, and that step is correct for every fact except the
-monitors. To make the monitors correct at first login, the installer has to run
-detection again **inside the first Hyprland session**. A step under
-`install/steps/post-install/` and a run at the start of the session itself both
-satisfy that. The choice belongs to issue #7.
+monitors. To make the monitors correct, the installer has to run detection again
+**inside a Hyprland session**.
+
+The installer runs it at the start of the session itself: the prescribed
+autostart carries `exec-once = xghost machine refresh`, which runs detection
+again and renders the active theme from what it read. A step under
+`install/steps/post-install/` was the other candidate and cannot work, because
+the installer finishes before any session exists. The cost is that the
+prescribed monitor layout is in place from the second login, and
+[Installing](installing.md) records it.
 
 Running detection twice is safe, because the second run writes the same file
 from a machine it can now read fully. It is safe to run at every login as well:
 a run that changes nothing makes no copy, so `machine.conf.previous` still
 holds the file that was replaced the last time something did change.
+
+It is safe in the other direction too, and that is the whole of the safety
+claim rather than half of it. A `machine refresh` that runs when `hyprctl` is
+not answering — the compositor is still starting, or the installation is being
+run again from a terminal — keeps the monitors of the last run that could read
+them. Nothing about this order depends on every run reading the machine fully.
 
 The facts that need no compositor — the timezone, the keyboard layout of the
 system, the default browser — are correct whenever the step runs.

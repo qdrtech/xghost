@@ -1,0 +1,3 @@
+# An AUR manifest for the tests. The shipped one declares no package, so the
+# helper path needs a fixture that does.
+fixture-aur-one

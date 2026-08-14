@@ -22,6 +22,24 @@
 # well formed. A wrong monitor layout presented as fact is worse than an
 # absent one.
 #
+# One rule stands beside that one, and it is the reason this module reads the
+# file it is about to replace:
+#
+#   A fact this run could not read keeps the value the previous run wrote for
+#   it, and never falls back to 'unknown'.
+#
+# hyprctl answers only inside a Hyprland session, so the same machine answers
+# with two monitors at a login and with nothing at all over ssh. Without the
+# rule, the second run replaces a layout that was read correctly with
+# 'unknown', and the copy at machine.conf.previous is then the only record of
+# it. The value that is kept is the last one a source did answer with, every
+# key that was kept is named on standard error, and a run that keeps every
+# fact writes the file it was already holding, byte for byte, so it makes no
+# copy at all.
+#
+# What the rule does not do: it never merges, and it never keeps a value whose
+# source did answer. The whole file is still written from what this run read.
+#
 # The module collects every problem in DETECT_WARNINGS and leaves the reporting
 # to the caller. Only detect_document prints, and it prints the file.
 #
@@ -60,6 +78,16 @@ declare -A DETECT_WARNED=()
 DETECT_PROBLEM=
 DETECT_PREVIOUS=
 
+# The facts the file already held when this run started, and the keys this run
+# took from them because their source did not answer. Both are filled by
+# detect_all.
+declare -A DETECT_PREVIOUS_SCALARS=()
+DETECT_CARRIED=()
+
+# The value detect_add recorded, which is the value it was given unless that
+# fact was carried forward.
+DETECT_ADDED=
+
 # The scratch of the readers below.
 DETECT_OUTPUT=
 DETECT_FIELD=
@@ -79,14 +107,29 @@ readonly DETECT_TERMINAL_LIST=xdg-terminals.list
 #
 #   detect_add KEY VALUE
 #
-# The value is cleaned first, because the file holds one fact per line and a
-# control character in a value would split that line. A replacement is
-# reported rather than made in silence.
+# A value of 'unknown' means this run could not read the source of the fact, so
+# the value the previous detection wrote is taken instead when there is one.
+# The key is recorded in DETECT_CARRIED, and detect_all names every one of them
+# at the end of the run. DETECT_ADDED is the value that was recorded, which a
+# caller needs when the value decides how many blocks follow it.
+#
+# The value is cleaned before it is recorded, because the file holds one fact
+# per line and a control character in a value would split that line. A
+# replacement is reported rather than made in silence.
 detect_add() {
 	local key=$1 value=$2
 
+	if [ "$value" = "$FACTS_UNKNOWN" ] && [ -n "${DETECT_PREVIOUS_SCALARS[$key]+set}" ] &&
+		[ "${DETECT_PREVIOUS_SCALARS[$key]}" != "$FACTS_UNKNOWN" ]; then
+		value=${DETECT_PREVIOUS_SCALARS[$key]}
+		DETECT_CARRIED+=("$key")
+	fi
+
+	DETECT_ADDED=$value
+
 	if ! facts_clean_value "$value"; then
 		detect_warn "$key: the value held nothing but control characters, so it is recorded as '$FACTS_UNKNOWN'"
+		DETECT_ADDED=$FACTS_UNKNOWN
 		DETECT_KEYS+=("$key")
 		DETECT_VALUES+=("$FACTS_UNKNOWN")
 		return 0
@@ -95,8 +138,74 @@ detect_add() {
 		detect_warn "$key: the value held a control character, and each one is recorded as a space"
 	fi
 
+	DETECT_ADDED=$FACTS_CLEANED
 	DETECT_KEYS+=("$key")
 	DETECT_VALUES+=("$FACTS_CLEANED")
+}
+
+# Read the machine facts the file already holds, into DETECT_PREVIOUS_SCALARS.
+#
+#   detect_load_previous PATH
+#
+# The values of that file are what a source that does not answer this run falls
+# back to. Nothing is carried forward from a file the reader does not accept:
+# a file that declares another format version holds keys this version cannot
+# place, and the run says so rather than reading them anyway.
+detect_load_previous() {
+	local path=$1
+	local key
+
+	DETECT_PREVIOUS_SCALARS=()
+
+	if [ -z "$path" ] || [ ! -f "$path" ] || [ ! -r "$path" ]; then
+		return 0
+	fi
+
+	if ! facts_load "$path"; then
+		detect_warn "the machine facts at $path could not be read, so no fact of the previous detection is kept: ${FACTS_ERRORS[0]}"
+		return 0
+	fi
+
+	for key in "${!FACTS_SCALARS[@]}"; do
+		DETECT_PREVIOUS_SCALARS[$key]=${FACTS_SCALARS[$key]}
+	done
+}
+
+# Write the keys of one numbered block again, from the previous detection.
+#
+#   detect_previous_block BASE SUFFIX...
+#
+# Every key is added as 'unknown', so detect_add is what takes the value of the
+# previous run. A key the previous file did not hold stays 'unknown', and the
+# renderer then fails by name on it rather than writing a guess.
+detect_previous_block() {
+	local base=$1
+	shift
+	local suffix
+
+	for suffix in "$@"; do
+		detect_add "${base}_$suffix" "$FACTS_UNKNOWN"
+	done
+}
+
+# Write every numbered block of one list again, from the previous detection.
+#
+#   detect_previous_blocks COUNT PREFIX SUFFIX...
+#
+# A count that is not a number is a count this run did not carry forward, and
+# there is then no block to write.
+detect_previous_blocks() {
+	local count=$1 prefix=$2
+	shift 2
+	local index
+
+	if [[ ! $count =~ ^[0-9]+$ ]]; then
+		return 0
+	fi
+
+	for ((index = 1; index <= count; index++)); do
+		detect_previous_block "${prefix}_$index" "$@"
+	done
 }
 
 # Add one line that carries no fact, such as a comment or an empty line.
@@ -137,7 +246,13 @@ detect_document() {
 		# Read by:     the xghost renderer, beside the theme palette
 		#
 		# 'xghost machine detect' replaces this whole file. It never patches it and
-		# never merges into it, so it never reads a single line of what is below.
+		# never merges into it.
+		#
+		# It reads one thing from the file it replaces: the value of a fact whose
+		# source did not answer that run. hyprctl answers only inside a Hyprland
+		# session, so a detection run over ssh keeps the monitors that were read
+		# at a login rather than putting them back to '$FACTS_UNKNOWN'. The run
+		# names every fact it kept that way.
 		#
 		# You may edit any value to correct a wrong detection. Your edit survives
 		# every xghost update, because an update never writes here. Your edit does
@@ -538,13 +653,35 @@ detect_section_displays() {
 	detect_monitor_blocks "$count"
 }
 
-# Record that no monitor is known. Every other fact of the section keeps its
-# key, so the file is well formed and a template that needs a monitor fails by
-# name rather than rendering a guess.
+# Record that this run could not read the monitors. Every fact of the section
+# keeps its key, so the file is well formed and a template that needs a monitor
+# fails by name rather than rendering a guess.
+#
+# detect_add keeps the value of the previous detection for each of these, so a
+# run outside a Hyprland session records the monitors that were read inside
+# one. A count that was kept that way names the monitor blocks the previous
+# file holds, and the layout templates read those blocks, so they are written
+# again with it. The keys and their order are the keys and the order of
+# detect_monitor_blocks, so the file is byte for byte the file the run inside
+# the session wrote.
 detect_displays_unknown() {
+	local count index
+
 	detect_add MACHINE_MONITOR_COUNT "$FACTS_UNKNOWN"
+	count=$DETECT_ADDED
 	detect_add MACHINE_PRIMARY_MONITOR "$FACTS_UNKNOWN"
 	detect_add MACHINE_PRIMARY_SCALE "$FACTS_UNKNOWN"
+
+	if [[ ! $count =~ ^[0-9]+$ ]]; then
+		return 0
+	fi
+
+	for ((index = 1; index <= count; index++)); do
+		detect_line ''
+		detect_previous_block "MACHINE_MONITOR_$index" \
+			NAME DESCRIPTION WIDTH HEIGHT REFRESH X Y SCALE TRANSFORM FOCUSED \
+			MODE POSITION
+	done
 }
 
 # Name the monitor the desktop treats as the first one.
@@ -765,14 +902,33 @@ detect_section_input() {
 	detect_switch_devices
 }
 
+# Record that this run could not read the input devices.
+#
+# The seven counts are the seven of a machine that has never been read. Each
+# one keeps the value of the previous detection when there is one, and the
+# device blocks that value names are written again with it, in the order
+# detect_section_input writes them.
 detect_input_unknown() {
+	local keyboards pointers touchpads switches
+
 	detect_add MACHINE_KEYBOARD_DEVICE_COUNT "$FACTS_UNKNOWN"
+	keyboards=$DETECT_ADDED
 	detect_add MACHINE_KEYBOARD_DEVICE_MAIN "$FACTS_UNKNOWN"
+	detect_previous_blocks "$keyboards" MACHINE_KEYBOARD_DEVICE NAME LAYOUT
+
 	detect_add MACHINE_POINTER_COUNT "$FACTS_UNKNOWN"
+	pointers=$DETECT_ADDED
 	detect_add MACHINE_TOUCHPAD_COUNT "$FACTS_UNKNOWN"
+	touchpads=$DETECT_ADDED
+	detect_previous_blocks "$pointers" MACHINE_POINTER NAME
+	detect_previous_blocks "$touchpads" MACHINE_TOUCHPAD NAME
+
 	detect_add MACHINE_TOUCHSCREEN_COUNT "$FACTS_UNKNOWN"
 	detect_add MACHINE_TABLET_COUNT "$FACTS_UNKNOWN"
+
 	detect_add MACHINE_SWITCH_COUNT "$FACTS_UNKNOWN"
+	switches=$DETECT_ADDED
+	detect_previous_blocks "$switches" MACHINE_SWITCH NAME
 }
 
 # The number of members of one device list.
@@ -1037,15 +1193,35 @@ detect_first_entry() {
 #
 # The run never fails. A source it cannot read is a warning and an 'unknown'
 # value, so the file it produces is well formed on any machine.
+#
+# The facts that are already at the path this run will write are read first.
+# They are the only record of what a source last answered, so they are what a
+# source that does not answer this run falls back to. The path is resolved here
+# rather than taken from the caller, because a caller that forgot to pass it
+# would put every fact of an unreadable source back to 'unknown' in silence.
 detect_all() {
+	local previous
+
 	DETECT_KEYS=()
 	DETECT_VALUES=()
 	DETECT_WARNINGS=()
 	DETECT_WARNED=()
+	DETECT_CARRIED=()
+	DETECT_PREVIOUS_SCALARS=()
+
+	if previous=$(facts_path); then
+		detect_load_previous "$previous"
+	fi
 
 	detect_add "$FACTS_VERSION_KEY" "$FACTS_VERSION"
 	detect_section_displays
 	detect_section_system
 	detect_section_input
 	detect_section_applications
+
+	# One line for the whole run, so a machine that is read over ssh reports
+	# what it kept without printing a line for every monitor block.
+	if [ "${#DETECT_CARRIED[@]}" -gt 0 ]; then
+		detect_warn "these facts keep the value of the previous detection, because the source of each one did not answer this run: ${DETECT_CARRIED[*]}"
+	fi
 }

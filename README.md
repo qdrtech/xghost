@@ -12,10 +12,30 @@ the project.
 Requirements, architecture, and scope are recorded in
 [issue #1](https://github.com/qdrtech/xghost/issues/1).
 
-This project is under initial development and is not yet installable.
+This project is under initial development. The terminal and the compositor are
+in place; the bar, the launcher and the notifications are not.
+
+## Install
+
+Run it as the user who will use the desktop, on Arch Linux:
+
+```sh
+./install.sh
+./install.sh --dry-run   # report every change and make none
+```
+
+The installer runs four groups of steps in order: preflight, packaging, config
+and post-install. Every step is idempotent, so an installation that stopped part
+way through is resumed by running it again. Existing configuration in the way is
+moved into a backup directory, and the exact path is printed.
+
+[Installing](docs/installing.md) records what each group does, why the order is
+what it is, and what an installation has never been observed doing.
 
 ## Documentation
 
+- [Installing](docs/installing.md) — the package manifests and the installer
+  steps.
 - [Repository layout](docs/repository-layout.md) — what each directory holds.
 - [Adding a command](docs/adding-a-command.md) — the metadata contract of the
   dispatcher.

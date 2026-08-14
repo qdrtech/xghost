@@ -199,6 +199,25 @@ Screen sharing needs the `xdg-desktop-portal-hyprland` package beside
 `xdg-desktop-portal`, and no configuration file at all. Both belong in the
 package manifest of [issue #7](https://github.com/qdrtech/xghost/issues/7).
 
+## The authentication agent
+
+`conf/autostart.conf` starts one program that the dotfiles never started:
+
+```
+exec-once = /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
+```
+
+A polkit request needs an agent to ask through. Two programs of this autostart
+make such requests: `blueman-applet` asks when a device is paired, and
+`nm-applet` asks when a system connection is saved. With no agent running, both
+requests are refused and no dialog is shown at all, so the user sees a bluetooth
+device that will not pair and no reason for it.
+
+The package was already in the manifest and nothing started it. The line is the
+missing half of that decision, and it is the one line of the file that names an
+absolute path: `polkit-gnome` installs the agent in a library directory rather
+than on the `PATH`, and the `.desktop` file of the package runs that same path.
+
 ## The other references that were not carried over
 
 The same rule was applied to every line of the dotfiles that named a file this
@@ -314,7 +333,7 @@ Nothing here installs them.
 | `hyprpaper`                    | `extra`    | `hyprpaper.conf`, and the autostart.           |
 | `xdg-desktop-portal-hyprland`  | `extra`    | Screen sharing.                                |
 | `xdg-desktop-portal`           | `extra`    | The portal front end that the backend needs.   |
-| `polkit-gnome`                 | `extra`    | The authentication agent a desktop session needs. |
+| `polkit-gnome`                 | `extra`    | The authentication agent, in the autostart.    |
 | `psmisc`                       | `extra`    | `killall`, in the two restart keybindings.     |
 | `wireplumber`                  | `extra`    | `wpctl`, in the volume keybindings.            |
 | `brightnessctl`                | `extra`    | The brightness keybindings.                    |
@@ -323,7 +342,13 @@ Nothing here installs them.
 | `blueman`                      | `extra`    | `blueman-applet`, in the autostart.            |
 | `nautilus`                     | `extra`    | `$fileManager`.                                |
 | `ttf-jetbrains-mono-nerd`      | `extra`    | The two labels of `hyprlock.conf`. The Ghostty bundle names it as well. |
-| `hyprshot`                     | AUR        | The two screenshot keybindings.                |
+| `hyprshot`                     | `extra`    | The two screenshot keybindings.                |
+
+Every package above is declared in `install/packages/base.txt`, and
+[Installing](../installing.md) records the manifest. `hyprshot` was an AUR
+package when the dotfiles recorded it, and it is in `extra` today, so nothing
+this bundle needs requires an AUR helper. `pacman -Si hyprshot` names the
+repository.
 
 Three more programs are named by this bundle and belong to another one:
 `ghostty` is `$terminal` and comes with
@@ -331,6 +356,11 @@ Three more programs are named by this bundle and belong to another one:
 comes with [issue #13](https://github.com/qdrtech/xghost/issues/13), and
 `waybar` is the bar and comes with
 [issue #12](https://github.com/qdrtech/xghost/issues/12).
+
+`ghostty` is installed, because its own bundle landed first. `rofi` and `waybar`
+are not, so a session started today logs one failed `exec-once` for the bar and
+does nothing on <kbd>Super</kbd>+<kbd>Space</kbd>.
+[Installing](../installing.md) records what a first installation leaves out.
 
 ## What the tests prove
 
