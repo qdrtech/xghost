@@ -148,13 +148,59 @@ declare is a problem the renderer reports.
 
 There is no template language. A template holds no condition, no loop, and no
 expression. A choice between two blocks of configuration is a structural choice,
-which selects between prescribed fragments rather than templating them.
-Structural choices are driven by knobs, and they arrive with the knobs
-(issue #11).
+which selects between prescribed fragments rather than templating them. The next
+section documents it.
 
 A template is a text file. One that holds a NUL byte is refused by name,
 because reading it as text would drop that byte and write a file that quietly
 differs from its template.
+
+## Structural choices
+
+A structural choice is the second substitution mechanism of
+[ADR 0001](adr/0001-prescribed-config-architecture.md). Substitution by name
+replaces a value inside one file. A structural choice picks a whole file.
+
+A directory named `<file>.choice.<NAME>` is a choice. It holds one fragment per
+value of `NAME`, and exactly one of them reaches the output, at `<file>` beside
+that directory.
+
+```
+templates/hypr/monitors.conf.choice.MACHINE_MONITOR_COUNT/
+  1          the fragment for a machine with one monitor
+  2          the fragment for a machine with two
+  3          the fragment for a machine with three
+  default    the fragment for every other value
+```
+
+With `MACHINE_MONITOR_COUNT=2` that directory writes `generated/hypr/monitors.conf`
+from the fragment named `2`, and it writes nothing else.
+
+The rules:
+
+- The name of a fragment is the value it is chosen for. The comparison is exact.
+- `default` is the fragment for every value no fragment names. A choice without
+  it fails the render when the value matches no fragment, and the report names
+  the value and every fragment the choice holds.
+- A fragment is an ordinary template. It is substituted by name like any other,
+  so a fragment for two monitors names the facts of two monitors.
+- A value is never used to build a path. The chosen fragment is looked up among
+  the files the renderer already found, so a value that holds a path separator
+  can reach nothing outside the directory.
+- `NAME` has to be declared, by the theme palette or by the machine facts. A
+  choice whose value is missing fails the render and names it, exactly as a
+  template that names a missing value does.
+- A choice holds fragments and nothing else. A directory inside one, and a
+  choice inside a choice, are both refused by name.
+- A hand-written file the theme ships at `<file>` wins over the choice, as it
+  wins over a template.
+
+This is a selection, never a loop and never a condition inside a template. It is
+what lets one prescribed layout serve a machine with one monitor and a machine
+with three, without the project growing a template language. Adding the
+prescribed layout for a fourth monitor is adding one file, and no code changes.
+[The Hyprland bundle](bundles/hyprland.md) records the case the mechanism was
+built for.
 
 A template may be a symbolic link. The renderer follows it and renders what it
 points at. A link that points at nothing fails the render and is named, because
@@ -232,7 +278,9 @@ points at survives a switch.
 - **Knobs.** The renderer takes three inputs by design: the theme, the machine
   facts, and the knobs. Two of the three exist today. Issue #11 defines the
   knobs file. The interface accepts all three now and rejects a value for the
-  one that does not exist, rather than guessing at its format.
+  one that does not exist, rather than guessing at its format. A structural
+  choice already reads any declared value, so a knob drives one the day the
+  knobs file lands, with no change to the renderer.
 - **Reloading a running component.** A switch writes the new configuration and
   stops there. It sends no signal and restarts nothing, so a running application
   shows the new theme when it next reads its configuration. Reloading every
@@ -243,6 +291,11 @@ points at survives a switch.
 `tests/golden.bats` renders every theme against every template and compares the
 result with the expected output committed under `tests/golden/`. A template
 change that breaks any theme fails there.
+
+The render uses fixed machine facts, `tests/fixtures/machine/golden.conf`, and
+never the facts of the computer that runs the suite. They describe two monitors
+that never change, so the committed output depends on the templates and the
+palettes alone. `tests/regenerate-golden` reads the same file.
 
 `tests/renderer.bats` covers the behaviour around the render: the commands, the
 three scalar forms, the hand-written file, the palette rules, and what a failed

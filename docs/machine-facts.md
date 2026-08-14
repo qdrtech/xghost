@@ -268,9 +268,23 @@ template names a fact the same way it names a colour:
 monitor = @MACHINE_MONITOR_1_NAME@,@MACHINE_MONITOR_1_MODE@,@MACHINE_MONITOR_1_POSITION@,@MACHINE_MONITOR_1_SCALE@
 ```
 
+A fact also picks between whole files. A directory named
+`<file>.choice.<NAME>` holds one prescribed fragment per value of `NAME`, and
+the renderer writes the one the fact selects. That is how the Hyprland monitor
+layout carries one line per monitor without the renderer growing a loop:
+
+```
+templates/hypr/monitors.conf.choice.MACHINE_MONITOR_COUNT/
+  1  2  3  default
+```
+
+[Theming](theming.md) documents the rules, and
+[the Hyprland bundle](bundles/hyprland.md) documents the case.
+
 `xghost theme set` passes the file when it exists. A machine that has not run
 detection renders with the palette alone, and a template that names a fact
-fails the render by name.
+fails the render by name. A structural choice fails the same way, so
+`xghost machine detect` has to run before the first `xghost theme set`.
 
 A name the palette and the machine facts both declare is a problem the renderer
 reports. The two files have two owners, so preferring either one quietly would

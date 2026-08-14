@@ -44,6 +44,13 @@ setup() {
 	export XDG_STATE_HOME="$HOME/.local/state"
 	mkdir -p "$XDG_CONFIG_HOME" "$XDG_STATE_HOME"
 
+	# A render of the shipped templates needs the machine facts, because the
+	# Hyprland bundle takes its monitor layout from them. These tests render the
+	# whole template directory to reach the Ghostty part of it, so they use the
+	# same fixed facts the golden output is built from. No assertion below reads
+	# them: they only keep the render from failing on a fact it wanted.
+	export XGHOST_MACHINE_FACTS="$BATS_TEST_DIRNAME/fixtures/machine/golden.conf"
+
 	GENERATED="$XDG_STATE_HOME/xghost/generated"
 
 	# The name 'xghost config link' gives the generated output inside the

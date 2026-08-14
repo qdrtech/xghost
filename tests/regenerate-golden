@@ -17,7 +17,10 @@
 # committed output; it never rewrites it.
 #
 # The script writes the output of each theme into a temporary state directory of
-# its own, so it never touches the theme the machine is running.
+# its own, so it never touches the theme the machine is running. It renders
+# against the fixed machine facts under tests/fixtures/machine/, never against
+# the facts of the machine it runs on, so the committed output is the same
+# whatever hardware regenerated it.
 #
 # Every theme is rendered first, into a temporary directory. tests/golden/ is
 # replaced only once all of them have succeeded, so a render that fails leaves
@@ -55,6 +58,15 @@ TESTS_DIR=$(cd -P "$(dirname "$(readlink -f "$0")")" && pwd)
 ROOT_DIR=$(cd -P "$TESTS_DIR/.." && pwd)
 GOLDEN_DIR=$TESTS_DIR/golden
 XGHOST=$ROOT_DIR/bin/xghost
+
+# The fixed machine facts of the golden output. ADR 0001 names the golden tests
+# as every theme against every template with fixed machine facts, and a
+# template that names a fact fails the render without them. tests/golden.bats
+# renders against this same file.
+MACHINE_FACTS=$TESTS_DIR/fixtures/machine/golden.conf
+[ -f "$MACHINE_FACTS" ] ||
+	die "the fixed machine facts are missing: $MACHINE_FACTS"
+export XGHOST_MACHINE_FACTS=$MACHINE_FACTS
 
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT

@@ -27,4 +27,6 @@ This project is under initial development and is not yet installable.
   `~/.config`.
 - [The Ghostty bundle](docs/bundles/ghostty.md) — the terminal, and the first
   application that reads the generated output.
+- [The Hyprland bundle](docs/bundles/hyprland.md) — the compositor, and the
+  first application whose configuration is rendered from the machine facts.
 - [Architecture decision records](docs/adr/) — the decisions and their reasons.

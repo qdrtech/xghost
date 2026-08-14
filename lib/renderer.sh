@@ -7,6 +7,11 @@
 # output. It writes nothing outside the output directory it is given, and it
 # never moves that directory into place: lib/theme.sh does that.
 #
+# It has two substitution mechanisms, and ADR 0001 names both. A value is
+# substituted into a template by name. A structural choice picks one whole
+# prescribed fragment out of a directory of them. There is no third one: the
+# module holds no loop and no condition that a template can reach.
+#
 # The renderer sets the mode of everything it writes, so the umask of the
 # caller cannot change what lands on disk. See RENDER_DIR_MODE below.
 #
@@ -44,6 +49,33 @@ RENDER_MISSING=()
 # A placeholder in a template. The name is upper case, so ordinary text such as
 # a CSS at-rule is never mistaken for one.
 readonly RENDER_PLACEHOLDER_PATTERN='@[A-Z][A-Z0-9_]*@'
+
+# A structural choice, which is the second substitution mechanism of ADR 0001.
+#
+# A directory named '<file>.choice.<NAME>' holds one prescribed fragment per
+# value of NAME, and the renderer writes exactly one of them to '<file>' beside
+# that directory. The fragment whose file name is the value of NAME wins, and
+# 'default' is the fragment for every value no file names.
+#
+# This is a selection, never a loop and never a condition inside a template. A
+# fragment is ordinary configuration text, so the project keeps out of the
+# business of building a template language. docs/theming.md records the rule and
+# docs/bundles/hyprland.md records the case it was built for: a monitor layout
+# holds one line per monitor, and the number of monitors is a fact of the
+# machine rather than something a template can know.
+readonly RENDER_CHOICE_MARKER='.choice.'
+readonly RENDER_CHOICE_PATTERN='^(.+)\.choice\.([A-Z][A-Z0-9_]*)$'
+readonly RENDER_CHOICE_DEFAULT=default
+
+# Set by render_choice_plan. The two arrays hold one entry per choice, at the
+# same index: the template file that was chosen, and the path it takes in the
+# output.
+declare -A RENDER_CHOICE_DIRS=()
+RENDER_CHOICE_SOURCES=()
+RENDER_CHOICE_TARGETS=()
+
+# Set by render_choice_member.
+RENDER_CHOSEN=
 
 # The modes of the generated output.
 #
@@ -140,12 +172,40 @@ render_tree() {
 		overrides=("${RENDER_FILES[@]}")
 	fi
 
+	# The structural choices, resolved before anything is written, so a choice
+	# that names no fragment is reported beside every other problem of the run.
+	render_choice_plan "$template_dir" templates
+
 	# The templates. A template whose relative path the theme also ships by hand
 	# is passed over, so the hand-written file is never overwritten. A link that
 	# points at nothing is still a file the theme means to ship, so it counts
 	# here and render_collect has already named it as a problem.
+	#
+	# A file inside a choice directory is a fragment rather than a template of
+	# its own, so it is written by the loop below this one, and only when it is
+	# the fragment the choice selected.
 	for path in "${templates[@]}"; do
 		relative=${path#"$template_dir/"}
+		if render_in_choice "$relative"; then
+			continue
+		fi
+		if [ -e "$overrides_dir/$relative" ] || [ -L "$overrides_dir/$relative" ]; then
+			continue
+		fi
+		destination=$out_dir/$relative
+		if ! render_prepare_parent "$out_root" "$destination" "$relative"; then
+			continue
+		fi
+		render_file "$path" "$destination" "$relative" || true
+	done
+
+	# The selected fragment of every structural choice. It is rendered like any
+	# other template, and it lands at the path the choice directory names, so a
+	# hand-written file of the theme still wins over it.
+	local index
+	for index in ${RENDER_CHOICE_SOURCES[@]+"${!RENDER_CHOICE_SOURCES[@]}"}; do
+		path=${RENDER_CHOICE_SOURCES[index]}
+		relative=${RENDER_CHOICE_TARGETS[index]}
 		if [ -e "$overrides_dir/$relative" ] || [ -L "$overrides_dir/$relative" ]; then
 			continue
 		fi
@@ -270,6 +330,187 @@ render_collect() {
 			RENDER_FILES+=("$path")
 		done < <(printf '%s\n' "$listing" | LC_ALL=C sort)
 	fi
+}
+
+# Resolve every structural choice of one template directory.
+#
+#   render_choice_plan TEMPLATE_DIR FILES_ARRAY_NAME
+#
+# A directory named '<file>.choice.<NAME>' is a choice. It holds one fragment
+# per value of NAME, and exactly one of them reaches the output, at '<file>'
+# beside the directory. The fragment whose file name is the value of NAME is
+# the one that is chosen, and 'default' is the fragment for every other value.
+#
+# Fills RENDER_CHOICE_DIRS with the selector of each choice directory, and
+# RENDER_CHOICE_SOURCES and RENDER_CHOICE_TARGETS with the fragment that was
+# chosen and the path it takes in the output.
+#
+# The value of NAME is never used to build a path. The chosen fragment is
+# looked up among the files the walk already found, so a value that holds a
+# path separator can name nothing outside the choice directory.
+#
+# Returns 1 when at least one choice has a problem, and every problem lands in
+# RENDER_ERRORS.
+render_choice_plan() {
+	local template_dir=$1
+	local -n files_ref=$2
+	local before=${#RENDER_ERRORS[@]}
+	local listing path relative base selector parent target ancestor
+	local member chosen
+	local -a dirs=() members=()
+	local -A targets=()
+
+	RENDER_CHOICE_DIRS=()
+	RENDER_CHOICE_SOURCES=()
+	RENDER_CHOICE_TARGETS=()
+
+	if ! listing=$(find -L "$template_dir" -mindepth 1 -type d 2>/dev/null); then
+		RENDER_ERRORS+=("cannot walk the template directory; it may hold a loop of symbolic links: $template_dir")
+		return 1
+	fi
+	if [ -n "$listing" ]; then
+		while IFS= read -r path; do
+			dirs+=("$path")
+		done < <(printf '%s\n' "$listing" | LC_ALL=C sort)
+	fi
+
+	# The choice directories, in the order a reader of the tree meets them.
+	for path in ${dirs[@]+"${dirs[@]}"}; do
+		relative=${path#"$template_dir/"}
+		base=${relative##*/}
+		case $base in
+		*"$RENDER_CHOICE_MARKER"*) ;;
+		*) continue ;;
+		esac
+		if [[ ! $base =~ $RENDER_CHOICE_PATTERN ]]; then
+			RENDER_ERRORS+=("$relative: a structural choice is named '<file>.choice.<NAME>', and NAME holds upper case letters, digits and underscores after a letter")
+			continue
+		fi
+		RENDER_CHOICE_DIRS[$relative]=${BASH_REMATCH[2]}
+	done
+
+	if [ "${#RENDER_CHOICE_DIRS[@]}" -eq 0 ]; then
+		[ "${#RENDER_ERRORS[@]}" -eq "$before" ]
+		return
+	fi
+
+	# The choices in one fixed order, so one render reports its problems in the
+	# same order every time. The names are read one line at a time, because a
+	# directory name may hold a space.
+	local -a ordered=()
+	while IFS= read -r relative; do
+		ordered+=("$relative")
+	done < <(printf '%s\n' "${!RENDER_CHOICE_DIRS[@]}" | LC_ALL=C sort)
+
+	# A choice inside a choice, and a directory inside a choice, are both
+	# refused. One choice holds fragments and nothing else, so the rule stays
+	# one sentence long and a reader of the tree never has to work out which
+	# choice a file belongs to.
+	for relative in "${ordered[@]}"; do
+		for ancestor in "${!RENDER_CHOICE_DIRS[@]}"; do
+			if [ "$ancestor" != "$relative" ] && [ "${relative#"$ancestor"/}" != "$relative" ]; then
+				RENDER_ERRORS+=("$relative: a structural choice cannot hold another one, and this one is inside '$ancestor'")
+				unset 'RENDER_CHOICE_DIRS[$relative]'
+				break
+			fi
+		done
+	done
+
+	for relative in "${ordered[@]}"; do
+		# A choice the check above refused is no longer one.
+		[ -n "${RENDER_CHOICE_DIRS[$relative]+set}" ] || continue
+		selector=${RENDER_CHOICE_DIRS[$relative]}
+		base=${relative##*/}
+		[[ $base =~ $RENDER_CHOICE_PATTERN ]] || continue
+		base=${BASH_REMATCH[1]}
+		parent=${relative%/*}
+		if [ "$parent" = "$relative" ]; then
+			target=$base
+		else
+			target=$parent/$base
+		fi
+
+		# Every fragment of this choice, which is every collected file whose
+		# directory is this one. A file deeper inside is a directory the choice
+		# must not hold.
+		members=()
+		for path in ${files_ref[@]+"${files_ref[@]}"}; do
+			member=${path#"$template_dir/"}
+			[ "${member#"$relative"/}" != "$member" ] || continue
+			member=${member#"$relative"/}
+			if [ "${member%%/*}" != "$member" ]; then
+				RENDER_ERRORS+=("$relative: a structural choice holds fragments and no directory, and it holds the directory '${member%%/*}'")
+				continue
+			fi
+			members+=("$member")
+		done
+
+		if [ "${#members[@]}" -eq 0 ]; then
+			RENDER_ERRORS+=("$relative: the structural choice holds no fragment")
+			continue
+		fi
+		if [ -z "${RENDER_SCALARS[$selector]+set}" ]; then
+			RENDER_ERRORS+=("$relative: no value for '$selector' in the theme palette or the machine facts, and the structural choice is made by that value")
+			continue
+		fi
+
+		render_choice_member members "${RENDER_SCALARS[$selector]}"
+		chosen=$RENDER_CHOSEN
+		if [ -z "$chosen" ]; then
+			RENDER_ERRORS+=("$relative: '$selector' is '${RENDER_SCALARS[$selector]}', and the structural choice has no fragment of that name and no '$RENDER_CHOICE_DEFAULT'. It holds: ${members[*]}")
+			continue
+		fi
+		if [ -n "${targets[$target]+set}" ]; then
+			RENDER_ERRORS+=("$relative: it writes '$target', and '${targets[$target]}' writes that path as well")
+			continue
+		fi
+
+		targets[$target]=$relative
+		RENDER_CHOICE_SOURCES+=("$template_dir/$relative/$chosen")
+		RENDER_CHOICE_TARGETS+=("$target")
+	done
+
+	[ "${#RENDER_ERRORS[@]}" -eq "$before" ]
+}
+
+# Set RENDER_CHOSEN to the fragment one choice selects.
+#
+#   render_choice_member MEMBERS_ARRAY_NAME VALUE
+#
+# The fragment whose file name is the value wins, and 'default' is the fragment
+# for every value no fragment names. RENDER_CHOSEN is empty when the choice has
+# neither. The names are compared one by one rather than searched inside one
+# string, so a fragment whose name holds a space is still matched exactly.
+render_choice_member() {
+	local -n members_ref=$1
+	local value=$2
+	local name found_default=0
+
+	RENDER_CHOSEN=
+
+	for name in ${members_ref[@]+"${members_ref[@]}"}; do
+		if [ "$name" = "$value" ]; then
+			RENDER_CHOSEN=$name
+			return 0
+		fi
+		if [ "$name" = "$RENDER_CHOICE_DEFAULT" ]; then
+			found_default=1
+		fi
+	done
+
+	if [ "$found_default" -eq 1 ]; then
+		RENDER_CHOSEN=$RENDER_CHOICE_DEFAULT
+	fi
+}
+
+# Return 0 when one relative template path is a fragment of a structural
+# choice, which is a file the choice writes rather than a template of its own.
+render_in_choice() {
+	local relative=$1
+	local parent=${relative%/*}
+
+	[ "$parent" != "$relative" ] || return 1
+	[ -n "${RENDER_CHOICE_DIRS[$parent]+set}" ]
 }
 
 # Create the directory that holds one output file, and prove it is inside the
