@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+#
+# Read what is physically true about this computer and record it.
+#
+# @xghost-meta
+# summary: Detect this computer and write the machine facts file.
+# example: xghost machine detect
+# elevated: no
+# internal: no
+# @end-xghost-meta
+
+set -euo pipefail
+
+COMMAND_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+# shellcheck source=lib/detect.sh
+. "${COMMAND_PATH%/*}/../lib/detect.sh"
+
+PROGRAM=xghost
+
+warn() {
+	printf '%s: %s\n' "$PROGRAM" "$*" >&2
+}
+
+die() {
+	local code=$1
+	shift
+	warn "$*"
+	exit "$code"
+}
+
+if [ $# -gt 0 ]; then
+	die 2 "'machine detect' takes no argument, and it was given $#."
+fi
+
+if ! FACTS_FILE=$(facts_path); then
+	die 1 "$FACTS_NO_HOME_MESSAGE"
+fi
+
+detect_all
+
+if ! detect_write "$FACTS_FILE"; then
+	die 1 "$DETECT_PROBLEM"
+fi
+
+# Every source the run could not read. Detection that could not read a source
+# says so, and records 'unknown' rather than a value it made up.
+for problem in "${DETECT_WARNINGS[@]}"; do
+	warn "$problem"
+done
+
+if [ -n "$DETECT_PREVIOUS" ]; then
+	printf 'the machine facts that were there are copied to %s\n' "$DETECT_PREVIOUS"
+fi
+printf 'the machine facts are at %s\n' "$FACTS_FILE"
+printf 'edit that file to correct a detection. The next detection replaces it.\n'

@@ -21,4 +21,6 @@ This project is under initial development and is not yet installable.
   dispatcher.
 - [Theming](docs/theming.md) — the palette format, the templates, and the
   renderer that turns them into configuration.
+- [Machine facts](docs/machine-facts.md) — what detection reads, the file it
+  writes, and how you correct it.
 - [Architecture decision records](docs/adr/) — the decisions and their reasons.

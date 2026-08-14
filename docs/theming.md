@@ -1,9 +1,10 @@
 # Theming
 
 One module generates all themed configuration. It is the renderer. It reads a
-theme and a directory of templates, and it writes a directory of finished
-configuration files at a stable path. Applications read that path, so a theme
-switch never rewrites the configuration file of an application.
+theme, the machine facts, and a directory of templates, and it writes a
+directory of finished configuration files at a stable path. Applications read
+that path, so a theme switch never rewrites the configuration file of an
+application.
 
 The renderer is a pure function. The same inputs always produce the same output,
 and it writes nothing outside the output directory it is given.
@@ -140,6 +141,11 @@ Substitution is by name. `@NAME@` is replaced by the value of `NAME`. The name i
 upper case, so ordinary text such as a CSS at-rule is never mistaken for a
 placeholder.
 
+A name comes from the theme palette or from the machine facts. A machine fact
+starts with `MACHINE_`, so the two never collide, and a name that both files
+declare is a problem the renderer reports.
+[Machine facts](machine-facts.md) documents that file and every key it holds.
+
 There is no template language. A template holds no condition, no loop, and no
 expression. A choice between two blocks of configuration is a structural choice,
 which selects between prescribed fragments rather than templating them.
@@ -223,11 +229,10 @@ points at survives a switch.
 
 ## What the renderer does not do yet
 
-- **Machine facts and knobs.** The renderer takes three inputs by design: the
-  theme, the machine facts, and the knobs. Only the theme exists today. Issue #9
-  defines the machine facts file and issue #11 defines the knobs file. The
-  interface accepts all three now and rejects a value for the two that do not
-  exist, rather than guessing at their format.
+- **Knobs.** The renderer takes three inputs by design: the theme, the machine
+  facts, and the knobs. Two of the three exist today. Issue #11 defines the
+  knobs file. The interface accepts all three now and rejects a value for the
+  one that does not exist, rather than guessing at its format.
 - **Reloading a running component.** A switch writes the new configuration and
   stops there. It sends no signal and restarts nothing, so a running application
   shows the new theme when it next reads its configuration. Reloading every

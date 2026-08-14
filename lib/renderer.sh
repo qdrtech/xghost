@@ -15,7 +15,7 @@
 # of its own has its standard error dropped, so the collected problem is the
 # only report.
 #
-# This module needs lib/palette.sh.
+# This module needs lib/palette.sh and lib/facts.sh.
 
 # The include sentinel. A library may be sourced more than once, because two
 # modules may each need it. The second source returns here, so the readonly
@@ -30,6 +30,12 @@ RENDER_ERRORS=()
 
 # Set by render_collect.
 RENDER_FILES=()
+
+# Every value a template may name, built by render_tree from the theme palette
+# and from the machine facts. The two sources are kept apart until here, so a
+# name that both declare is named as a problem rather than resolved by an
+# order that nobody chose.
+declare -A RENDER_SCALARS=()
 
 # Set by render_substitute.
 RENDER_CONTENT=
@@ -54,10 +60,18 @@ readonly RENDER_EXECUTABLE_MODE=0755
 #   render_tree TEMPLATE_DIR THEME_DIR FACTS_FILE KNOBS_FILE OUT_DIR
 #
 # The renderer takes three inputs by design: the theme, the machine facts, and
-# the knobs. Machine facts and knobs do not exist yet. Their files are named by
-# issue #9 and issue #11, and this slice does not invent their format. Pass an
-# empty path for each of the two, which means "absent". A path that is not empty
-# is a problem rather than a value the renderer guesses at.
+# the knobs.
+#
+# FACTS_FILE is the machine facts file of lib/facts.sh. Every value it declares
+# is a value a template may name, beside the values of the palette. An empty
+# path means "absent", which is what a machine that has not run
+# 'xghost machine detect' passes. A template that names a machine fact then
+# fails the render by name, rather than rendering a monitor layout the renderer
+# guessed at.
+#
+# Knobs do not exist yet. Issue #11 names that file, and this slice does not
+# invent its format. Pass an empty path, and a path that is not empty is a
+# problem rather than a value the renderer guesses at.
 #
 # THEME_DIR holds 'palette.conf' and may hold a 'files/' directory. Every file
 # under 'files/' is a hand-written file the theme ships. It is copied into the
@@ -72,9 +86,6 @@ render_tree() {
 
 	RENDER_ERRORS=()
 
-	if [ -n "$facts_file" ]; then
-		RENDER_ERRORS+=("machine facts are not an input yet; issue #9 defines that file. Pass an empty path.")
-	fi
 	if [ -n "$knobs_file" ]; then
 		RENDER_ERRORS+=("knobs are not an input yet; issue #11 defines that file. Pass an empty path.")
 	fi
@@ -96,6 +107,10 @@ render_tree() {
 		for problem in "${PALETTE_ERRORS[@]}"; do
 			RENDER_ERRORS+=("palette.conf: $problem")
 		done
+		return 1
+	fi
+
+	if ! render_scalars "$facts_file"; then
 		return 1
 	fi
 
@@ -162,6 +177,52 @@ render_tree() {
 	if ! find "$out_dir" -type d -exec chmod "$RENDER_DIR_MODE" {} + 2>/dev/null; then
 		RENDER_ERRORS+=("cannot set the mode of the directories of the generated output")
 	fi
+
+	[ "${#RENDER_ERRORS[@]}" -eq 0 ]
+}
+
+# Build the table of every value a template may name.
+#
+#   render_scalars FACTS_FILE
+#
+# The palette is loaded already. This adds the machine facts, when the caller
+# gave a path for them, and fills RENDER_SCALARS with both.
+#
+# A name both sources declare is a problem rather than a winner. The palette
+# key of a theme holds upper case letters and the key of a machine fact starts
+# with 'MACHINE_', so a collision is a mistake in one of the two files, and
+# quietly preferring either one would make the output depend on a rule nobody
+# wrote down.
+#
+# Returns 1 when the machine facts have at least one problem, and every problem
+# lands in RENDER_ERRORS.
+render_scalars() {
+	local facts_file=$1
+	local name problem
+
+	RENDER_SCALARS=()
+	for name in "${!PALETTE_SCALARS[@]}"; do
+		RENDER_SCALARS[$name]=${PALETTE_SCALARS[$name]}
+	done
+
+	if [ -z "$facts_file" ]; then
+		return 0
+	fi
+
+	if ! facts_load "$facts_file"; then
+		for problem in "${FACTS_ERRORS[@]}"; do
+			RENDER_ERRORS+=("machine facts: $problem")
+		done
+		return 1
+	fi
+
+	for name in "${!FACTS_SCALARS[@]}"; do
+		if [ -n "${RENDER_SCALARS[$name]+set}" ]; then
+			RENDER_ERRORS+=("machine facts: '$name' is declared by the theme palette as well")
+			continue
+		fi
+		RENDER_SCALARS[$name]=${FACTS_SCALARS[$name]}
+	done
 
 	[ "${#RENDER_ERRORS[@]}" -eq 0 ]
 }
@@ -257,13 +318,16 @@ render_set_mode() {
 	fi
 }
 
-# Substitute the palette into one string, in a single pass.
+# Substitute every known value into one string, in a single pass.
 #
 #   render_substitute TEXT
 #
+# The values are RENDER_SCALARS, which render_scalars built from the theme
+# palette and the machine facts.
+#
 # Sets RENDER_CONTENT to the result, and RENDER_MISSING to the name of every
-# placeholder the palette has no value for. A name is listed once, in the order
-# it first appears.
+# placeholder that has no value. A name is listed once, in the order it first
+# appears.
 #
 # The pass reads the text once and never reads back what it wrote, so a value
 # is copied through as the text it is. Two consequences follow, and both are
@@ -293,8 +357,8 @@ render_substitute() {
 		rest=${rest#"$prefix$match"}
 		name=${match:1:${#match}-2}
 
-		if [ -n "${PALETTE_SCALARS[$name]+set}" ]; then
-			out=$out$prefix${PALETTE_SCALARS[$name]}
+		if [ -n "${RENDER_SCALARS[$name]+set}" ]; then
+			out=$out$prefix${RENDER_SCALARS[$name]}
 			continue
 		fi
 
@@ -310,11 +374,11 @@ render_substitute() {
 	[ "${#RENDER_MISSING[@]}" -eq 0 ]
 }
 
-# Substitute the palette into one template file and write the result.
+# Substitute every known value into one template file and write the result.
 #
-# Every '@NAME@' is replaced by the value of NAME. A placeholder the palette has
-# no value for is a problem: the renderer reports it and writes no file, rather
-# than leaving the name in the output for a user to find later.
+# Every '@NAME@' is replaced by the value of NAME. A placeholder that has no
+# value is a problem: the renderer reports it and writes no file, rather than
+# leaving the name in the output for a user to find later.
 #
 # A template is a text file. One that holds a NUL byte is refused by name,
 # because reading it into a string would drop that byte and write a file that
@@ -349,7 +413,7 @@ render_file() {
 
 	if ! render_substitute "$content"; then
 		for name in "${RENDER_MISSING[@]}"; do
-			RENDER_ERRORS+=("$relative: the palette has no value for '$name'")
+			RENDER_ERRORS+=("$relative: no value for '$name' in the theme palette or the machine facts")
 		done
 		return 1
 	fi

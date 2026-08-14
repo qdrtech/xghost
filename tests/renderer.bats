@@ -240,7 +240,7 @@ accent=10, 132, 255" ]
 	EOF
 	run "$XGHOST" theme set demo
 	[ "$status" -eq 1 ]
-	[[ $output == *"font.conf: the palette has no value for 'FONT_HEX'"* ]]
+	[[ $output == *"font.conf: no value for 'FONT_HEX' in the theme palette or the machine facts"* ]]
 }
 
 @test "a value that holds an ampersand reaches the output unchanged" {
@@ -570,7 +570,7 @@ a=hello' ]
 	EOF
 	run "$XGHOST" theme set demo
 	[ "$status" -eq 1 ]
-	[[ $output == *"broken.conf: the palette has no value for 'NOSUCH'"* ]]
+	[[ $output == *"broken.conf: no value for 'NOSUCH' in the theme palette or the machine facts"* ]]
 	[[ $output == *"The active theme is unchanged."* ]]
 }
 
@@ -856,8 +856,14 @@ tokyonight" ]
 		set -euo pipefail
 		. "$1/lib/palette.sh"
 		. "$1/lib/palette.sh"
+		. "$1/lib/json.sh"
+		. "$1/lib/json.sh"
+		. "$1/lib/facts.sh"
+		. "$1/lib/facts.sh"
 		. "$1/lib/renderer.sh"
 		. "$1/lib/renderer.sh"
+		. "$1/lib/detect.sh"
+		. "$1/lib/detect.sh"
 		. "$1/lib/theme.sh"
 		. "$1/lib/theme.sh"
 		printf "sound\n"

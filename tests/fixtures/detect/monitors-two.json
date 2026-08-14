@@ -1,0 +1,69 @@
+[{
+    "id": 0,
+    "name": "DP-1",
+    "description": "Dell Inc. DELL U2720Q H4NM13",
+    "make": "Dell Inc.",
+    "model": "DELL U2720Q",
+    "serial": "H4NM13",
+    "width": 3840,
+    "height": 2160,
+    "physicalWidth": 600,
+    "physicalHeight": 340,
+    "refreshRate": 59.99700,
+    "x": 0,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 1,
+        "name": "1"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 40, 0, 0],
+    "scale": 2.00,
+    "transform": 0,
+    "focused": false,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "activelyTearing": false,
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["3840x2160@59.997Hz", "1920x1080@60.00Hz"]
+},{
+    "id": 1,
+    "name": "eDP-1",
+    "description": "BOE 0x0803",
+    "make": "BOE",
+    "model": "0x0803",
+    "serial": "",
+    "width": 2256,
+    "height": 1504,
+    "physicalWidth": 290,
+    "physicalHeight": 190,
+    "refreshRate": 59.99900,
+    "x": 3840,
+    "y": 240,
+    "activeWorkspace": {
+        "id": 2,
+        "name": "2"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.50,
+    "transform": 0,
+    "focused": true,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "activelyTearing": false,
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["2256x1504@59.999Hz"]
+}]
