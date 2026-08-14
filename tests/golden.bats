@@ -25,6 +25,19 @@ setup() {
 	# The shipped commands, never the fixture directory of another test file.
 	export XGHOST_COMMAND_DIR="$BATS_TEST_DIRNAME/../commands"
 
+	# Every path the commands read comes from this setup, so no override that
+	# the person who runs the tests happens to export reaches a command. A
+	# developer with XGHOST_TEMPLATE_DIR exported would otherwise render from
+	# templates that are not the ones these tests compare against, and every
+	# assertion below would still pass.
+	unset XGHOST_ROOT
+	unset XGHOST_THEMES_DIR
+	unset XGHOST_TEMPLATE_DIR
+	unset XGHOST_CONFIG_SOURCE
+	unset XGHOST_CONFIG_HOME
+	unset XGHOST_STATE_DIR
+	unset XGHOST_BACKUP_DIR
+
 	# The renderer writes under the state directory of the user, so each test
 	# gets a home of its own and touches nothing outside it.
 	export HOME="$BATS_TEST_TMPDIR/home"

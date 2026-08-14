@@ -25,6 +25,49 @@ linker passes over it.
 the pull completes, and a user edit to a prescribed file dirties the checkout.
 Both are the intent of the ADR.
 
+## The bridge to the generated output
+
+The linker creates one more link, which no prescribed entry stands behind:
+
+```
+$XDG_CONFIG_HOME/xghost-generated -> $XDG_STATE_HOME/xghost/generated
+```
+
+A prescribed file that includes generated colours has to name the generated
+output somehow. It cannot use a variable: Ghostty expands no environment
+variable, and neither does most of what this project prescribes. It cannot name
+the state directory in full either, because that path is right only while
+`XDG_STATE_HOME` holds its default, and an include that misses is usually an
+include that misses in silence.
+
+The bridge gives the generated output one fixed name inside the config
+directory, so a prescribed file reaches it by a path relative to its own
+directory:
+
+```
+config-file = ?../xghost-generated/ghostty/colors.conf
+```
+
+Both ends of that path follow the environment, so it is right for every value
+of `XDG_CONFIG_HOME` and `XDG_STATE_HOME`.
+[The Ghostty bundle](bundles/ghostty.md) records how Ghostty resolves such a
+path, and the rule every later bundle depends on.
+
+The bridge is created beside the prescribed entries and never instead of one.
+It is a link the linker creates, so every rule below applies to it unchanged:
+it is recorded, `unlink` removes it, and a path the user already put at that
+name is a conflict the linker refuses to clobber.
+
+The link points at `<state directory>/generated` whether or not that path
+exists yet. `xghost theme set` has not necessarily run, and a prescribed file
+makes its include optional for exactly that moment. The link is right the
+moment the generated output appears.
+
+There is one exception to "the linker always creates it": a prescribed
+configuration directory with no entry to link. Nothing includes the generated
+output when nothing is prescribed, so the run reports that there is nothing to
+link and creates no directory and no link at all.
+
 ## The paths, and how to override each one
 
 Every path comes from one place, so a test sets one variable rather than a home
@@ -111,14 +154,15 @@ config directory, no state directory and no backup.
 
 1. The link record holds that path.
 2. The path is a symbolic link today.
-3. That symbolic link points at the prescribed path the record holds for it.
-   The text of the link is the first test. When the text differs, the link
-   still counts when it reaches that very file, which is what happens when the
-   install location is reached through a symbolic link.
+3. That symbolic link points at the target the record holds for it, which is a
+   prescribed entry for every link but the bridge. The text of the link is the
+   first test. When the text differs, the link still counts when it reaches
+   that very file, which is what happens when the install location is reached
+   through a symbolic link.
 
 The link record is the file `links` in the state directory. It holds one line
-per link: the link path, a tab, then the prescribed path. `link` writes it, and
-`unlink` reads it. The record must be a regular file. The linker reports any
+per link: the link path, a tab, then the path it points at. `link` writes it,
+and `unlink` reads it. The record must be a regular file. The linker reports any
 other kind of path there and stops, because a record it cannot write is a link
 it cannot remove again.
 

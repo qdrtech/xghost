@@ -1,0 +1,65 @@
+# The Ghostty configuration of xghost.
+#
+# This file is prescribed configuration. The project owns it, and 'xghost config
+# link' symlinks the directory that holds it to ~/.config/ghostty. Do not edit
+# it: an edit dirties the checkout and conflicts on the next pull. See
+# docs/adr/0001-prescribed-config-architecture.md.
+#
+# The colours are not here. They come from the active theme, through the
+# generated file the next line includes. See docs/bundles/ghostty.md.
+
+# The colours of the active theme, written by 'xghost theme set'.
+#
+# The path is relative, and Ghostty resolves it against the directory this file
+# was opened from. That directory is the link 'xghost config link' creates, so
+# the path starts at the config directory of the user. 'xghost config link'
+# also creates 'xghost-generated' there, which reaches the generated output.
+# Both ends therefore follow XDG_CONFIG_HOME and XDG_STATE_HOME, and neither is
+# written out in full. Ghostty expands no environment variable, so a path
+# written out in full would be wrong the moment either variable is not the
+# default. See docs/bundles/ghostty.md.
+#
+# The leading '?' makes the file optional. Before the first 'xghost theme set'
+# the file does not exist, and Ghostty then starts with the settings below
+# rather than reporting an error.
+#
+# An included file is applied after the file that includes it, so the generated
+# colours win over anything this file sets.
+config-file = ?../xghost-generated/ghostty/colors.conf
+
+# The font.
+#
+# 'JetBrainsMono Nerd Font' comes from the Arch package
+# 'ttf-jetbrains-mono-nerd'. It replaces '.SF NS Mono', which is the macOS
+# system font and exists on no Arch machine.
+font-family = JetBrainsMono Nerd Font
+font-size = 14
+
+# Contextual alternates and ligatures. JetBrains Mono carries both.
+font-feature = +calt
+font-feature = +liga
+
+# The padding at the left and at the right of the window, in pixels.
+window-padding-x = 10,10
+
+# A translucent window with a blurred background. The radius is in pixels, and
+# the opacity is a fraction of 1.
+#
+# 'background-blur' takes the radius. 'background-blur-radius' is an
+# undocumented compatibility alias that Ghostty 1.3.1 rewrites to this setting
+# without saying so, and it is absent from 'ghostty +show-config --default
+# --docs'. A setting that is not documented can be dropped without a
+# deprecation, so the documented name is used here.
+background-blur = 20
+background-opacity = 0.2
+
+# The window carries the GTK title bar.
+#
+# This is already the default of Ghostty 1.3.1. It is kept because it is a
+# deliberate choice of this bundle rather than an accident of the default: a
+# release that changes the default must not change the window. The cost is one
+# line that changes nothing today.
+gtk-titlebar = true
+
+# Shell integration keeps the sudo environment of the terminal.
+shell-integration-features = sudo

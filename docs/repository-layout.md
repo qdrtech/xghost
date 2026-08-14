@@ -11,7 +11,7 @@ behaviour without reading the tree.
 | `commands/`    | One executable script per command, named `<group>-<verb>`. The dispatcher scans it. |
 | `completions/` | The shell completion functions, one file per shell.                               |
 | `config/`      | The prescribed configuration the project owns and symlinks into `~/.config`.      |
-| `docs/`        | The documentation, with the architecture decision records under `docs/adr/`.      |
+| `docs/`        | The documentation, with the architecture decision records under `docs/adr/` and one page per bundle under `docs/bundles/`. |
 | `install/`     | The installer: its steps and its package manifests. See below.                    |
 | `lib/`         | The shared shell modules the commands and the installer source.                   |
 | `migrations/`  | One script per migration, restricted by policy to system side effects.            |
