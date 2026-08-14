@@ -180,6 +180,13 @@ detect_document() {
 # reads nothing of what was there. The copy exists so that a correction a user
 # made by hand is recoverable after a re-detection replaced it.
 #
+# A run that writes exactly the file that is already there makes no copy. Such
+# a copy carries nothing, and making it would replace a copy that carries a
+# correction: two runs with no edit between them would then leave a backup of
+# the auto-detected file and the correction would be gone. Detection is offered
+# twice during an installation and again at the start of a session, so the
+# no-op re-run is the common one.
+#
 # Returns 1 and sets DETECT_PROBLEM when the file was not written.
 detect_write() {
 	local path=$1
@@ -198,6 +205,14 @@ detect_write() {
 		return 1
 	fi
 
+	# A link that points at nothing is named rather than replaced. The user
+	# made that link, and there is nothing behind it to copy, so detection says
+	# what it found instead of deciding what the link was meant to be.
+	if [ -L "$path" ] && [ ! -e "$path" ]; then
+		DETECT_PROBLEM="the machine facts path is a symbolic link that points at nothing: $path. Remove the link, or point it at a file, and run detection again."
+		return 1
+	fi
+
 	if ! detect_document 2>/dev/null >"$temp"; then
 		rm -f "$temp" 2>/dev/null
 		DETECT_PROBLEM="cannot write the machine facts to $temp"
@@ -209,10 +224,9 @@ detect_write() {
 		return 1
 	fi
 
-	if [ -e "$path" ] || [ -L "$path" ]; then
-		if ! cp -- "$path" "$previous" 2>/dev/null; then
+	if [ -e "$path" ] && ! detect_same "$path" "$temp"; then
+		if ! detect_backup "$path" "$previous"; then
 			rm -f "$temp" 2>/dev/null
-			DETECT_PROBLEM="cannot copy the machine facts that are already there to $previous; nothing was changed"
 			return 1
 		fi
 		DETECT_PREVIOUS=$previous
@@ -221,6 +235,67 @@ detect_write() {
 	if ! mv -- "$temp" "$path" 2>/dev/null; then
 		rm -f "$temp" 2>/dev/null
 		DETECT_PROBLEM="cannot move the new machine facts into place at $path"
+		return 1
+	fi
+}
+
+# Whether two files hold the same bytes.
+#
+#   detect_same PATH PATH
+#
+# The comparison is done in bash, so detection still needs no program a machine
+# may not have. A machine facts file holds no NUL byte, because every value is
+# cleaned before it is written, so a read that stops at a NUL byte stops only
+# at the end of the file.
+#
+# Returns 1 when the bytes differ, and when either path is not a readable
+# regular file.
+detect_same() {
+	local first second
+
+	if [ ! -f "$1" ] || [ ! -r "$1" ] || [ ! -f "$2" ] || [ ! -r "$2" ]; then
+		return 1
+	fi
+
+	IFS= read -r -d '' first <"$1" || true
+	IFS= read -r -d '' second <"$2" || true
+
+	[ "$first" = "$second" ]
+}
+
+# Copy the machine facts that are there to the copy that sits beside them.
+#
+#   detect_backup PATH PREVIOUS
+#
+# The copy is built beside its own place and moved in, and its mode is set for
+# the same reason the mode of the file itself is set: the mode of a copy
+# follows the umask otherwise, and one run would leave two files with two
+# modes.
+#
+# Returns 1 and sets DETECT_PROBLEM when the copy was not made.
+detect_backup() {
+	local path=$1 previous=$2
+	local temp=$previous.new.$$
+
+	# 'cp' copies into a directory rather than over it. It would then report
+	# success while the copy sits at a path this run never named.
+	if [ -d "$previous" ]; then
+		DETECT_PROBLEM="cannot copy the machine facts to $previous, because a directory is there; nothing was changed"
+		return 1
+	fi
+	if ! cp -- "$path" "$temp" 2>/dev/null; then
+		rm -f "$temp" 2>/dev/null
+		DETECT_PROBLEM="cannot copy the machine facts that are already there to $previous; nothing was changed"
+		return 1
+	fi
+	if ! chmod "$FACTS_FILE_MODE" "$temp" 2>/dev/null; then
+		rm -f "$temp" 2>/dev/null
+		DETECT_PROBLEM="cannot set the mode of the copy at $previous; nothing was changed"
+		return 1
+	fi
+	if ! mv -- "$temp" "$previous" 2>/dev/null; then
+		rm -f "$temp" 2>/dev/null
+		DETECT_PROBLEM="cannot move the copy of the machine facts into place at $previous; nothing was changed"
 		return 1
 	fi
 }
@@ -283,8 +358,40 @@ detect_trim_number() {
 }
 
 # Read one member of the JSON document into DETECT_FIELD, or 'unknown'.
+#
+#   detect_field PATH
+#
+# The JSON value null is not a fact. It is the answer that this member has no
+# value, so it is recorded as 'unknown' and reported. JSON_KIND is what tells
+# it from a string that holds the four letters of the word: a monitor really
+# named "null" is a name, and a monitor whose name is null is a monitor this
+# run could not read. Writing the word into the file would put it straight into
+# a rendered 'monitor =' line as though the compositor had reported it.
 detect_field() {
-	DETECT_FIELD=${JSON_VALUE[$1]:-$FACTS_UNKNOWN}
+	local path=$1
+
+	DETECT_FIELD=${JSON_VALUE[$path]:-$FACTS_UNKNOWN}
+
+	if [ "$DETECT_FIELD" = null ] && [ "${JSON_KIND[$path]:-}" = literal ]; then
+		detect_warn "the answer holds null at '$path', so that fact is recorded as '$FACTS_UNKNOWN'"
+		DETECT_FIELD=$FACTS_UNKNOWN
+	fi
+}
+
+# The number of members of one JSON array, into DETECT_FIELD.
+#
+#   detect_list_size PATH
+#
+# A JSON object records a size as well, and that size is the number of its
+# member names rather than a count of anything a caller asked for. A path that
+# holds an object is therefore not a list, and DETECT_FIELD is left empty, so a
+# caller never turns a member count into a monitor count.
+detect_list_size() {
+	DETECT_FIELD=
+
+	if [ "${JSON_KIND[$1]:-}" = array ]; then
+		DETECT_FIELD=${JSON_SIZE[$1]}
+	fi
 }
 
 # Read one number of the JSON document into DETECT_FIELD, without its trailing
@@ -378,6 +485,13 @@ detect_getoption() {
 		detect_warn "'hyprctl getoption $option -j' answered without a 'str' value"
 		return 0
 	fi
+	# A 'str' that is not a string is not a setting. The word null read as a
+	# layout would reach a rendered 'kb_layout =' line as though the compositor
+	# had reported it.
+	if [ "${JSON_KIND[str]:-}" != string ]; then
+		detect_warn "'hyprctl getoption $option -j' answered with a 'str' that is not a string"
+		return 0
+	fi
 
 	if [ -z "${JSON_VALUE[str]}" ]; then
 		DETECT_FIELD=$FACTS_NONE
@@ -410,7 +524,9 @@ detect_section_displays() {
 		return 0
 	fi
 
-	local count=${JSON_SIZE[$JSON_ROOT]:-}
+	local count
+	detect_list_size "$JSON_ROOT"
+	count=$DETECT_FIELD
 	if [ -z "$count" ]; then
 		detect_warn "'hyprctl monitors -j' did not answer with a list of monitors"
 		detect_displays_unknown
@@ -613,6 +729,8 @@ detect_keyboard() {
 # --- the input devices ------------------------------------------------------
 
 detect_section_input() {
+	local keyboards mice
+
 	detect_line ''
 	detect_line '# --- Input devices ----------------------------------------------------------'
 	detect_line '#'
@@ -630,7 +748,11 @@ detect_section_input() {
 		detect_input_unknown
 		return 0
 	fi
-	if [ -z "${JSON_SIZE[keyboards]+set}" ] && [ -z "${JSON_SIZE[mice]+set}" ]; then
+	detect_list_size keyboards
+	keyboards=$DETECT_FIELD
+	detect_list_size mice
+	mice=$DETECT_FIELD
+	if [ -z "$keyboards" ] && [ -z "$mice" ]; then
 		detect_warn "'hyprctl devices -j' did not answer with a list of devices"
 		detect_input_unknown
 		return 0
@@ -658,7 +780,10 @@ detect_input_unknown() {
 #   detect_device_count LIST KEY
 detect_device_count() {
 	local list=$1 key=$2
-	local count=${JSON_SIZE[$list]:-}
+	local count
+
+	detect_list_size "$list"
+	count=$DETECT_FIELD
 
 	if [ -z "$count" ]; then
 		detect_warn "'hyprctl devices -j' answered without a '$list' list"
@@ -670,8 +795,11 @@ detect_device_count() {
 }
 
 detect_keyboard_devices() {
-	local count=${JSON_SIZE[keyboards]:-}
+	local count
 	local index number main=$FACTS_NONE
+
+	detect_list_size keyboards
+	count=$DETECT_FIELD
 
 	if [ -z "$count" ]; then
 		detect_warn "'hyprctl devices -j' answered without a 'keyboards' list"
@@ -702,9 +830,12 @@ detect_keyboard_devices() {
 }
 
 detect_pointer_devices() {
-	local count=${JSON_SIZE[mice]:-}
+	local count
 	local index number name
 	local -a touchpads=()
+
+	detect_list_size mice
+	count=$DETECT_FIELD
 
 	if [ -z "$count" ]; then
 		detect_warn "'hyprctl devices -j' answered without a 'mice' list"
@@ -739,8 +870,11 @@ detect_pointer_devices() {
 }
 
 detect_switch_devices() {
-	local count=${JSON_SIZE[switches]:-}
+	local count
 	local index number
+
+	detect_list_size switches
+	count=$DETECT_FIELD
 
 	if [ -z "$count" ]; then
 		detect_warn "'hyprctl devices -j' answered without a 'switches' list"
@@ -907,6 +1041,7 @@ detect_all() {
 	DETECT_KEYS=()
 	DETECT_VALUES=()
 	DETECT_WARNINGS=()
+	DETECT_WARNED=()
 
 	detect_add "$FACTS_VERSION_KEY" "$FACTS_VERSION"
 	detect_section_displays

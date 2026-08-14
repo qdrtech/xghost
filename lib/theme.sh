@@ -244,8 +244,14 @@ theme_set() {
 	# has not run 'xghost machine detect' has no such file, and the render then
 	# has the palette alone. That is not a failure here: a template that names
 	# a machine fact fails the render itself, and names the value it wanted.
+	#
+	# Anything at that path is passed on, whatever it is. A directory or a link
+	# that points at nothing is a broken file rather than an absent one, and
+	# facts_load names which of the two it found. Testing for a regular file
+	# here would report a missing value instead of a broken file.
 	THEME_FACTS_FILE=
-	if theme_facts_file=$(facts_path) && [ -f "$theme_facts_file" ]; then
+	if theme_facts_file=$(facts_path) &&
+		{ [ -e "$theme_facts_file" ] || [ -L "$theme_facts_file" ]; }; then
 		THEME_FACTS_FILE=$theme_facts_file
 	fi
 

@@ -59,6 +59,12 @@ The copy is not a merge. Detection still writes every line, and it still reads
 nothing of what was there. The copy exists so that replacing a hand-written
 correction is reversible.
 
+A run that writes exactly the file that is already there makes no copy, and
+prints no copy. Such a copy would carry nothing, and it would replace one that
+carries your correction. Without that rule, a detection you run twice with no
+edit between the two runs would leave a backup of the auto-detected file, and
+your correction would be gone.
+
 The consequence to keep in mind: run `xghost machine detect` after you change
 your hardware, and expect to make your corrections again.
 
@@ -87,6 +93,8 @@ The rules:
 - A value may carry one pair of quotation marks, single or double, which the
   reader drops. Quote a value that starts or ends with a space.
 - The white space at both ends of a name and of a value is dropped.
+- A value holds no control character. It is one line of plain text, so a tab
+  inside a value is named as a problem rather than passed on to the renderer.
 - A value is text. The reader never expands a variable and never runs a command
   in it.
 - `MACHINE_FACTS_VERSION` is required, and this version of xghost reads
@@ -107,6 +115,13 @@ records `MACHINE_MONITOR_COUNT=unknown` and no monitor block, because a wrong
 monitor layout presented as fact is worse than an absent one. A machine whose
 keyboard has no variant records `MACHINE_KEYBOARD_VARIANT=none`, because the
 system answered and its answer was "nothing".
+
+A source that answers with the JSON value `null` has answered that the member
+has no value, so that fact is `unknown` and the run reports it. The word is
+never written into the file: `MACHINE_MONITOR_1_NAME=null` would reach a
+rendered `monitor =` line as though the compositor had reported a monitor of
+that name. A monitor whose name really is the string `"null"` is a name, and it
+is recorded as one.
 
 Every key keeps its place whatever the machine can answer, so the file is well
 formed on a machine with no Hyprland, no systemd and no `xdg-utils`.
@@ -300,7 +315,9 @@ detection again **inside the first Hyprland session**. A step under
 satisfy that. The choice belongs to issue #7.
 
 Running detection twice is safe, because the second run writes the same file
-from a machine it can now read fully.
+from a machine it can now read fully. It is safe to run at every login as well:
+a run that changes nothing makes no copy, so `machine.conf.previous` still
+holds the file that was replaced the last time something did change.
 
 The facts that need no compositor — the timezone, the keyboard layout of the
 system, the default browser — are correct whenever the step runs.

@@ -96,6 +96,49 @@ value b = false
 value c = null" ]
 }
 
+# The word null and the string "null" read back as the same four characters,
+# and so do true and "true", and 1 and "1". The kind is what tells them apart.
+# A caller that reads the value alone cannot tell "this member has no value"
+# from "this member is the word null", and it would write the second one into a
+# configuration file as though a program had reported it.
+@test "json records the kind of every value" {
+	run_snippet <<-'EOF'
+		set -uo pipefail
+		. "$1/lib/json.sh"
+		json_parse '{"a":null,"b":"null","c":true,"d":"true","e":1,"f":"1","g":{},"h":[]}' || exit 1
+		for path in . a b c d e f g h; do
+			printf '%s %s %s\n' "$path" "${JSON_KIND[$path]}" "${JSON_VALUE[$path]-<none>}"
+		done
+	EOF
+	[ "$status" -eq 0 ]
+	[ "$output" = ". object <none>
+a literal null
+b string null
+c literal true
+d string true
+e number 1
+f string 1
+g object <none>
+h array <none>" ]
+}
+
+# An array and an object both record a size, and the size of an object is the
+# number of its member names. A caller that reads a count needs to know which
+# of the two it is holding, or it reports a member count as a monitor count.
+@test "json tells an array at the root from an object at the root" {
+	run_snippet <<-'EOF'
+		set -uo pipefail
+		. "$1/lib/json.sh"
+		for text in '[1,2,3]' '{"a":1,"b":2,"c":3}'; do
+			json_parse "$text" || exit 1
+			printf '%s is an %s of size %s\n' "$text" "${JSON_KIND[$JSON_ROOT]}" "${JSON_SIZE[$JSON_ROOT]}"
+		done
+	EOF
+	[ "$status" -eq 0 ]
+	[ "$output" = "[1,2,3] is an array of size 3
+{\"a\":1,\"b\":2,\"c\":3} is an object of size 3" ]
+}
+
 @test "json keeps the digits of a number exactly as the document wrote them" {
 	show '{"a": 59.99700, "b": 1.00, "c": -3, "d": 1e3}' a b c d
 	[ "$status" -eq 0 ]
@@ -136,6 +179,27 @@ value d = a/b" ]
 	show '{"a": 1, "a": 2}' a
 	[ "$status" -eq 0 ]
 	[ "$output" = "value a = 2" ]
+}
+
+# "The last one wins" has to mean the whole member, not its scalar alone. A
+# member that another replaces has to leave nothing of itself behind, or a
+# caller reads a path of a value the document no longer holds. The size of the
+# object counts the name once for the same reason.
+@test "a member name given twice leaves nothing of the earlier one" {
+	run_snippet <<-'EOF'
+		set -uo pipefail
+		. "$1/lib/json.sh"
+		for text in '{"a":2,"a":{"b":1}}' '{"a":{"b":1},"a":2}' '{"a":1,"a":2}'; do
+			json_parse "$text" || { printf 'problem: %s\n' "$JSON_ERROR"; exit 1; }
+			printf '%s -> a=%s size a=%s a.b=%s members=%s\n' "$text" \
+				"${JSON_VALUE[a]-<absent>}" "${JSON_SIZE[a]-<absent>}" \
+				"${JSON_VALUE[a.b]-<absent>}" "${JSON_SIZE[$JSON_ROOT]}"
+		done
+	EOF
+	[ "$status" -eq 0 ]
+	[ "$output" = '{"a":2,"a":{"b":1}} -> a=<absent> size a=1 a.b=1 members=1
+{"a":{"b":1},"a":2} -> a=2 size a=<absent> a.b=<absent> members=1
+{"a":1,"a":2} -> a=2 size a=<absent> a.b=<absent> members=1' ]
 }
 
 @test "json accepts white space between every token" {
@@ -219,6 +283,51 @@ value a.1 = 2" ]
 	[[ $output == *"a high surrogate is not followed by a low one"* ]]
 }
 
+# A low surrogate means nothing on its own. Encoding it as a code point of its
+# own produces CESU-8, which is not UTF-8, and the reader would then hand its
+# caller bytes that cannot be written to a configuration file. Both halves are
+# refused, not the high one alone.
+@test "json refuses a low surrogate that stands on its own" {
+	show '{"a": "\udc00"}' a
+	[ "$status" -eq 1 ]
+	[[ $output == *"a low surrogate stands on its own"* ]]
+}
+
+# Bash refuses an empty array subscript, and that is a fatal shell error rather
+# than a return value. A reader that built the path anyway would kill its
+# caller from inside the 'if !' that was meant to catch the problem.
+@test "json refuses an empty member name, and the caller carries on" {
+	run_snippet <<-'EOF'
+		set -euo pipefail
+		. "$1/lib/json.sh"
+		if ! json_parse '{"":1}'; then printf 'root: %s\n' "$JSON_ERROR"; fi
+		if ! json_parse '{"a":{"":1}}'; then printf 'nested: %s\n' "$JSON_ERROR"; fi
+		printf 'the caller is still running\n'
+	EOF
+	[ "$status" -eq 0 ]
+	[ "$output" = "root: offset 1: a member name is empty, and every value has to have a path
+nested: offset 6: a member name is empty, and every value has to have a path
+the caller is still running" ]
+}
+
+# The scan is quadratic, so a document far larger than the answers this reader
+# exists for would take minutes rather than fail. It is refused by name and by
+# its length instead.
+@test "json refuses a document longer than the limit, and names the limit" {
+	run_snippet <<-'EOF'
+		set -uo pipefail
+		. "$1/lib/json.sh"
+		printf -v filler '%*s' "$JSON_MAX_BYTES" ''
+		if json_parse "{\"a\":\"$filler\"}"; then
+			printf 'accepted\n'
+		else
+			printf '%s\n' "$JSON_ERROR"
+		fi
+	EOF
+	[ "$status" -eq 0 ]
+	[[ $output == *"and this reader accepts 262144"* ]]
+}
+
 # bash cannot hold a NUL byte in a variable, so a reader that dropped the byte
 # would return a string that differs from the one the document holds.
 @test "json refuses the escape for the code point zero" {
@@ -245,6 +354,35 @@ value a.1 = 2" ]
 	EOF
 	[ "$status" -eq 0 ]
 	[[ $output == *"nests deeper than"* ]]
+}
+
+# The limit is a count of levels, and the whole document is level 1. A document
+# of exactly JSON_MAX_DEPTH levels is read, and one level more is refused, so
+# the number the reader names is the number it enforces.
+@test "json reads exactly the depth limit and refuses one level more" {
+	run_snippet <<-'EOF'
+		set -uo pipefail
+		. "$1/lib/json.sh"
+		# LEVELS levels is LEVELS - 1 arrays around one number.
+		nest() {
+			local levels=$1 i text=
+			for ((i = 1; i < levels; i++)); do text=$text'['; done
+			text=$text'1'
+			for ((i = 1; i < levels; i++)); do text=$text']'; done
+			printf '%s' "$text"
+		}
+		for levels in $((JSON_MAX_DEPTH - 1)) "$JSON_MAX_DEPTH" $((JSON_MAX_DEPTH + 1)); do
+			if json_parse "$(nest "$levels")"; then
+				printf '%s levels: read\n' "$levels"
+			else
+				printf '%s levels: refused\n' "$levels"
+			fi
+		done
+	EOF
+	[ "$status" -eq 0 ]
+	[ "$output" = "31 levels: read
+32 levels: read
+33 levels: refused" ]
 }
 
 # --- the answers this reader exists for -------------------------------------

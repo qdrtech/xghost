@@ -134,6 +134,71 @@ MACHINE_MONITOR_1_MODE=unknown
 MACHINE_MONITOR_1_POSITION=0x0" ]
 }
 
+# A source that answers with the JSON value null has answered that the member
+# has no value. Recording the word would put 'monitor = null,...' into a
+# rendered Hyprland file as though the compositor had reported that name.
+@test "a null in the answer is recorded as unknown and reported" {
+	run_snippet <<-'EOF'
+		set -uo pipefail
+		. "$1/lib/detect.sh"
+		json_parse '[{"name": null, "description": "Acme", "width": 1920, "height": 1080, "refreshRate": 60, "x": 0, "y": 0, "scale": 1, "transform": 0, "focused": true}]' || exit 1
+		detect_monitor_primary 1
+		detect_monitor_blocks 1
+		detect_document | grep -E '^MACHINE_(PRIMARY_MONITOR|MONITOR_1_NAME|MONITOR_1_MODE)='
+		printf '%s\n' "${DETECT_WARNINGS[@]}"
+	EOF
+	[ "$status" -eq 0 ]
+	[[ $output == *"MACHINE_PRIMARY_MONITOR=unknown"* ]]
+	[[ $output == *"MACHINE_MONITOR_1_NAME=unknown"* ]]
+	[[ $output == *"MACHINE_MONITOR_1_MODE=1920x1080@60"* ]]
+	[[ $output == *"the answer holds null at '0.name'"* ]]
+	[[ $output != *=null* ]]
+}
+
+# The difference is a real one, and it runs the other way too: a monitor whose
+# name really is the string "null" has a name, and detection keeps it.
+@test "a monitor whose name is the string null keeps that name" {
+	run_snippet <<-'EOF'
+		set -uo pipefail
+		. "$1/lib/detect.sh"
+		json_parse '[{"name": "null", "scale": 1}]' || exit 1
+		detect_monitor_primary 1
+		detect_document | grep '^MACHINE_PRIMARY_MONITOR='
+		printf 'warnings: %s\n' "${#DETECT_WARNINGS[@]}"
+	EOF
+	[ "$status" -eq 0 ]
+	[ "$output" = "MACHINE_PRIMARY_MONITOR=null
+warnings: 0" ]
+}
+
+# A JSON object records a size as well, and that size is the number of its
+# member names. Reading it as a count would put a hard number into the file
+# that no compositor reported, and a template consumes that number.
+@test "an object where a list was expected yields no count" {
+	run_snippet <<-'EOF'
+		set -uo pipefail
+		. "$1/lib/detect.sh"
+		json_parse '{"a": 1, "b": 2, "c": 3}' || exit 1
+		detect_list_size "$JSON_ROOT"
+		printf 'monitors: [%s]\n' "$DETECT_FIELD"
+
+		json_parse '{"keyboards": {"a": 1, "b": 2}, "mice": {"x": 1}, "switches": {}, "touch": {}}' || exit 1
+		detect_keyboard_devices
+		detect_pointer_devices
+		detect_switch_devices
+		detect_device_count touch MACHINE_TOUCHSCREEN_COUNT
+		detect_document | grep '^MACHINE_'
+	EOF
+	[ "$status" -eq 0 ]
+	[ "$output" = "monitors: []
+MACHINE_KEYBOARD_DEVICE_COUNT=unknown
+MACHINE_KEYBOARD_DEVICE_MAIN=unknown
+MACHINE_POINTER_COUNT=unknown
+MACHINE_TOUCHPAD_COUNT=unknown
+MACHINE_SWITCH_COUNT=unknown
+MACHINE_TOUCHSCREEN_COUNT=unknown" ]
+}
+
 @test "the trailing zeros of a number are dropped and an integer is left alone" {
 	run_snippet <<-'EOF'
 		set -uo pipefail
@@ -345,6 +410,27 @@ no default terminal is declared: TERMINAL is empty and no 'xdg-terminals.list' n
 the 'this-program-does-not-exist' program is not installed, so the second fact is not known" ]
 }
 
+# The set that reports one problem once has to be cleared by a new run, or a
+# second run in one process reports nothing at all and the whole honesty
+# channel goes silent. The CLI is one run per process today, and detection is
+# documented as safe to run twice.
+@test "a second detect_all reports the problems of the second run" {
+	run_snippet <<-'EOF'
+		set -uo pipefail
+		. "$1/lib/detect.sh"
+		for run in 1 2 3; do
+			detect_all
+			before=${#DETECT_WARNINGS[@]}
+			detect_capture 'a fact of this test' this-program-does-not-exist || true
+			printf 'run %s: %s new\n' "$run" "$((${#DETECT_WARNINGS[@]} - before))"
+		done
+	EOF
+	[ "$status" -eq 0 ]
+	[ "$output" = "run 1: 1 new
+run 2: 1 new
+run 3: 1 new" ]
+}
+
 # --- the command ------------------------------------------------------------
 
 @test "machine detect writes the machine facts file and names it" {
@@ -422,6 +508,69 @@ the 'this-program-does-not-exist' program is not installed, so the second fact i
 
 	run cat "$XGHOST_MACHINE_FACTS.previous"
 	[[ $output == *CORRECTED* ]]
+}
+
+# The copy exists to make a lost correction recoverable. A run that writes
+# exactly the file that is already there would copy the auto-detected file over
+# the copy that holds the correction, and the copy that destroyed it would
+# carry nothing. The documented run at every login makes this the common case.
+@test "a detection that changes nothing keeps the copy that was already there" {
+	"$XGHOST" machine detect >/dev/null 2>&1
+
+	printf 'MACHINE_MONITOR_9_NAME=CORRECTED\n' >>"$XGHOST_MACHINE_FACTS"
+	"$XGHOST" machine detect >/dev/null 2>&1
+	grep -q CORRECTED "$XGHOST_MACHINE_FACTS.previous"
+
+	# This run writes the file that is already there, so it makes no copy and
+	# says nothing about one.
+	run "$XGHOST" machine detect
+	[ "$status" -eq 0 ]
+	[[ $output != *"copied to"* ]]
+	grep -q CORRECTED "$XGHOST_MACHINE_FACTS.previous"
+
+	# And again, because a login happens more than twice.
+	"$XGHOST" machine detect >/dev/null 2>&1
+	grep -q CORRECTED "$XGHOST_MACHINE_FACTS.previous"
+}
+
+# The copy is written by the same run as the file, so it carries the same mode.
+@test "the copy of the machine facts has the mode of the file, not the umask" {
+	(
+		umask 077
+		"$XGHOST" machine detect >/dev/null 2>&1
+		printf 'MACHINE_MONITOR_9_NAME=CORRECTED\n' >>"$XGHOST_MACHINE_FACTS"
+		"$XGHOST" machine detect >/dev/null 2>&1
+	)
+	[ "$(stat -c %a "$XGHOST_MACHINE_FACTS.previous")" = 644 ]
+}
+
+# 'cp' copies into a directory rather than over it. It would report success
+# while the copy sat at a path this run never named, and the message would
+# point the user at a path that holds nothing.
+@test "detection refuses to make the copy when a directory sits where it goes" {
+	"$XGHOST" machine detect >/dev/null 2>&1
+	printf 'MACHINE_MONITOR_9_NAME=CORRECTED\n' >>"$XGHOST_MACHINE_FACTS"
+	mkdir "$XGHOST_MACHINE_FACTS.previous"
+
+	run "$XGHOST" machine detect
+	[ "$status" -eq 1 ]
+	[[ $output == *"because a directory is there"* ]]
+
+	# Nothing was changed, so the correction is still in the file.
+	grep -q CORRECTED "$XGHOST_MACHINE_FACTS"
+}
+
+# A link that points at nothing has nothing behind it to copy. The user made
+# that link, so detection names it rather than deciding what it was meant to
+# be, and the message says what to do about it.
+@test "detection names a machine facts path that is a link to nothing" {
+	ln -s "$BATS_TEST_TMPDIR/nowhere" "$XGHOST_MACHINE_FACTS"
+
+	run "$XGHOST" machine detect
+	[ "$status" -eq 1 ]
+	[[ $output == *"symbolic link that points at nothing"* ]]
+	[[ $output == *"$XGHOST_MACHINE_FACTS"* ]]
+	[[ $output == *"Remove the link"* ]]
 }
 
 @test "the machine facts file is readable by everybody and writable by its owner" {

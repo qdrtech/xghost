@@ -61,12 +61,16 @@ readonly FACTS_DIR_NAME=xghost
 readonly FACTS_FILE_NAME=machine.conf
 readonly FACTS_PREVIOUS_SUFFIX=.previous
 
-# The mode of the file. It holds no secret and it is read by the renderer, so
-# it is readable by everybody and writable by its owner alone. The mode is set
-# by the writer rather than left to the umask, so the same run produces the
-# same file on every machine.
+# The mode of the file, and of the copy that sits beside it. The file holds no
+# secret and it is read by the renderer, so it is readable by everybody and
+# writable by its owner alone. The mode is set by the writer rather than left
+# to the umask, so the same run produces the same file on every machine.
+#
+# The directory that holds the file has no mode of its own here. It is created
+# by 'mkdir -p' and its mode follows the umask, which is right: the file is
+# read by the renderer running as the same user, and a tight umask is a choice
+# of the user that xghost has no reason to widen.
 readonly FACTS_FILE_MODE=0644
-readonly FACTS_DIR_MODE=0755
 
 # The message every caller prints when the file has no home. It is written
 # once here, so the command and the renderer name the same three variables.
@@ -121,8 +125,24 @@ facts_load() {
 	FACTS_SCALARS=()
 	FACTS_ERRORS=()
 
-	if [ ! -f "$file" ]; then
+	# A user is invited to edit this file, so a path that is not a file it can
+	# read is named for what it is. "It does not exist" sent to somebody whose
+	# link points at nothing, or who made a directory of that name, sends them
+	# looking for the wrong thing.
+	if [ -L "$file" ] && [ ! -e "$file" ]; then
+		FACTS_ERRORS+=("the machine facts path is a symbolic link that points at nothing: $file")
+		return 1
+	fi
+	if [ ! -e "$file" ]; then
 		FACTS_ERRORS+=("the machine facts file does not exist: $file")
+		return 1
+	fi
+	if [ -d "$file" ]; then
+		FACTS_ERRORS+=("the machine facts path is a directory, and it has to be a file: $file")
+		return 1
+	fi
+	if [ ! -f "$file" ]; then
+		FACTS_ERRORS+=("the machine facts path is not a regular file: $file")
 		return 1
 	fi
 	if [ ! -r "$file" ]; then
@@ -169,6 +189,16 @@ facts_load() {
 		fi
 		if [ -z "$value" ]; then
 			FACTS_ERRORS+=("line $lineno: '$key' has no value; write '$FACTS_NONE' for a fact that is not set and '$FACTS_UNKNOWN' for one that is not known")
+			continue
+		fi
+		# The writer replaces every control character of a value it detects,
+		# and names the key it happened to. This file is a hand-edit surface as
+		# well, so the same rule holds for a value a user wrote: a tab inside a
+		# value would otherwise pass through into a rendered configuration
+		# file. The line is named rather than mended, because mending it in
+		# silence would change what the user wrote without telling them.
+		if [[ $value == *[[:cntrl:]]* ]]; then
+			FACTS_ERRORS+=("line $lineno: the value of '$key' holds a control character, such as a tab; a value is one line of plain text")
 			continue
 		fi
 		if [ -n "${declared[$key]+set}" ]; then

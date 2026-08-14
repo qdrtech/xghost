@@ -244,6 +244,38 @@ MACHINE_MONITOR_1_MODE=1920x1080@60" ]
 	[[ $output == *"does not exist"* ]]
 }
 
+# A user is invited to edit this file, so a path that is not a file it can read
+# is named for what it is. "It does not exist", sent to somebody whose link
+# points at nothing, sends them looking for the wrong thing.
+@test "facts names a path that is a directory" {
+	mkdir "$XGHOST_MACHINE_FACTS"
+	load
+	[ "$status" -eq 1 ]
+	[[ $output == *"is a directory, and it has to be a file"* ]]
+	[[ $output != *"does not exist"* ]]
+}
+
+@test "facts names a path that is a link to nothing" {
+	ln -s "$BATS_TEST_TMPDIR/nowhere" "$XGHOST_MACHINE_FACTS"
+	load
+	[ "$status" -eq 1 ]
+	[[ $output == *"symbolic link that points at nothing"* ]]
+	[[ $output != *"does not exist"* ]]
+}
+
+# The writer replaces every control character of a value it detects. The file
+# is a hand-edit surface as well, so the same rule holds for a value a user
+# wrote: a tab inside a value would otherwise pass through into a rendered
+# configuration file. The line is named rather than mended, because mending it
+# in silence would change what the user wrote without telling them.
+@test "facts reports a value that holds a control character" {
+	printf 'MACHINE_FACTS_VERSION=1\nMACHINE_MONITOR_1_NAME=DP\t2\n' \
+		>"$XGHOST_MACHINE_FACTS"
+	load
+	[ "$status" -eq 1 ]
+	[[ $output == *"the value of 'MACHINE_MONITOR_1_NAME' holds a control character"* ]]
+}
+
 # --- the two text functions the writer uses ---------------------------------
 
 @test "facts replaces every control character of a value with a space" {
@@ -419,6 +451,39 @@ bg = #1a2b3c" ]
 	run "$XGHOST" theme set demo
 	[ "$status" -eq 1 ]
 	[[ $output == *"no value for 'MACHINE_MONITOR_1_NAME' in the theme palette or the machine facts"* ]]
+	[[ $output == *"The active theme is unchanged."* ]]
+}
+
+# A directory, and a link that points at nothing, are both a broken file rather
+# than an absent one. Passing over them would report a missing value and send
+# the user looking for the wrong thing.
+@test "a machine facts path that is a directory fails the render and names it" {
+	use_own_inputs
+	mkdir "$XGHOST_MACHINE_FACTS"
+	make_theme demo <<-'EOF'
+		BG=#1a2b3c
+	EOF
+	make_template plain.conf <<-'EOF'
+		bg = @BG@
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"machine facts: the machine facts path is a directory"* ]]
+	[[ $output == *"The active theme is unchanged."* ]]
+}
+
+@test "a machine facts path that is a link to nothing fails the render and names it" {
+	use_own_inputs
+	ln -s "$BATS_TEST_TMPDIR/nowhere" "$XGHOST_MACHINE_FACTS"
+	make_theme demo <<-'EOF'
+		BG=#1a2b3c
+	EOF
+	make_template plain.conf <<-'EOF'
+		bg = @BG@
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"machine facts: the machine facts path is a symbolic link that points at nothing"* ]]
 	[[ $output == *"The active theme is unchanged."* ]]
 }
 
