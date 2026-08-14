@@ -116,6 +116,13 @@ monitor layout presented as fact is worse than an absent one. A machine whose
 keyboard has no variant records `MACHINE_KEYBOARD_VARIANT=none`, because the
 system answered and its answer was "nothing".
 
+The renderer never writes `unknown` into a configuration file. A template that
+names a fact of that value fails the render and reports the file and the name,
+so the word cannot reach a `monitor =` line as though it were a mode. That
+holds however the value got there, including your own edit of this file. A
+structural choice still selects on it, because selecting a whole prescribed
+fragment is what `default` is for.
+
 A source that answers with the JSON value `null` has answered that the member
 has no value, so that fact is `unknown` and the run reports it. The word is
 never written into the file: `MACHINE_MONITOR_1_NAME=null` would reach a
@@ -251,6 +258,8 @@ edit that file to correct a detection. The next detection replaces it.
 A template that names a fact detection could not read fails the render and
 names the value it wanted. That is the intended behaviour: the desktop reports
 a missing fact rather than coming up with a monitor layout that was guessed.
+A fact that is present with the value `unknown` fails the same way, and for the
+same reason.
 
 | Exit code | Meaning                                                       |
 | --------- | -------------------------------------------------------------- |
@@ -268,9 +277,23 @@ template names a fact the same way it names a colour:
 monitor = @MACHINE_MONITOR_1_NAME@,@MACHINE_MONITOR_1_MODE@,@MACHINE_MONITOR_1_POSITION@,@MACHINE_MONITOR_1_SCALE@
 ```
 
+A fact also picks between whole files. A directory named
+`<file>.choice.<NAME>` holds one prescribed fragment per value of `NAME`, and
+the renderer writes the one the fact selects. That is how the Hyprland monitor
+layout carries one line per monitor without the renderer growing a loop:
+
+```
+templates/hypr/monitors.conf.choice.MACHINE_MONITOR_COUNT/
+  1  2  3  default
+```
+
+[Theming](theming.md) documents the rules, and
+[the Hyprland bundle](bundles/hyprland.md) documents the case.
+
 `xghost theme set` passes the file when it exists. A machine that has not run
 detection renders with the palette alone, and a template that names a fact
-fails the render by name.
+fails the render by name. A structural choice fails the same way, so
+`xghost machine detect` has to run before the first `xghost theme set`.
 
 A name the palette and the machine facts both declare is a problem the renderer
 reports. The two files have two owners, so preferring either one quietly would

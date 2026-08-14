@@ -16,7 +16,7 @@ behaviour without reading the tree.
 | `lib/`         | The shared shell modules the commands and the installer source.                   |
 | `migrations/`  | One script per migration, restricted by policy to system side effects.            |
 | `templates/`   | The templates the renderer reads to produce themed configuration.                 |
-| `tests/`       | The bats test suite, with its fixture command directories under `tests/fixtures/`. |
+| `tests/`       | The bats test suite, with its fixtures under `tests/fixtures/` and the helpers more than one suite needs in `tests/helpers.bash`. |
 | `themes/`      | One directory per theme: its palette, its background, and any hand-written file.  |
 
 ## Inside `install/`
@@ -39,6 +39,7 @@ again.
 | `themes/<name>/palette.conf`   | The named colours of one theme. This file makes the directory a theme.  |
 | `themes/<name>/files/`         | The files that theme ships by hand, at the path they take in the output. |
 | `templates/`                   | The templates, at the relative path each one takes in the output.       |
+| `templates/<file>.choice.<NAME>/` | One structural choice: one fragment per value of NAME, of which the renderer writes one to `<file>`. |
 
 [Theming](theming.md) documents the palette format, the templates, and the
 commands that drive the renderer.

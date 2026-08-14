@@ -52,6 +52,9 @@ Both ends of that path follow the environment, so it is right for every value
 of `XDG_CONFIG_HOME` and `XDG_STATE_HOME`.
 [The Ghostty bundle](bundles/ghostty.md) records how Ghostty resolves such a
 path, and the rule every later bundle depends on.
+[The Hyprland bundle](bundles/hyprland.md) records how Hyprland resolves it,
+which is the same path by a different rule: Hyprland uses the path it opened
+and has no fallback to the real one.
 
 The bridge is created beside the prescribed entries and never instead of one.
 It is a link the linker creates, so every rule below applies to it unchanged:

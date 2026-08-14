@@ -14,6 +14,9 @@ setup() {
 	XGHOST="$BATS_TEST_DIRNAME/../bin/xghost"
 	ROOT_DIR=$(cd -P "$BATS_TEST_DIRNAME/.." && pwd)
 
+	# shellcheck source=helpers.bash
+	. "$BATS_TEST_DIRNAME/helpers.bash"
+
 	# The shipped commands, never the fixture directory of another test file.
 	export XGHOST_COMMAND_DIR="$ROOT_DIR/commands"
 
@@ -22,6 +25,15 @@ setup() {
 	export HOME="$BATS_TEST_TMPDIR/home"
 	export XDG_STATE_HOME="$HOME/.local/state"
 	mkdir -p "$XDG_STATE_HOME"
+
+	# Several tests below render a shipped theme, and the shipped templates
+	# make a structural choice from a machine fact. Without facts every one of
+	# those renders fails on the fact it wanted, whatever the test is about.
+	# tests/helpers.bash records why this is a suite-wide need.
+	#
+	# A test that describes its own inputs with use_own_inputs renders no
+	# shipped template, so the facts reach nothing it asserts on.
+	use_fixed_machine_facts
 
 	STATE_DIR="$XDG_STATE_HOME/xghost"
 	GENERATED="$STATE_DIR/generated"
@@ -530,6 +542,198 @@ a=hello' ]
 	"$XGHOST" theme set demo
 	run cat "$GENERATED/hypr/colors.conf"
 	[ "$output" = "\$bg = rgb(1a2b3c)" ]
+}
+
+# --- the structural choice --------------------------------------------------
+#
+# The second substitution mechanism of ADR 0001. tests/hyprland.bats proves the
+# case it was built for, against the shipped templates. These tests prove the
+# mechanism itself, and every way one can be wrong, against templates the test
+# writes.
+
+# Write one fragment of one structural choice from standard input.
+#
+#   make_fragment CHOICE_DIRECTORY FRAGMENT
+make_fragment() {
+	make_file "$XGHOST_TEMPLATE_DIR/$1" "$2"
+}
+
+@test "a choice writes the fragment its value names, and writes nothing else" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_fragment pick.conf.choice.FONT Inter <<-'EOF'
+		the fragment for Inter
+	EOF
+	make_fragment pick.conf.choice.FONT default <<-'EOF'
+		the fallback
+	EOF
+	"$XGHOST" theme set demo
+	run cat "$GENERATED/pick.conf"
+	[ "$output" = "the fragment for Inter" ]
+	[ ! -e "$GENERATED/pick.conf.choice.FONT" ]
+}
+
+@test "a value that no fragment names and no default fails the render" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_fragment pick.conf.choice.FONT Helvetica <<-'EOF'
+		the fragment for Helvetica
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"pick.conf.choice.FONT: 'FONT' is 'Inter', and the structural choice has no fragment of that name and no 'default'"* ]]
+	[[ $output == *"It holds: Helvetica"* ]]
+	[[ $output == *"The active theme is unchanged."* ]]
+}
+
+@test "a choice directory that holds no fragment is reported" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	mkdir -p "$XGHOST_TEMPLATE_DIR/empty.conf.choice.FONT"
+	make_template plain.conf <<-'EOF'
+		bg=@BG@
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"empty.conf.choice.FONT: the structural choice holds no fragment"* ]]
+}
+
+# One choice holds fragments and nothing else. The fragments of the refused
+# choice are still fragments, so the failing render reports the nesting alone
+# and never the fragments at their literal paths.
+@test "a choice inside a choice is refused, and its fragments stay fragments" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_fragment outer.conf.choice.FONT default <<-'EOF'
+		the fallback
+	EOF
+	make_fragment outer.conf.choice.FONT/inner.conf.choice.BG default <<-'EOF'
+		inner @NOSUCH@
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"outer.conf.choice.FONT/inner.conf.choice.BG: a structural choice cannot hold another one, and this one is inside 'outer.conf.choice.FONT'"* ]]
+	[[ $output != *"NOSUCH"* ]]
+}
+
+@test "a directory inside a choice is reported once, however many files it holds" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_fragment holder.conf.choice.FONT default <<-'EOF'
+		the fallback
+	EOF
+	make_fragment holder.conf.choice.FONT sub/one <<-'EOF'
+		one
+	EOF
+	make_fragment holder.conf.choice.FONT sub/two <<-'EOF'
+		two
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"holder.conf.choice.FONT: a structural choice holds fragments and no directory, and it holds the directory 'sub'"* ]]
+	[ "$(printf '%s\n' "$output" | grep -c "it holds the directory 'sub'")" -eq 1 ]
+}
+
+@test "a choice whose selector is not a name is reported" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_fragment bad.conf.choice.lower default <<-'EOF'
+		x
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"bad.conf.choice.lower: a structural choice is named '<file>.choice.<NAME>'"* ]]
+}
+
+@test "a choice whose selector no value declares is reported" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_fragment pick.conf.choice.MACHINE_NOSUCH default <<-'EOF'
+		x
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"pick.conf.choice.MACHINE_NOSUCH: no value for 'MACHINE_NOSUCH' in the theme palette or the machine facts, and the structural choice is made by that value"* ]]
+}
+
+@test "two choices that write one path are reported" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_fragment same.conf.choice.FONT default <<-'EOF'
+		one
+	EOF
+	make_fragment same.conf.choice.BG default <<-'EOF'
+		two
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"it writes 'same.conf', and"* ]]
+	[[ $output == *"writes that path as well"* ]]
+}
+
+# The same rule, with an ordinary template as the other writer. The template
+# loop wrote that path first and the choice loop wrote over it, and neither
+# check saw the other, so the output followed an order nobody chose.
+@test "a plain template at the path a choice writes is reported" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_template clash.conf <<-'EOF'
+		the plain template
+	EOF
+	make_fragment clash.conf.choice.FONT default <<-'EOF'
+		the fragment
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"clash.conf.choice.FONT: it writes 'clash.conf', and 'clash.conf' writes that path as well"* ]]
+	[ ! -e "$GENERATED/clash.conf" ]
+}
+
+# --- a machine fact detection could not read ---------------------------------
+
+# 'unknown' is what lib/facts.sh writes for a fact detection could not read.
+# Writing it produces a configuration file that states something about the
+# machine nobody read: a Hyprland monitor line built from an unknown mode is
+# refused by the compositor, and the switch that wrote it reported success.
+@test "a template that names a machine fact that is unknown fails the render" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	export XGHOST_MACHINE_FACTS="$BATS_TEST_TMPDIR/unknown.conf"
+	cat >"$XGHOST_MACHINE_FACTS" <<-'EOF'
+		MACHINE_FACTS_VERSION=1
+		MACHINE_MONITOR_COUNT=1
+		MACHINE_MONITOR_1_MODE=unknown
+	EOF
+	make_template mode.conf <<-'EOF'
+		mode=@MACHINE_MONITOR_1_MODE@
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"mode.conf: 'MACHINE_MONITOR_1_MODE' is 'unknown' in the machine facts, which means detection could not read it"* ]]
+	[[ $output == *"The active theme is unchanged."* ]]
+	[ ! -e "$GENERATED/mode.conf" ]
+}
+
+# Selection is not substitution. A choice keyed on a fact detection could not
+# read still selects its 'default' fragment, which is the fragment that names
+# no fact of that source at all.
+@test "a choice whose value is unknown still selects the default fragment" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	export XGHOST_MACHINE_FACTS="$BATS_TEST_TMPDIR/unknown-count.conf"
+	cat >"$XGHOST_MACHINE_FACTS" <<-'EOF'
+		MACHINE_FACTS_VERSION=1
+		MACHINE_MONITOR_COUNT=unknown
+	EOF
+	make_fragment layout.conf.choice.MACHINE_MONITOR_COUNT 1 <<-'EOF'
+		@MACHINE_MONITOR_1_NAME@
+	EOF
+	make_fragment layout.conf.choice.MACHINE_MONITOR_COUNT default <<-'EOF'
+		no monitor is named
+	EOF
+	"$XGHOST" theme set demo
+	run cat "$GENERATED/layout.conf"
+	[ "$output" = "no monitor is named" ]
 }
 
 # --- a failed switch leaves the previous theme intact -----------------------

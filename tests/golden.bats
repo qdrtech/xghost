@@ -22,6 +22,9 @@ setup() {
 	GOLDEN_DIR="$BATS_TEST_DIRNAME/golden"
 	TEMPLATE_DIR="$BATS_TEST_DIRNAME/../templates"
 
+	# shellcheck source=helpers.bash
+	. "$BATS_TEST_DIRNAME/helpers.bash"
+
 	# The shipped commands, never the fixture directory of another test file.
 	export XGHOST_COMMAND_DIR="$BATS_TEST_DIRNAME/../commands"
 
@@ -44,7 +47,45 @@ setup() {
 	export XDG_STATE_HOME="$HOME/.local/state"
 	mkdir -p "$XDG_STATE_HOME"
 
+	# The fixed machine facts of the golden output, which ADR 0001 names as the
+	# second input of these tests. tests/regenerate-golden reads the same file,
+	# so the committed output never depends on the hardware of whoever runs it.
+	# One test below copies the fixture into a project of its own, so the path
+	# is kept as well as exported.
+	use_fixed_machine_facts
+	MACHINE_FACTS="$XGHOST_MACHINE_FACTS"
+
 	GENERATED="$XDG_STATE_HOME/xghost/generated"
+}
+
+# Print the path one template takes in the generated output.
+#
+# A file inside a structural choice is a fragment rather than a template of its
+# own: the renderer writes one of them, at the path the choice directory names.
+# Every other template keeps its own relative path.
+output_path() {
+	local relative=$1
+	local parent=${relative%/*}
+	local base=${parent##*/}
+
+	if [ "$parent" = "$relative" ]; then
+		printf '%s\n' "$relative"
+		return 0
+	fi
+	case $base in
+	*.choice.*)
+		base=${base%.choice.*}
+		parent=${parent%/*}
+		if [ "$parent" = "${relative%/*}" ]; then
+			printf '%s\n' "$base"
+		else
+			printf '%s/%s\n' "$parent" "$base"
+		fi
+		;;
+	*)
+		printf '%s\n' "$relative"
+		;;
+	esac
 }
 
 @test "the shipped themes are the two themes ported from dotfiles" {
@@ -80,10 +121,32 @@ tokyonight" ]
 	local theme path relative
 	while IFS= read -r theme; do
 		while IFS= read -r path; do
-			relative=${path#"$TEMPLATE_DIR/"}
+			relative=$(output_path "${path#"$TEMPLATE_DIR/"}")
 			[ -f "$GOLDEN_DIR/$theme/$relative" ]
 		done < <(find "$TEMPLATE_DIR" -type f)
 	done < <("$XGHOST" theme list)
+}
+
+# One fragment of a structural choice reaches the output, and it is the one the
+# value selects. A test that only asked for the output file to exist would pass
+# with every fragment written over the top of the last.
+@test "a structural choice writes one fragment and names no other" {
+	local theme count=0
+	while IFS= read -r theme; do
+		"$XGHOST" theme set "$theme" >/dev/null
+		# The fixed facts declare two monitors, so the two-monitor fragment is
+		# the one that lands.
+		run grep -Fx '# This fragment is the one for 2 monitors.' \
+			"$GENERATED/hypr/monitors.conf"
+		[ "$status" -eq 0 ]
+		run grep -Fx '# This fragment is the one for 2 monitors.' \
+			"$GENERATED/hypr/workspaces.conf"
+		[ "$status" -eq 0 ]
+		[ ! -e "$GENERATED/hypr/monitors.conf.choice.MACHINE_MONITOR_COUNT" ]
+		[ ! -e "$GENERATED/hypr/workspaces.conf.choice.MACHINE_MONITOR_COUNT" ]
+		count=$((count + 1))
+	done < <("$XGHOST" theme list)
+	[ "$count" -gt 0 ]
 }
 
 @test "the golden output carries no unsubstituted placeholder" {
@@ -113,6 +176,12 @@ tokyonight" ]
 	cp -R "$source_dir/bin" "$source_dir/lib" "$source_dir/commands" \
 		"$source_dir/templates" "$source_dir/themes" "$project/"
 	cp "$BATS_TEST_DIRNAME/regenerate-golden" "$project/tests/regenerate-golden"
+
+	# The script reads the fixed machine facts, and it stops when they are
+	# missing. The copy needs them, so the failure this test asserts on is the
+	# theme that cannot render and nothing else.
+	mkdir -p "$project/tests/fixtures/machine"
+	cp "$MACHINE_FACTS" "$project/tests/fixtures/machine/golden.conf"
 
 	# The reference files that must survive the failure.
 	mkdir -p "$project/tests/golden/keep"
