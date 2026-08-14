@@ -12,10 +12,13 @@
 # option moves the path that is in the way into the backup directory instead,
 # and reports the exact backup path.
 #
-# The module records every link it creates. 'unlink' removes a path only when
-# the record holds that path and the path is still a symbolic link to the
-# recorded prescribed entry. A symbolic link the user made is not in the
-# record, so it is left alone.
+# The module also creates one link that no prescribed entry stands behind: the
+# bridge to the generated output. See LINKER_BRIDGE_NAME below.
+#
+# The module records every link it creates, the bridge included. 'unlink'
+# removes a path only when the record holds that path and the path is still a
+# symbolic link to the recorded target. A symbolic link the user made is not in
+# the record, so it is left alone.
 #
 # The design is documented in docs/linking.md.
 #
@@ -37,6 +40,34 @@ unset GLOBIGNORE
 set +f
 
 LINKER_PROGRAM=xghost
+
+# The bridge to the generated output.
+#
+# A prescribed file that includes generated output cannot name the state
+# directory in full. Ghostty expands no environment variable, and neither does
+# most of what this project prescribes, so a path written out in full is wrong
+# the moment XDG_STATE_HOME is not the default. The include then misses, and an
+# optional include misses in silence.
+#
+# The bridge gives the generated output one fixed name inside the config
+# directory:
+#
+#   $XGHOST_CONFIG_HOME/xghost-generated -> <state directory>/generated
+#
+# A prescribed file reaches the generated output by a path relative to its own
+# directory, such as '../xghost-generated/ghostty/colors.conf'. Both ends of
+# that path move with the environment, so the include is right whatever
+# XDG_CONFIG_HOME and XDG_STATE_HOME hold. docs/bundles/ghostty.md records how
+# Ghostty resolves such a path.
+#
+# The bridge is a link this module creates, so it is recorded and removed like
+# every other one. It is created beside the prescribed entries and never
+# instead of one.
+LINKER_BRIDGE_NAME=xghost-generated
+
+# The name of the stable path under the state directory. lib/theme.sh writes
+# it, and docs/theming.md documents it as the path applications read.
+LINKER_GENERATED_NAME=generated
 
 # Set by linker_resolve_paths.
 LINKER_SOURCE_DIR=
@@ -403,9 +434,10 @@ linker_link() {
 	local dry_run=0 backup=0
 	local argument
 	local -a names=()
+	local -a labels=() sources=() destinations=()
 	local -a record_lines=()
 	local -a record_existing=()
-	local path base name source destination what quoted line
+	local path base name source destination what quoted line index
 	local old_destination old_source item seen
 	local linked=0 already=0 backed_up=0 conflicts=0 skipped=0 failed=0
 
@@ -476,9 +508,27 @@ linker_link() {
 		fi
 	fi
 
+	# Every link of this run, in the order it is made. The prescribed entries
+	# come first, and the bridge to the generated output comes last, so the
+	# report reads as the prescribed configuration followed by the one link
+	# that serves it.
+	#
+	# The bridge is created only when there is prescribed configuration to
+	# link. Nothing includes the generated output when nothing is prescribed,
+	# and the run above has already returned in that case.
 	for name in "${names[@]}"; do
-		source=$LINKER_SOURCE_DIR/$name
-		destination=$LINKER_CONFIG_HOME/$name
+		labels+=("$name")
+		sources+=("$LINKER_SOURCE_DIR/$name")
+		destinations+=("$LINKER_CONFIG_HOME/$name")
+	done
+	labels+=("$LINKER_BRIDGE_NAME")
+	sources+=("$LINKER_STATE_DIR/$LINKER_GENERATED_NAME")
+	destinations+=("$LINKER_CONFIG_HOME/$LINKER_BRIDGE_NAME")
+
+	for index in "${!labels[@]}"; do
+		name=${labels[index]}
+		source=${sources[index]}
+		destination=${destinations[index]}
 
 		# The link record is one line per link, with a tab between the two
 		# paths. A name that holds a control character cannot be recorded, and
