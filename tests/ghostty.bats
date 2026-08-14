@@ -23,6 +23,9 @@ setup() {
 	PRESCRIBED="$ROOT_DIR/config/ghostty/config"
 	TEMPLATE="$ROOT_DIR/templates/ghostty/colors.conf"
 
+	# shellcheck source=helpers.bash
+	. "$BATS_TEST_DIRNAME/helpers.bash"
+
 	# The shipped commands, never the fixture directory of another test file.
 	export XGHOST_COMMAND_DIR="$ROOT_DIR/commands"
 
@@ -46,10 +49,10 @@ setup() {
 
 	# A render of the shipped templates needs the machine facts, because the
 	# Hyprland bundle takes its monitor layout from them. These tests render the
-	# whole template directory to reach the Ghostty part of it, so they use the
-	# same fixed facts the golden output is built from. No assertion below reads
-	# them: they only keep the render from failing on a fact it wanted.
-	export XGHOST_MACHINE_FACTS="$BATS_TEST_DIRNAME/fixtures/machine/golden.conf"
+	# whole template directory to reach the Ghostty part of it. No assertion
+	# below reads a fact: they only keep the render from failing on a fact it
+	# wanted. tests/helpers.bash records the rule.
+	use_fixed_machine_facts
 
 	GENERATED="$XDG_STATE_HOME/xghost/generated"
 

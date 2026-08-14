@@ -22,6 +22,9 @@ setup() {
 	GOLDEN_DIR="$BATS_TEST_DIRNAME/golden"
 	TEMPLATE_DIR="$BATS_TEST_DIRNAME/../templates"
 
+	# shellcheck source=helpers.bash
+	. "$BATS_TEST_DIRNAME/helpers.bash"
+
 	# The shipped commands, never the fixture directory of another test file.
 	export XGHOST_COMMAND_DIR="$BATS_TEST_DIRNAME/../commands"
 
@@ -47,8 +50,10 @@ setup() {
 	# The fixed machine facts of the golden output, which ADR 0001 names as the
 	# second input of these tests. tests/regenerate-golden reads the same file,
 	# so the committed output never depends on the hardware of whoever runs it.
-	MACHINE_FACTS="$BATS_TEST_DIRNAME/fixtures/machine/golden.conf"
-	export XGHOST_MACHINE_FACTS="$MACHINE_FACTS"
+	# One test below copies the fixture into a project of its own, so the path
+	# is kept as well as exported.
+	use_fixed_machine_facts
+	MACHINE_FACTS="$XGHOST_MACHINE_FACTS"
 
 	GENERATED="$XDG_STATE_HOME/xghost/generated"
 }

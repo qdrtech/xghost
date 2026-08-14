@@ -14,6 +14,9 @@ setup() {
 	XGHOST="$BATS_TEST_DIRNAME/../bin/xghost"
 	ROOT_DIR=$(cd -P "$BATS_TEST_DIRNAME/.." && pwd)
 
+	# shellcheck source=helpers.bash
+	. "$BATS_TEST_DIRNAME/helpers.bash"
+
 	# The shipped commands, never the fixture directory of another test file.
 	export XGHOST_COMMAND_DIR="$ROOT_DIR/commands"
 
@@ -22,6 +25,15 @@ setup() {
 	export HOME="$BATS_TEST_TMPDIR/home"
 	export XDG_STATE_HOME="$HOME/.local/state"
 	mkdir -p "$XDG_STATE_HOME"
+
+	# Several tests below render a shipped theme, and the shipped templates
+	# make a structural choice from a machine fact. Without facts every one of
+	# those renders fails on the fact it wanted, whatever the test is about.
+	# tests/helpers.bash records why this is a suite-wide need.
+	#
+	# A test that describes its own inputs with use_own_inputs renders no
+	# shipped template, so the facts reach nothing it asserts on.
+	use_fixed_machine_facts
 
 	STATE_DIR="$XDG_STATE_HOME/xghost"
 	GENERATED="$STATE_DIR/generated"

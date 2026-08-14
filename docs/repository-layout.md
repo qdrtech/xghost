@@ -16,7 +16,7 @@ behaviour without reading the tree.
 | `lib/`         | The shared shell modules the commands and the installer source.                   |
 | `migrations/`  | One script per migration, restricted by policy to system side effects.            |
 | `templates/`   | The templates the renderer reads to produce themed configuration.                 |
-| `tests/`       | The bats test suite, with its fixture command directories under `tests/fixtures/`. |
+| `tests/`       | The bats test suite, with its fixtures under `tests/fixtures/` and the helpers more than one suite needs in `tests/helpers.bash`. |
 | `themes/`      | One directory per theme: its palette, its background, and any hand-written file.  |
 
 ## Inside `install/`
