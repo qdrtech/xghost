@@ -243,6 +243,89 @@ accent=10, 132, 255" ]
 	[[ $output == *"font.conf: the palette has no value for 'FONT_HEX'"* ]]
 }
 
+@test "a value that holds an ampersand reaches the output unchanged" {
+	use_own_inputs
+	make_theme demo <<-'EOF'
+		FONT=Gill Sans & Co
+	EOF
+	make_template font.conf <<-'EOF'
+		font=@FONT@
+	EOF
+	"$XGHOST" theme set demo
+	run cat "$GENERATED/font.conf"
+	[ "$output" = 'font=Gill Sans & Co' ]
+}
+
+@test "a value that holds a backslash reaches the output unchanged" {
+	use_own_inputs
+	make_theme demo <<-'EOF'
+		ONE=a\b
+		TWO=a\\b
+		THREE=a\&b
+	EOF
+	make_template slash.conf <<-'EOF'
+		one=@ONE@
+		two=@TWO@
+		three=@THREE@
+	EOF
+	"$XGHOST" theme set demo
+	run cat "$GENERATED/slash.conf"
+	[ "$output" = 'one=a\b
+two=a\\b
+three=a\&b' ]
+}
+
+@test "a value that ends in a backslash reaches the output unchanged" {
+	use_own_inputs
+	make_theme demo <<-'EOF'
+		ONE=trailing\
+		TWO=trailing\\
+	EOF
+	make_template trailing.conf <<-'EOF'
+		one=@ONE@
+		two=@TWO@
+	EOF
+	"$XGHOST" theme set demo
+	run cat "$GENERATED/trailing.conf"
+	[ "$output" = 'one=trailing\
+two=trailing\\' ]
+}
+
+@test "a value that holds a placeholder is not substituted again" {
+	use_own_inputs
+	make_theme demo <<-'EOF'
+		AAA=@ZZZ@
+		ZZZ=hello
+	EOF
+	make_template pass.conf <<-'EOF'
+		a=@AAA@
+		z=@ZZZ@
+	EOF
+	"$XGHOST" theme set demo
+	run cat "$GENERATED/pass.conf"
+	[ "$output" = 'a=@ZZZ@
+z=hello' ]
+}
+
+# The same shape with the two names swapped. The old renderer walked the
+# palette in the order the associative array happened to hold its keys, so one
+# of the two rendered twice and the other failed the render.
+@test "the substitution does not depend on the order of the palette keys" {
+	use_own_inputs
+	make_theme demo <<-'EOF'
+		ZZZ=@AAA@
+		AAA=hello
+	EOF
+	make_template pass.conf <<-'EOF'
+		z=@ZZZ@
+		a=@AAA@
+	EOF
+	"$XGHOST" theme set demo
+	run cat "$GENERATED/pass.conf"
+	[ "$output" = 'z=@AAA@
+a=hello' ]
+}
+
 @test "the renderer keeps the case the theme author wrote" {
 	use_own_inputs
 	plain_palette | make_theme demo
@@ -276,6 +359,68 @@ accent=10, 132, 255" ]
 	[ -x "$GENERATED/run.sh" ]
 }
 
+@test "a template that is a symbolic link is rendered" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	printf 'bg=@BG@\n' >"$BATS_TEST_TMPDIR/upstream.conf"
+	ln -s "$BATS_TEST_TMPDIR/upstream.conf" "$XGHOST_TEMPLATE_DIR/linked.conf"
+	"$XGHOST" theme set demo
+	run cat "$GENERATED/linked.conf"
+	[ "$output" = "bg=#1a2b3c" ]
+	[ ! -L "$GENERATED/linked.conf" ]
+}
+
+@test "a template whose link points at nothing is reported by name" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	ln -s "$BATS_TEST_TMPDIR/gone.conf" "$XGHOST_TEMPLATE_DIR/dangling.conf"
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"dangling.conf: the symbolic link points at nothing"* ]]
+}
+
+@test "a template that holds a NUL byte is refused by name" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_template good.conf <<-'EOF'
+		bg=@BG@
+	EOF
+	printf 'a\0b\n' >"$XGHOST_TEMPLATE_DIR/binary.conf"
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"binary.conf: the template holds a NUL byte"* ]]
+	[[ $output == *"The active theme is unchanged."* ]]
+}
+
+# The renderer says it is a pure function, so its output may not change with
+# the umask of whoever called it.
+@test "the modes of the generated output do not follow the umask of the caller" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_template sub/deep.conf <<-'EOF'
+		bg=@BG@
+	EOF
+	make_template run.sh <<-'EOF'
+		#!/usr/bin/env bash
+		printf '%s\n' '@BG@'
+	EOF
+	chmod +x "$XGHOST_TEMPLATE_DIR/run.sh"
+	make_theme_file demo hand.conf <<-'EOF'
+		hand written
+	EOF
+
+	(
+		umask 077
+		"$XGHOST" theme set demo >/dev/null
+	)
+
+	[ "$(stat -c %a "$GENERATED/sub/deep.conf")" = 644 ]
+	[ "$(stat -c %a "$GENERATED/hand.conf")" = 644 ]
+	[ "$(stat -c %a "$GENERATED/run.sh")" = 755 ]
+	[ "$(stat -c %a "$GENERATED/sub")" = 755 ]
+	[ "$(stat -c %a "$(readlink -f "$GENERATED")")" = 755 ]
+}
+
 # --- the hand-written file a theme ships ------------------------------------
 
 @test "a hand-written file is not overwritten by the template of the same name" {
@@ -305,6 +450,58 @@ accent=10, 132, 255" ]
 	run cat "$GENERATED/extra/notes.txt"
 	[ "$output" = "notes" ]
 	[ -f "$GENERATED/plain.conf" ]
+}
+
+# A theme whose upstream is a stow-managed dotfiles repository ships a link
+# where another theme ships a file, and the two must mean the same thing.
+@test "a hand-written file that is a symbolic link is copied" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	printf 'hand written waybar\n' >"$BATS_TEST_TMPDIR/upstream.conf"
+	mkdir -p "$XGHOST_THEMES_DIR/demo/files"
+	ln -s "$BATS_TEST_TMPDIR/upstream.conf" "$XGHOST_THEMES_DIR/demo/files/waybar.conf"
+	"$XGHOST" theme set demo
+	run cat "$GENERATED/waybar.conf"
+	[ "$output" = "hand written waybar" ]
+	# The output holds the file itself, never a link back into the theme.
+	[ ! -L "$GENERATED/waybar.conf" ]
+}
+
+@test "a hand-written file whose link points at nothing is reported by name" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_template plain.conf <<-'EOF'
+		bg=@BG@
+	EOF
+	mkdir -p "$XGHOST_THEMES_DIR/demo/files"
+	ln -s "$BATS_TEST_TMPDIR/gone.conf" "$XGHOST_THEMES_DIR/demo/files/waybar.conf"
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"waybar.conf: the symbolic link points at nothing"* ]]
+	[[ $output == *"The active theme is unchanged."* ]]
+}
+
+# The renderer follows links now, so it must prove that following one cannot
+# carry a write out of the directory it was given.
+@test "a hand-written file cannot write outside the generated output" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_template plain.conf <<-'EOF'
+		bg=@BG@
+	EOF
+
+	local outside="$BATS_TEST_TMPDIR/outside"
+	mkdir -p "$outside" "$XGHOST_THEMES_DIR/demo/files"
+	printf 'untouched\n' >"$outside/target.conf"
+	ln -s "$outside" "$XGHOST_THEMES_DIR/demo/files/escape"
+
+	"$XGHOST" theme set demo
+
+	# The content is read in. It is never written back out.
+	[ -f "$GENERATED/escape/target.conf" ]
+	[ ! -L "$GENERATED/escape" ]
+	[ "$(cat "$outside/target.conf")" = untouched ]
+	[ "$(find "$outside" -mindepth 1 | wc -l)" -eq 1 ]
 }
 
 @test "a hand-written file is copied unchanged, placeholders included" {
@@ -559,4 +756,131 @@ accent=10, 132, 255" ]
 	"$XGHOST" theme set demo
 	after=$(find "$XGHOST_THEMES_DIR" "$XGHOST_TEMPLATE_DIR" | LC_ALL=C sort)
 	[ "$before" = "$after" ]
+}
+
+# --- two switches at the same time ------------------------------------------
+
+# Write enough templates that two renders started together overlap.
+make_many_templates() {
+	local count=$1 index
+	for ((index = 1; index <= count; index++)); do
+		printf 'bg=@BG@\n' >"$XGHOST_TEMPLATE_DIR/f$index.conf"
+	done
+}
+
+@test "two switches that run at the same time both finish and leave a sound output" {
+	use_own_inputs
+	plain_palette | make_theme one
+	plain_palette | make_theme two
+	make_many_templates 200
+
+	# A build to be pruned, so the prune of each switch has work to do.
+	"$XGHOST" theme set one >/dev/null
+
+	local first second
+	"$XGHOST" theme set one >/dev/null 2>"$BATS_TEST_TMPDIR/first.err" &
+	first=$!
+	"$XGHOST" theme set two >/dev/null 2>"$BATS_TEST_TMPDIR/second.err" &
+	second=$!
+	wait "$first"
+	wait "$second"
+
+	# Neither switch printed anything, so neither lost its build to the other.
+	[ ! -s "$BATS_TEST_TMPDIR/first.err" ]
+	[ ! -s "$BATS_TEST_TMPDIR/second.err" ]
+
+	# The stable path resolves, and it holds a whole build.
+	[ -d "$GENERATED/" ]
+	[ "$(find "$GENERATED/" -type f | wc -l)" -eq 200 ]
+
+	run "$XGHOST" theme current
+	[ "$status" -eq 0 ]
+	[ "$output" = one ] || [ "$output" = two ]
+
+	# The prune ran, and it kept the build the stable path points at.
+	[ "$(build_count)" -eq 1 ]
+}
+
+@test "a switch that runs beside another still names the theme it applied" {
+	use_own_inputs
+	plain_palette | make_theme one
+	plain_palette | make_theme two
+	make_many_templates 200
+
+	local first second
+	"$XGHOST" theme set one >"$BATS_TEST_TMPDIR/first.out" 2>&1 &
+	first=$!
+	"$XGHOST" theme set two >"$BATS_TEST_TMPDIR/second.out" 2>&1 &
+	second=$!
+	wait "$first"
+	wait "$second"
+
+	grep -q "the active theme is now 'one'" "$BATS_TEST_TMPDIR/first.out"
+	grep -q "the active theme is now 'two'" "$BATS_TEST_TMPDIR/second.out"
+	[ -d "$GENERATED/" ]
+}
+
+# --- the state directory is resolved at first use ---------------------------
+
+@test "theme list works with neither XDG_STATE_HOME nor HOME in the environment" {
+	run env -i "$XGHOST" theme list
+	[ "$status" -eq 0 ]
+	[ "$output" = "macos-dark
+tokyonight" ]
+}
+
+@test "an empty environment does not turn a usage mistake into another error" {
+	run env -i "$XGHOST" theme list extra
+	[ "$status" -eq 2 ]
+	[[ $output == *"takes no argument"* ]]
+}
+
+@test "theme current names the missing state directory" {
+	run env -i "$XGHOST" theme current
+	[ "$status" -eq 1 ]
+	[[ $output == *"neither XDG_STATE_HOME nor HOME is set"* ]]
+}
+
+@test "theme set names the missing state directory" {
+	run env -i "$XGHOST" theme set tokyonight
+	[ "$status" -eq 1 ]
+	[[ $output == *"neither XDG_STATE_HOME nor HOME is set"* ]]
+}
+
+# --- the libraries ----------------------------------------------------------
+
+# Later slices consume these libraries, and two of them may each need the same
+# one. A second source must be a no-op rather than an error.
+@test "every library may be sourced twice" {
+	run bash -c '
+		set -euo pipefail
+		. "$1/lib/palette.sh"
+		. "$1/lib/palette.sh"
+		. "$1/lib/renderer.sh"
+		. "$1/lib/renderer.sh"
+		. "$1/lib/theme.sh"
+		. "$1/lib/theme.sh"
+		printf "sound\n"
+	' _ "$ROOT_DIR"
+	[ "$status" -eq 0 ]
+	[ "$output" = sound ]
+}
+
+# --- the modules report, and nothing else prints ----------------------------
+
+@test "a template that cannot be read is reported once, with no raw diagnostic" {
+	if [ "$(id -u)" -eq 0 ]; then
+		skip "root reads a file whose mode forbids it"
+	fi
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_template locked.conf <<-'EOF'
+		bg=@BG@
+	EOF
+	chmod 000 "$XGHOST_TEMPLATE_DIR/locked.conf"
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"locked.conf: cannot read the template"* ]]
+	[[ $output != *"Permission denied"* ]]
+	[[ $output != *"renderer.sh: line"* ]]
 }

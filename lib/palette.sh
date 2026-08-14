@@ -9,6 +9,14 @@
 # leaves the reporting to the caller. The palette format is documented in
 # docs/theming.md.
 
+# The include sentinel. A library may be sourced more than once, because two
+# modules may each need it. The second source returns here, so the readonly
+# declarations below run exactly once.
+if [ -n "${XGHOST_PALETTE_SOURCED:-}" ]; then
+	return 0
+fi
+XGHOST_PALETTE_SOURCED=1
+
 # Set by palette_load.
 declare -A PALETTE_SCALARS=()
 PALETTE_ERRORS=()

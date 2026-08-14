@@ -46,7 +46,13 @@ Under that directory:
   builds/build.XXXXXXXX/theme    the name of the theme this build was made from
   builds/build.XXXXXXXX/tree/    the finished configuration files
   generated -> builds/build.XXXXXXXX/tree
+  lock                           held for the whole of one switch
 ```
+
+`xghost theme list` reads the checkout alone. It needs none of the paths above,
+and it works on a machine that has neither `XDG_STATE_HOME` nor `HOME` in its
+environment. `xghost theme current` and `xghost theme set` do need them, and
+each names the missing value rather than failing before it reads its arguments.
 
 `generated` is a symbolic link, because a link is what the kernel replaces in one
 step. See "The switch is atomic" below.
@@ -92,7 +98,11 @@ The rules:
   renderer drops. Quote a value that starts or ends with a space.
 - The white space at both ends of a name and of a value is dropped.
 - A value is text. The renderer never expands a variable and never runs a
-  command in it.
+  command in it. `&` and a backslash are ordinary characters of the value, and
+  they reach the output exactly as the theme author wrote them.
+- A value that itself holds `@NAME@` reaches the output as that text. The
+  renderer reads a template once and never reads back what it wrote, so a value
+  is never substituted a second time.
 - A palette that declares no value at all is a mistake, and the renderer reports
   it.
 
@@ -136,10 +146,34 @@ which selects between prescribed fragments rather than templating them.
 Structural choices are driven by knobs, and they arrive with the knobs
 (issue #11).
 
+A template is a text file. One that holds a NUL byte is refused by name,
+because reading it as text would drop that byte and write a file that quietly
+differs from its template.
+
+A template may be a symbolic link. The renderer follows it and renders what it
+points at. A link that points at nothing fails the render and is named, because
+a theme that ships a link means the file to be there.
+
 Two details of the output:
 
 - Each rendered file ends with exactly one newline.
 - An executable template produces an executable file.
+
+## The modes of the generated output
+
+The renderer sets the mode of everything it writes. It does not leave the mode
+to the umask of whoever ran the command, so the same inputs produce the same
+output on every machine.
+
+| What                      | Mode   |
+| ------------------------- | ------ |
+| A directory of the output | `0755` |
+| A rendered file           | `0644` |
+| A rendered file that came from an executable template | `0755` |
+
+The output is read by desktop components and holds no secret, so it is readable
+by everybody and writable by its owner alone. `xghost theme set` sets the same
+modes on the state directory, the build directory, and each build it creates.
 
 ## A file a theme ships by hand
 
@@ -158,6 +192,13 @@ only.
 A hand-written file needs no matching template. A file the templates do not
 mention is added to the output.
 
+The file may be a symbolic link, which is the natural shape for a theme whose
+upstream is a stow-managed dotfiles repository. The renderer reads through the
+link and writes a real file into the output. A link that points at nothing fails
+the render and is named. Following a link never carries a write out of the
+output: the renderer resolves the directory it is about to write into and
+refuses any path that lands outside.
+
 ## The switch is atomic
 
 `xghost theme set` builds a complete new output directory beside the live one.
@@ -170,8 +211,15 @@ whole new one, and never a half-written directory. A failed render reports every
 problem it found, removes the half-built directory, and states that the active
 theme is unchanged.
 
-The build the link pointed at before the switch is kept until the next switch,
-and is dropped then.
+A switch holds an exclusive lock on `$XDG_STATE_HOME/xghost/lock` from end to
+end, so two switches started at the same time run one after the other. The lock
+is what makes the paragraph above true of a second switch as well as of an
+interrupt.
+
+The old builds are dropped after the rename, never before it. A build is
+therefore removed only once some switch has finished writing it, and a directory
+another switch is still writing is out of reach. Only the build the stable path
+points at survives a switch.
 
 ## What the renderer does not do yet
 

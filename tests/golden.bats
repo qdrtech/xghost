@@ -89,3 +89,37 @@ tokyonight" ]
 	[ "$status" -eq 1 ]
 	[[ $output == *"CI is set"* ]]
 }
+
+# The script renders every theme first and replaces tests/golden/ only once all
+# of them have succeeded. A copy of the project is used, so the test can add a
+# theme that cannot render without touching the committed reference files.
+@test "a regeneration that cannot render a theme leaves the golden output in place" {
+	local project="$BATS_TEST_TMPDIR/project"
+	local source_dir="$BATS_TEST_DIRNAME/.."
+	mkdir -p "$project/tests"
+	cp -R "$source_dir/bin" "$source_dir/lib" "$source_dir/commands" \
+		"$source_dir/templates" "$source_dir/themes" "$project/"
+	cp "$BATS_TEST_DIRNAME/regenerate-golden" "$project/tests/regenerate-golden"
+
+	# The reference files that must survive the failure.
+	mkdir -p "$project/tests/golden/keep"
+	printf 'reference\n' >"$project/tests/golden/keep/marker"
+
+	# A theme that sorts first and names none of the values the templates need.
+	mkdir -p "$project/themes/broken"
+	printf 'UNUSED=#000000\n' >"$project/themes/broken/palette.conf"
+
+	# Every override of this test file is dropped, so the script drives the
+	# copy of the project rather than the checkout it was copied from.
+	run env -u CI -u XGHOST_COMMAND_DIR -u XGHOST_ROOT \
+		-u XGHOST_THEMES_DIR -u XGHOST_TEMPLATE_DIR \
+		HOME="$BATS_TEST_TMPDIR/home" \
+		"$project/tests/regenerate-golden" --update
+	[ "$status" -eq 1 ]
+	[[ $output == *"cannot render the theme 'broken'"* ]]
+	[[ $output == *"tests/golden is unchanged."* ]]
+
+	[ -f "$project/tests/golden/keep/marker" ]
+	[ "$(cat "$project/tests/golden/keep/marker")" = reference ]
+	[ ! -e "$project/tests/golden/tokyonight" ]
+}

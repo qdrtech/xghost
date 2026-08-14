@@ -18,6 +18,10 @@
 #
 # The script writes the output of each theme into a temporary state directory of
 # its own, so it never touches the theme the machine is running.
+#
+# Every theme is rendered first, into a temporary directory. tests/golden/ is
+# replaced only once all of them have succeeded, so a render that fails leaves
+# the committed reference files exactly as they were.
 
 set -euo pipefail
 
@@ -57,19 +61,31 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 
 themes=$("$XGHOST" theme list) || die "cannot list the themes"
 
-rm -rf "$GOLDEN_DIR"
-mkdir -p "$GOLDEN_DIR"
+# The new reference files are built here first. tests/golden/ is untouched
+# until every theme has rendered.
+STAGE_DIR=$WORK_DIR/golden
+mkdir -p "$STAGE_DIR"
 
+count=0
 while IFS= read -r theme; do
 	[ -n "$theme" ] || continue
-	state=$WORK_DIR/$theme
+	state=$WORK_DIR/state/$theme
 	mkdir -p "$state"
 	XDG_STATE_HOME=$state "$XGHOST" theme set "$theme" >/dev/null ||
-		die "cannot render the theme '$theme'"
-	mkdir -p "$GOLDEN_DIR/$theme"
-	cp -R "$state/xghost/generated/." "$GOLDEN_DIR/$theme/"
-	printf '%s: rewrote the golden output of %s\n' "$PROGRAM" "$theme"
+		die "cannot render the theme '$theme'. tests/golden is unchanged."
+	mkdir -p "$STAGE_DIR/$theme"
+	cp -R "$state/xghost/generated/." "$STAGE_DIR/$theme/"
+	count=$((count + 1))
 done <<<"$themes"
 
+if [ "$count" -eq 0 ]; then
+	die "no theme rendered, so there is nothing to write. tests/golden is unchanged."
+fi
+
+rm -rf "$GOLDEN_DIR"
+mkdir -p "$GOLDEN_DIR"
+cp -R "$STAGE_DIR/." "$GOLDEN_DIR/"
+
+printf '%s: rewrote the golden output of %d themes\n' "$PROGRAM" "$count"
 printf '%s: run "git diff -- %s" and read the difference before you commit it.\n' \
 	"$PROGRAM" "tests/golden"
