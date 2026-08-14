@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+#
+# Render one theme and move the result into place.
+#
+# @xghost-meta
+# summary: Set the active theme.
+# arg: NAME  The theme to activate.
+# example: xghost theme set tokyonight
+# elevated: no
+# internal: no
+# @end-xghost-meta
+
+set -euo pipefail
+
+COMMAND_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+# shellcheck source=lib/theme.sh
+. "${COMMAND_PATH%/*}/../lib/theme.sh"
+
+if [ $# -eq 0 ]; then
+	xghost_die 2 "'theme set' needs a theme name. Run 'xghost theme list' for the names."
+fi
+if [ $# -gt 1 ]; then
+	xghost_die 2 "'theme set' takes one theme name, and it was given $#."
+fi
+
+if ! theme_set "$1"; then
+	xghost_die 1 "$THEME_PROBLEM"
+fi
+
+printf "the active theme is now '%s'\n" "$1"
+printf 'the generated output is at %s\n' "$XGHOST_GENERATED_DIR"

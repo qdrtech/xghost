@@ -32,12 +32,28 @@ behaviour without reading the tree.
 Every step is idempotent, so a failed installation is resumed by running it
 again.
 
-## What is not tracked
+## Inside `themes/` and `templates/`
+
+| Directory                      | What it holds                                                           |
+| ------------------------------ | ----------------------------------------------------------------------- |
+| `themes/<name>/palette.conf`   | The named colours of one theme. This file makes the directory a theme.  |
+| `themes/<name>/files/`         | The files that theme ships by hand, at the path they take in the output. |
+| `templates/`                   | The templates, at the relative path each one takes in the output.       |
+
+[Theming](theming.md) documents the palette format, the templates, and the
+commands that drive the renderer.
+
+## Where the generated output goes
 
 Generated output is the fourth file category of
-[ADR 0001](adr/0001-prescribed-config-architecture.md). The renderer writes it
-to `generated/`, rebuilds it on demand, and nobody edits it. `.gitignore` keeps
-that directory out of the checkout.
+[ADR 0001](adr/0001-prescribed-config-architecture.md). It never lands in the
+checkout, because the checkout holds only the files git tracks, and generated
+output is tracked by nobody.
+
+The renderer writes it to `$XDG_STATE_HOME/xghost/generated`, which is usually
+`~/.local/state/xghost/generated`. Applications read that path. The renderer
+rebuilds it on demand and nobody edits it. [Theming](theming.md) records why the
+state directory holds it.
 
 ## A directory that holds only `.gitkeep`
 

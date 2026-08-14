@@ -1,4 +1,6 @@
-# Generated output is the fourth file category of ADR 0001. The renderer
-# rebuilds it on demand, nobody edits it, and it is never tracked. It lands in
-# the checkout, because the checkout is the install location.
-/generated/
+# Nothing in a running installation is written into this checkout.
+#
+# Generated output is the fourth file category of ADR 0001. The renderer writes
+# it to $XDG_STATE_HOME/xghost/generated, outside every repository working tree,
+# rebuilds it on demand, and nobody edits it. docs/theming.md records that
+# decision, so no ignore rule is needed for it.

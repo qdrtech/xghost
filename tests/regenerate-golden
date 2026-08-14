@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+#
+# Regenerate the committed golden output of the renderer.
+#
+#   tests/regenerate-golden --update
+#
+# The golden files under tests/golden/ are the expected output of the renderer:
+# every theme rendered against every template. tests/golden.bats compares the
+# real output against them, so a template change that breaks a theme fails the
+# suite.
+#
+# Run this script when such a change is intentional, then read the difference it
+# reports before you commit it. The '--update' flag is required, because a bare
+# run must never rewrite the expected output by accident.
+#
+# The script refuses to run when CI is set. Continuous integration proves the
+# committed output; it never rewrites it.
+#
+# The script writes the output of each theme into a temporary state directory of
+# its own, so it never touches the theme the machine is running.
+#
+# Every theme is rendered first, into a temporary directory. tests/golden/ is
+# replaced only once all of them have succeeded, so a render that fails leaves
+# the committed reference files exactly as they were.
+
+set -euo pipefail
+
+PROGRAM=${0##*/}
+
+warn() {
+	printf '%s: %s\n' "$PROGRAM" "$*" >&2
+}
+
+die() {
+	warn "$*"
+	exit 1
+}
+
+usage() {
+	printf 'Usage: %s --update\n' "$PROGRAM"
+	printf '\n'
+	printf 'Rewrite tests/golden/ from the current templates and themes.\n'
+}
+
+if [ $# -ne 1 ] || [ "$1" != --update ]; then
+	usage >&2
+	exit 2
+fi
+
+if [ -n "${CI:-}" ]; then
+	die "CI is set. Continuous integration proves the golden output; it never rewrites it."
+fi
+
+TESTS_DIR=$(cd -P "$(dirname "$(readlink -f "$0")")" && pwd)
+ROOT_DIR=$(cd -P "$TESTS_DIR/.." && pwd)
+GOLDEN_DIR=$TESTS_DIR/golden
+XGHOST=$ROOT_DIR/bin/xghost
+
+WORK_DIR=$(mktemp -d)
+trap 'rm -rf "$WORK_DIR"' EXIT
+
+themes=$("$XGHOST" theme list) || die "cannot list the themes"
+
+# The new reference files are built here first. tests/golden/ is untouched
+# until every theme has rendered.
+STAGE_DIR=$WORK_DIR/golden
+mkdir -p "$STAGE_DIR"
+
+count=0
+while IFS= read -r theme; do
+	[ -n "$theme" ] || continue
+	state=$WORK_DIR/state/$theme
+	mkdir -p "$state"
+	XDG_STATE_HOME=$state "$XGHOST" theme set "$theme" >/dev/null ||
+		die "cannot render the theme '$theme'. tests/golden is unchanged."
+	mkdir -p "$STAGE_DIR/$theme"
+	cp -R "$state/xghost/generated/." "$STAGE_DIR/$theme/"
+	count=$((count + 1))
+done <<<"$themes"
+
+if [ "$count" -eq 0 ]; then
+	die "no theme rendered, so there is nothing to write. tests/golden is unchanged."
+fi
+
+rm -rf "$GOLDEN_DIR"
+mkdir -p "$GOLDEN_DIR"
+cp -R "$STAGE_DIR/." "$GOLDEN_DIR/"
+
+printf '%s: rewrote the golden output of %d themes\n' "$PROGRAM" "$count"
+printf '%s: run "git diff -- %s" and read the difference before you commit it.\n' \
+	"$PROGRAM" "tests/golden"
