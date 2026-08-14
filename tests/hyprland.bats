@@ -481,13 +481,23 @@ monitor = HDMI-A-2,3840x2160@30.00,4480x0,2,transform,0' ]
 }
 
 @test "the animation knob selects the fragment of its value" {
+	# A line the compositor acts on, which is a setting rather than a comment.
+	# Both fragments describe themselves in a comment that holds the words
+	# 'bezier' and 'animation', so a pattern that reads the whole line matches
+	# the prose of the fragment for 'off' and proves nothing.
+	local curve='^[[:space:]]*(bezier|animation)[[:space:]]*='
+
 	facts_two
 	"$XGHOST" theme set tokyonight >/dev/null
 
-	# The default of the knob.
+	# The default of the knob. The same pattern is asserted here and below, so
+	# the assertion that it matches nothing cannot pass by matching nothing
+	# anywhere.
 	run grep -Fx '    enabled = true' "$GENERATED/hypr/animation.conf"
 	[ "$status" -eq 0 ]
-	run grep -F 'bezier = wind,' "$GENERATED/hypr/animation.conf"
+	run grep -E "$curve" "$GENERATED/hypr/animation.conf"
+	[ "$status" -eq 0 ]
+	run grep -Fx '    bezier = wind, 0.05, 0.9, 0.1, 1.05' "$GENERATED/hypr/animation.conf"
 	[ "$status" -eq 0 ]
 
 	"$XGHOST" settings set KNOB_ANIMATIONS off >/dev/null
@@ -495,7 +505,7 @@ monitor = HDMI-A-2,3840x2160@30.00,4480x0,2,transform,0' ]
 	[ "$status" -eq 0 ]
 	# The fragment for 'off' carries no curve, so nothing is left that names an
 	# animation the compositor never plays.
-	run grep -E 'bezier|animation =' "$GENERATED/hypr/animation.conf"
+	run grep -E "$curve" "$GENERATED/hypr/animation.conf"
 	[ "$status" -ne 0 ]
 }
 

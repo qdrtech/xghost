@@ -46,8 +46,20 @@ setup() {
 	# a machine that has never run 'xghost settings set'.
 	export XGHOST_KNOBS_FILE="$BATS_TEST_TMPDIR/knobs.conf"
 
-	GENERATED="$XDG_STATE_HOME/xghost/generated"
+	# The schema this suite reads. It starts as a copy of the schema the project
+	# ships, and a test that needs another one rewrites the copy with
+	# use_own_schema.
+	#
+	# The path is exported here and nowhere else, so no helper of this file
+	# exports anything. A helper that did would lose the export the moment it
+	# was called on the right of a pipe, because that side runs in a subshell:
+	# the file would be written, the export would not survive, and every test of
+	# it would quietly read the shipped schema instead and prove nothing.
 	SCHEMA="$BATS_TEST_TMPDIR/schema.conf"
+	cp "$SHIPPED_SCHEMA" "$SCHEMA"
+	export XGHOST_KNOBS_SCHEMA="$SCHEMA"
+
+	GENERATED="$XDG_STATE_HOME/xghost/generated"
 }
 
 # Point the theme commands at inputs this test writes.
@@ -57,9 +69,11 @@ use_own_inputs() {
 	mkdir -p "$XGHOST_THEMES_DIR" "$XGHOST_TEMPLATE_DIR"
 }
 
-# Point the commands at a schema this test writes.
+# Rewrite the schema this suite reads, from standard input.
+#
+# It writes a file and changes nothing else, so it is safe on either side of a
+# pipe. setup() is what points xghost at that file.
 use_own_schema() {
-	export XGHOST_KNOBS_SCHEMA="$SCHEMA"
 	cat >"$SCHEMA"
 }
 
@@ -129,9 +143,12 @@ load() {
 			printf '%s=%s\n' "$key" "${KNOBS_SCALARS[$key]-<absent>}"
 		done
 	EOF
+	# The schema is the one setup() pointed xghost at, so this reader and the
+	# commands always read the same file. There is no fallback: a fallback is
+	# what turned a lost export into a green test.
 	local file=$XGHOST_KNOBS_FILE
 	[ -e "$file" ] || file=
-	run bash "$script" "$ROOT_DIR" "${XGHOST_KNOBS_SCHEMA:-$SHIPPED_SCHEMA}" "$file" "$@"
+	run bash "$script" "$ROOT_DIR" "$XGHOST_KNOBS_SCHEMA" "$file" "$@"
 }
 
 # Run one snippet against lib/knobs.sh, with the checkout as $1 and a scratch
@@ -158,6 +175,18 @@ KNOB_LABEL=Plain Label" ]
 	[ "$output" = "KNOB_ANIMATIONS=on
 KNOB_GAP_SIZE=10
 KNOB_FONT=JetBrainsMono Nerd Font" ]
+}
+
+# Every other test of this file points xghost at a copy of the schema, so this
+# is the one that proves where xghost finds the schema when nothing points at
+# it: in the checkout, beside the templates.
+@test "xghost reads the schema of the checkout when nothing overrides it" {
+	unset XGHOST_KNOBS_SCHEMA
+	run "$XGHOST" settings list
+	[ "$status" -eq 0 ]
+	[[ $output == *"KNOB_ANIMATIONS = on"* ]]
+	[[ $output == *"KNOB_GAP_SIZE = 10"* ]]
+	[[ $output == *"KNOB_FONT = JetBrainsMono Nerd Font"* ]]
 }
 
 @test "the schema reports a field that belongs to no knob" {
