@@ -79,6 +79,5 @@ xdg-utils
 # declares a package every xghost machine installs already, and imagemagick
 # would add four packages and a far larger surface.
 #
-# THIS LINE IS A PROPOSAL. It is the one new dependency of issue #20 and it
-# waits on the maintainer, who reads the vetting before it is installed.
+# The maintainer read that vetting and approved this line on 2026-08-14.
 python
