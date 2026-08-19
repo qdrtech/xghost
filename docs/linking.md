@@ -55,6 +55,9 @@ path, and the rule every later bundle depends on.
 [The Hyprland bundle](bundles/hyprland.md) records how Hyprland resolves it,
 which is the same path by a different rule: Hyprland uses the path it opened
 and has no fallback to the real one.
+[The Waybar bundle](bundles/waybar.md) records the one directive that resolves
+no relative path at all, and therefore names this same bridge through
+`XDG_CONFIG_HOME` rather than reaching it with `..`.
 
 The bridge is created beside the prescribed entries and never instead of one.
 It is a link the linker creates, so every rule below applies to it unchanged:

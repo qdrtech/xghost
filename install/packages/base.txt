@@ -29,9 +29,9 @@
 #
 # What is not here:
 #
-#   - A package a later bundle owns. The bar (waybar, issue #12), the launcher
-#     (rofi, issue #13) and the notifications (swaync, issue #14) arrive with
-#     their own bundles, and each one adds its line here then.
+#   - A package a later bundle owns. The launcher (rofi, issue #13) and the
+#     notifications (swaync, issue #14) arrive with their own bundles, and each
+#     one adds its line here then.
 #   - A package of the Arch 'base' group, such as util-linux for 'flock' and
 #     systemd for 'localectl'. Every Arch installation already has those, and
 #     declaring them would say that this project chose them.
@@ -59,6 +59,11 @@ playerctl                     # the media keybindings
 network-manager-applet        # nm-applet, in the autostart
 blueman                       # blueman-applet, in the autostart
 nautilus                      # $fileManager
+
+# The bar, and the two programs its modules run. docs/bundles/waybar.md.
+waybar
+pacman-contrib                # checkupdates, in the module that counts updates
+networkmanager                # nmtui, in the module that opens the network
 
 # The fonts KNOB_FONT offers. The default is the first. The second is here
 # because a font a knob offers and the machine does not carry falls back in

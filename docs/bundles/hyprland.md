@@ -270,7 +270,7 @@ program on the `PATH`.
 | Line in the dotfiles                              | What happened to it                                                     |
 | ------------------------------------------------- | ----------------------------------------------------------------------- |
 | `exec-once = ~/.config/hypr/scripts/xdg.sh`        | Dropped. The script never existed, and Hyprland does the work.          |
-| `exec-once = sh ~/.config/waybar/scripts/launch.sh` | `exec-once = waybar`. The bar is [issue #12](https://github.com/qdrtech/xghost/issues/12). |
+| `exec-once = sh ~/.config/waybar/scripts/launch.sh` | `exec-once = waybar`. The script killed the bar and chose its configuration by user name. [The Waybar bundle](waybar.md) records why it is gone. |
 | `exec = sh ~/.config/scripts/import-gsettings.sh`  | Dropped. GTK is [issue #17](https://github.com/qdrtech/xghost/issues/17). |
 | `exec = hyprshade auto`                            | Dropped. hyprshade is [issue #17](https://github.com/qdrtech/xghost/issues/17). |
 | `bind = … exec, sh ~/.config/hypr/scripts/hyprpaper.sh` | The two commands of that script are inline in the binding, and the script is gone. |
@@ -393,15 +393,15 @@ repository.
 
 Three more programs are named by this bundle and belong to another one:
 `ghostty` is `$terminal` and comes with
-[issue #6](https://github.com/qdrtech/xghost/issues/6), `rofi` is `$menu` and
-comes with [issue #13](https://github.com/qdrtech/xghost/issues/13), and
-`waybar` is the bar and comes with
-[issue #12](https://github.com/qdrtech/xghost/issues/12).
+[issue #6](https://github.com/qdrtech/xghost/issues/6), `waybar` is the bar and
+comes with [issue #12](https://github.com/qdrtech/xghost/issues/12), and `rofi`
+is `$menu` and comes with
+[issue #13](https://github.com/qdrtech/xghost/issues/13).
 
-`ghostty` is installed, because its own bundle landed first. `rofi` and `waybar`
-are not, so a session started today logs one failed `exec-once` for the bar and
-does nothing on <kbd>Super</kbd>+<kbd>Space</kbd>.
-[Installing](../installing.md) records what a first installation leaves out.
+`ghostty` and `waybar` are installed, because their own bundles landed first.
+`rofi` is not, so a session started today does nothing on
+<kbd>Super</kbd>+<kbd>Space</kbd>. [Installing](../installing.md) records what a
+first installation leaves out.
 
 ## What the tests prove
 

@@ -1,0 +1,186 @@
+// The Waybar configuration of xghost.
+//
+// This file is prescribed configuration. The project owns it, and 'xghost
+// config link' symlinks the directory that holds it to ~/.config/waybar. Do not
+// edit it: an edit dirties the checkout and conflicts on the next pull. See
+// docs/adr/0001-prescribed-config-architecture.md.
+//
+// Neither the colours nor the position of the bar are here. The colours come
+// from the active theme, through the style sheet beside this file, and the
+// position comes from KNOB_BAR_POSITION, through the generated file the
+// 'include' below names. See docs/bundles/waybar.md.
+//
+// The file holds comments, and Waybar reads them: it parses this file with
+// jsoncpp, which allows a comment wherever white space is allowed.
+//
+// THE RULE THIS FILE LIVES BY: Waybar merges an included file into this one and
+// keeps the value this file already holds. The including file wins, which is
+// the opposite of Hyprland. A key this file sets is therefore a key the
+// generated file cannot change, so no key of the generated file may appear
+// here. 'position' is that key today.
+{
+  // The generated part of this configuration.
+  //
+  // Waybar expands an include path with wordexp(3), which is full shell word
+  // expansion, so the path names the config directory of the user and falls
+  // back to the default the XDG base directory specification gives. Neither end
+  // of the path is written out in full: 'xghost-generated' is the bridge
+  // 'xghost config link' creates, and it follows XDG_STATE_HOME.
+  //
+  // The path carries its own quotation marks. wordexp splits its result into
+  // fields and expands a glob, so a home directory that holds a space or a
+  // bracket would otherwise reach Waybar as the wrong path, or as the first
+  // field of several. Waybar reads one word and nothing else.
+  //
+  // The path is a constant of the project, and it has to stay one. wordexp is
+  // called with flags 0, so WRDE_NOCMD is unset and a command substitution
+  // inside an include path runs. No value from a theme, from the knobs, or from
+  // any other source a user writes may reach this line.
+  // docs/adr/0002-the-bridge-to-the-generated-output.md records it.
+  "include": ["\"${XDG_CONFIG_HOME:-$HOME/.config}/xghost-generated/waybar/position.json\""],
+
+  "layer": "top",
+
+  // 'reload_style_on_change' is not here, and its absence is a decision rather
+  // than an oversight. Waybar builds the watch list of that setting by testing
+  // each import of the style sheet with access(2), which resolves '..'
+  // physically, after following the symbolic link this directory is opened
+  // through. GTK resolves the same '..' lexically. The two therefore disagree,
+  // the generated imports are dropped from the watch list, and only style.css
+  // is watched. That file is prescribed, and no theme and no knob writes it. So
+  // the setting would watch the one file that never changes and miss the two
+  // that do. docs/bundles/waybar.md records the measurement, and reloading
+  // every running component from one place is issue #24.
+
+  "modules-left": ["custom/notification", "clock", "custom/pacman", "tray"],
+  "modules-center": ["hyprland/workspaces"],
+  "modules-right": ["group/expand"],
+
+  // The workspaces of the monitor this bar is on.
+  //
+  // No workspace is listed as persistent. Waybar lists a persistent workspace
+  // per monitor name or for every monitor at once, and the compositor shares
+  // the ten workspaces out over the monitors of the machine, so one list for
+  // every monitor is right on a machine with one monitor and wrong on every
+  // other one. A list per monitor would put an output name in a file of the
+  // project, which no file of this project may hold.
+  // docs/bundles/waybar.md records what that costs.
+  "hyprland/workspaces": {
+    "format": "{icon}",
+    "format-icons": {
+      "active": "",
+      "default": "",
+      "empty": ""
+    }
+  },
+
+  // The bell. It opens the notification centre of swaync, which arrives with
+  // issue #14. Until then the click reaches no program.
+  "custom/notification": {
+    "tooltip": false,
+    "format": "",
+    "on-click": "swaync-client -t -sw"
+  },
+
+  "clock": {
+    "format": "{:%I:%M:%S %p} ",
+    "interval": 1,
+    "tooltip-format": "<tt>{calendar}</tt>",
+    "calendar": {
+      "format": {
+        "today": "<b>{}</b>"
+      }
+    },
+    "actions": {
+      "on-click-right": "shift_down",
+      "on-click": "shift_up"
+    }
+  },
+
+  // The number of official packages that have an update, and the terminal that
+  // installs them. The terminal is the terminal of this desktop, which
+  // config/hypr/hyprland.conf names as $terminal.
+  //
+  // The interval is one hour, and it is counted in seconds. 'checkupdates' runs
+  // 'fakeroot -- pacman -Sy' against a private database, which is a package
+  // database synchronisation over the network. At the 30 seconds of the
+  // dotfiles this bar reaches the Arch mirrors 2880 times a day per session, it
+  // holds the radio of a portable machine awake, and a run that outlives the
+  // interval overlaps the next one over that one shared database. One hour is
+  // the interval the examples of Waybar use.
+  //
+  // The count is still immediate after an upgrade: the click below sends
+  // SIGRTMIN+8, and 'signal' below makes the module run again when it arrives.
+  "custom/pacman": {
+    "format": "󰅢   {}",
+    "interval": 3600,
+    "exec": "checkupdates | wc -l",
+    "on-click": "ghostty -e sh -c 'sudo pacman -Syu; echo Done. Press enter to close.; read'; pkill -SIGRTMIN+8 waybar",
+    "signal": 8,
+    "tooltip": false
+  },
+
+  "custom/expand": {
+    "format": "",
+    "tooltip": false
+  },
+
+  "custom/endpoint": {
+    "format": "|",
+    "tooltip": false
+  },
+
+  "group/expand": {
+    "orientation": "horizontal",
+    "drawer": {
+      "transition-duration": 600,
+      "transition-to-left": true,
+      "click-to-reveal": true
+    },
+    "modules": ["custom/expand", "cpu", "memory", "temperature", "custom/endpoint", "bluetooth", "network"]
+  },
+
+  "cpu": {
+    "format": "󰻠",
+    "tooltip": true
+  },
+
+  "memory": {
+    "format": ""
+  },
+
+  "temperature": {
+    "critical-threshold": 80,
+    "format": ""
+  },
+
+  "bluetooth": {
+    "format-on": "󰂯",
+    "format-off": "BT-off",
+    "format-disabled": "󰂲",
+    "format-connected-battery": "{device_battery_percentage}% 󰂯",
+    "format-alt": "{device_alias} 󰂯",
+    "tooltip-format": "{controller_alias}\t{controller_address}\n\n{num_connections} connected",
+    "tooltip-format-connected": "{controller_alias}\t{controller_address}\n\n{num_connections} connected\n\n{device_enumerate}",
+    "tooltip-format-enumerate-connected": "{device_alias}\n{device_address}",
+    "tooltip-format-enumerate-connected-battery": "{device_alias}\n{device_address}\n{device_battery_percentage}%",
+    "on-click-right": "blueman-manager"
+  },
+
+  // The network, and the text interface that configures it. The terminal is
+  // $terminal of config/hypr/hyprland.conf, as it is for the packages above.
+  "network": {
+    "format-wifi": "",
+    "format-ethernet": "",
+    "format-disconnected": "",
+    "tooltip-format-disconnected": "Disconnected",
+    "tooltip-format-wifi": "{essid} ({signalStrength}%) ",
+    "tooltip-format-ethernet": "{ifname} 🖧 ",
+    "on-click": "ghostty -e nmtui"
+  },
+
+  "tray": {
+    "icon-size": 14,
+    "spacing": 10
+  }
+}
