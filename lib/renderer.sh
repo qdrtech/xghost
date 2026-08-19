@@ -396,7 +396,13 @@ render_background() {
 
 	# A theme that ships the image by hand has already had it copied into the
 	# output, so the output holds a background and nothing is drawn over it.
-	if [ -e "$overrides_dir/$relative" ] || [ -L "$overrides_dir/$relative" ]; then
+	#
+	# A file, or a link, and nothing else. The copy that ran before this reads
+	# the files of the theme, so a directory at that path put nothing into the
+	# output, and treating it as an image already shipped would leave the
+	# wallpaper file naming a path that holds none. A link that points at
+	# nothing is a problem render_collect has already reported by name.
+	if [ -f "$overrides_dir/$relative" ] || [ -L "$overrides_dir/$relative" ]; then
 		RENDER_BACKGROUND=$relative
 		return 0
 	fi

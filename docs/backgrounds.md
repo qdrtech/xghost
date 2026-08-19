@@ -98,7 +98,41 @@ the session, so the image arrives at the first login and every login after it.
 It is the same ordering cost the monitor layout already has, and
 [the Hyprland bundle](bundles/hyprland.md) records that.
 
-A palette that declares no `BG` or no `ACCENT` is the second case of the same
+### When the resolution is too large to draw
+
+A background is at most **65535 pixels on a side** and at most **64 million
+pixels in all**. `lib/background.sh` and `lib/background.py` hold both numbers,
+and a test asserts they agree.
+
+A monitor whose mode is above either limit carries no size, in the same way a
+monitor whose mode is `unknown` carries none, and the monitors beside it are
+still read. A machine where no monitor is left gets no image, and the note says
+which of the two cases it is:
+
+```
+xghost: tokyonight: no background image was drawn: the machine facts report the
+display mode '65536x1080@60.00', and no background is drawn with a side longer
+than 65535 pixels. Correct the monitor mode in the machine facts, then set the
+theme again.
+```
+
+It does not send the user to `xghost machine detect`, because detection would
+write the same value again. The facts carry a resolution here; it is out of
+range, which is a different thing from carrying none.
+
+**This is a note, not a problem, and that is a decision.** A mode the drawing
+program refuses is a value of the inputs, and the two sides of the line are
+where the fault is: a value of the inputs is a note, and a broken installation
+is a problem. Failing the switch would leave a user unable to change theme at
+all until they edited the machine facts by hand, and the
+`exec-once = xghost machine refresh` of the prescribed autostart would fail at
+every login with it. `lib/background.sh` records the same rule beside the code.
+
+The two files hold the same limits so the module never passes a size the writer
+would refuse: a size refused inside the writer is a problem, and it would fail
+the switch that this keeps working.
+
+A palette that declares no `BG` or no `ACCENT` is the third case of the same
 kind: no image, one sentence, and a switch that still happens. Which names a
 palette declares is decided by the templates rather than by any module, and
 [Theming](theming.md) states that rule.
@@ -155,12 +189,35 @@ wallpaper {
 
 That is the opposite of every `source` line of this project, and the reason is
 the opposite too. hyprpaper resolves the path of a wallpaper against the
-**working directory of the daemon**, not against the file that named it. The
-evidence is in the program of hyprpaper 0.8.4: its path resolver takes a base
-directory to resolve a relative path against, and the caller that reads a
-wallpaper path passes an empty one, which is its documented way of asking for
-the working directory. A relative path would then depend on the directory the
-session happened to start the daemon in.
+**working directory of the daemon**, not against the file that named it.
+
+The evidence is in the program of hyprpaper 0.8.4. It resolves a path with
+`std::filesystem::canonical`, and that call is what resolves a relative path
+against the working directory of the process:
+
+```
+$ nm -DC /usr/bin/hyprpaper | grep canonical
+ U std::filesystem::canonical(std::filesystem::__cxx11::path const&,
+                              std::error_code&)@GLIBCXX_3.4.26
+$ objdump -d /usr/bin/hyprpaper | grep -c 'call.*filesystem9canonical'
+1
+```
+
+The one call takes the path and an `error_code`, and nothing else:
+
+```
+2643d:  mov    %r14,%rdi
+26440:  call   *...    # std::filesystem::path::has_root_directory()
+26446:  movb   $0x0,-0x148(%rbp)      # a one byte flag, from that answer
+...
+26491:  cmpb   $0x0,-0x148(%rbp)
+26498:  jne    267f0                  # the path already has a root
+2653a:  call   *...    # std::filesystem::canonical(path const&, error_code&)
+```
+
+The resolver takes no base directory to resolve against. What it carries beside
+the path is one byte, computed from `has_root_directory()`. A relative path
+therefore depends on the directory the session happened to start the daemon in.
 
 The path it holds is the **stable** path, never the path of the build it is
 written into. A build directory is replaced by the next switch; the stable path

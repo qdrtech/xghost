@@ -30,9 +30,18 @@
 #   A problem  the image should have been drawn and could not be. The render
 #              fails and the active theme is unchanged.
 #   A note     the image could not be drawn, and nothing is wrong. The machine
-#              facts hold no resolution, or the palette holds no colour to draw
-#              with. The render succeeds, the switch happens, and the desktop
-#              keeps the wallpaper Hyprland draws itself.
+#              facts hold no resolution, or they hold one too large to draw at,
+#              or the palette holds no colour to draw with. The render succeeds,
+#              the switch happens, and the desktop keeps the wallpaper Hyprland
+#              draws itself.
+#
+# What separates the two is where the fault is. A value of the inputs is a note,
+# and a broken installation is a problem. A resolution the drawing program
+# refuses is therefore a note: failing the switch on it would leave a user
+# unable to change theme at all until they edited the machine facts by hand, and
+# the 'xghost machine refresh' of the prescribed autostart would fail at every
+# login with it. The limits this module draws inside are below, and it passes no
+# size to the writer that the writer would refuse.
 #
 # The note is the case a first installation is in: 'hyprctl' answers only inside
 # a running session, so the detection an installation runs records no monitor
@@ -46,11 +55,14 @@
 #
 # hyprpaper 0.8.4 resolves the path of a wallpaper against the working
 # directory of the daemon, not against the configuration file that named it.
-# The evidence is in the program: the path resolver takes a base directory, and
-# the caller that reads a wallpaper path passes an empty one, which is the
-# documented way of asking for the working directory. A relative path would
-# therefore be resolved against whatever directory the session happened to
-# start the daemon in.
+# The evidence is in the program. It resolves a path with the one call to
+# 'std::filesystem::canonical(path const&, error_code&)' that the binary holds,
+# and that call resolves a relative path against the working directory of the
+# process. The resolver takes no base directory to resolve against: what it
+# carries beside the path is one byte, computed from 'has_root_directory()'. A
+# relative path would therefore be resolved against whatever directory the
+# session happened to start the daemon in. docs/backgrounds.md holds the
+# instructions this was read from.
 #
 # So the one file that names the image writes the path out in full. That is the
 # opposite of every 'source' line of the bundle, and the reason is the opposite
@@ -100,6 +112,20 @@ readonly BACKGROUND_MODE_KEY_PREFIX=MACHINE_MONITOR_
 readonly BACKGROUND_MODE_KEY_SUFFIX=_MODE
 readonly BACKGROUND_MODE_PATTERN='^([1-9][0-9]*)x([1-9][0-9]*)@'
 
+# The largest image this module draws: the longest side, and the count of pixels
+# of the whole image. lib/background.py holds the same two numbers and refuses
+# anything above them, and tests/background.bats asserts the two files agree. A
+# size this module passed on that the writer then refused would fail the whole
+# theme switch, which the doctrine above forbids.
+#
+# The digit count is here because the pattern above matches a number of any
+# length, and a numeric test in shell prints a diagnostic of its own for a value
+# it cannot hold. This module promises to print nothing, so the length of a
+# number is read before the number is.
+readonly BACKGROUND_MAX_SIDE=65535
+readonly BACKGROUND_MAX_SIDE_DIGITS=5
+readonly BACKGROUND_MAX_PIXELS=64000000
+
 # The mode of the image. It is set here rather than left to the umask of
 # whoever ran the command, for the reason lib/renderer.sh records.
 readonly BACKGROUND_FILE_MODE=0644
@@ -126,12 +152,17 @@ BACKGROUND_BOTTOM=
 # describes them as 1, 2 and 3, and reading the numbering itself needs no rule
 # about what a count that disagrees with it would mean.
 #
+# A monitor whose mode is larger than this module draws carries no size, in the
+# same way a monitor whose mode is 'unknown' carries none. The monitors beside
+# it are still read, so one display nobody can draw for costs no wallpaper.
+#
 # Sets BACKGROUND_WIDTH and BACKGROUND_HEIGHT. Returns 1 and sets
-# BACKGROUND_NOTE when no monitor of the facts carries a resolution.
+# BACKGROUND_NOTE when no monitor of the facts carries a resolution this module
+# can draw at, and the note says which of the two it is.
 background_size() {
 	local -n scalars_ref=$1
 	local index=1 key mode
-	local width=0 height=0
+	local width=0 height=0 oversized=
 
 	BACKGROUND_WIDTH=
 	BACKGROUND_HEIGHT=
@@ -147,6 +178,19 @@ background_size() {
 		# not read, and this module invents no size for it.
 		[[ $mode =~ $BACKGROUND_MODE_PATTERN ]] || continue
 
+		# A mode larger than this module draws carries no size either. Its
+		# length is tested first, and the two tests are ordered: a number of
+		# twenty digits reaches a numeric test as a diagnostic on standard
+		# error rather than as an answer.
+		if [ "${#BASH_REMATCH[1]}" -gt "$BACKGROUND_MAX_SIDE_DIGITS" ] ||
+			[ "${#BASH_REMATCH[2]}" -gt "$BACKGROUND_MAX_SIDE_DIGITS" ] ||
+			[ "${BASH_REMATCH[1]}" -gt "$BACKGROUND_MAX_SIDE" ] ||
+			[ "${BASH_REMATCH[2]}" -gt "$BACKGROUND_MAX_SIDE" ]; then
+			# The first such mode is kept, so the note can name what it read.
+			[ -n "$oversized" ] || oversized=$mode
+			continue
+		fi
+
 		if [ "${BASH_REMATCH[1]}" -gt "$width" ]; then
 			width=${BASH_REMATCH[1]}
 		fi
@@ -156,7 +200,22 @@ background_size() {
 	done
 
 	if [ "$width" -eq 0 ] || [ "$height" -eq 0 ]; then
-		BACKGROUND_NOTE="no background image was drawn: the machine facts carry no display resolution. Run 'xghost machine detect' inside a Hyprland session, then set the theme again."
+		# The two cases are told apart, because the answer to them differs. A
+		# resolution nobody has read is read by detection; a resolution that is
+		# out of range is written again by it, and the user is sent to the
+		# facts themselves instead.
+		if [ -n "$oversized" ]; then
+			BACKGROUND_NOTE="no background image was drawn: the machine facts report the display mode '$oversized', and no background is drawn with a side longer than $BACKGROUND_MAX_SIDE pixels. Correct the monitor mode in the machine facts, then set the theme again."
+		else
+			BACKGROUND_NOTE="no background image was drawn: the machine facts carry no display resolution. Run 'xghost machine detect' inside a Hyprland session, then set the theme again."
+		fi
+		return 1
+	fi
+
+	# Both sides are inside the limit here, and the image they make together
+	# need not be: one monitor may carry the width and another the height.
+	if [ $((width * height)) -gt "$BACKGROUND_MAX_PIXELS" ]; then
+		BACKGROUND_NOTE="no background image was drawn: an image covering every display of the machine facts would be ${width}x${height} pixels, and no background is drawn larger than $BACKGROUND_MAX_PIXELS pixels. Correct the monitor modes in the machine facts, then set the theme again."
 		return 1
 	fi
 

@@ -263,6 +263,113 @@ pixel() {
 	[ "$(png_size "$IMAGE")" = "1600 900" ]
 }
 
+# A mode of twenty digits matches the shape of a resolution and is a number no
+# shell test can hold. It used to reach '[ ... -gt ... ]' and print a diagnostic
+# of bash itself, under a note that sent the user to detection for facts that
+# were not missing at all.
+@test "a mode too large to hold reports the mode, and nothing of the shell" {
+	local line
+	make_facts 99999999999999999999x1080@60.00
+
+	run --separate-stderr "$XGHOST" theme set tokyonight
+	[ "$status" -eq 0 ]
+	[ ! -e "$IMAGE" ]
+
+	# Every line of the report is a line the command wrote. A raw diagnostic of
+	# the shell fails here.
+	[ -n "$stderr" ]
+	while IFS= read -r line; do
+		[[ $line == "xghost: "* ]]
+	done <<<"$stderr"
+	[[ $stderr != *"integer expected"* ]]
+
+	# The facts carry a resolution here. It is out of range, which is not the
+	# same as absent, and the note says which one it is.
+	[[ $stderr == *"99999999999999999999x1080@60.00"* ]]
+	[[ $stderr != *"machine detect"* ]]
+	[[ $stderr != *"carry no display resolution"* ]]
+}
+
+# A width the drawing program refuses is a note, not a problem: the switch
+# happens and the wallpaper does not. Failing it would leave a machine unable to
+# change theme at all until its facts were edited by hand, and the 'xghost
+# machine refresh' of the prescribed autostart would fail at every login.
+@test "a resolution too large to draw switches theme and draws no image" {
+	make_facts 65536x1080@60.00
+
+	run "$XGHOST" theme set macos-dark
+	[ "$status" -eq 0 ]
+	[[ $output == *"no background image was drawn"* ]]
+	[[ $output == *"65536x1080@60.00"* ]]
+	[[ $output == *"65535 pixels"* ]]
+
+	[ ! -e "$IMAGE" ]
+	[ -f "$GENERATED/hypr/colors.conf" ]
+
+	run "$XGHOST" theme current
+	[ "$output" = macos-dark ]
+
+	# And the file that names the image carries the same sentence, so the file
+	# a user opens answers the question the desktop asked them.
+	run grep -F '65536x1080@60.00' "$WALLPAPER"
+	[ "$status" -eq 0 ]
+	run grep -cF 'wallpaper {' "$WALLPAPER"
+	[ "$output" = 0 ]
+}
+
+# Both sides are inside the limit here and the image they make together is not:
+# one monitor carries the width and the other the height.
+@test "an image larger than the limit in all is a note, not a failure" {
+	make_facts 65535x1080@60.00 1920x65535@60.00
+
+	run "$XGHOST" theme set tokyonight
+	[ "$status" -eq 0 ]
+	[[ $output == *"65535x65535 pixels"* ]]
+	[[ $output == *"64000000 pixels"* ]]
+	[ ! -e "$IMAGE" ]
+
+	run "$XGHOST" theme current
+	[ "$output" = tokyonight ]
+}
+
+# A monitor this project cannot draw for carries no size, in the same way a
+# monitor whose mode is 'unknown' carries none. The monitors beside it are still
+# read, so one impossible mode costs no wallpaper.
+@test "a monitor too large to draw for contributes no size" {
+	use_own_inputs
+	make_facts 70000x1080@60.00 1600x900@60.00
+
+	run "$XGHOST" theme set own
+	[ "$status" -eq 0 ]
+	[ "$(png_size "$IMAGE")" = "1600 900" ]
+	[[ $output != *"no background image was drawn"* ]]
+}
+
+# The module refuses a size before the writer sees it, so a size the writer
+# would refuse never fails a theme switch. That holds only while the two files
+# agree on the limits, which is what this asserts.
+@test "the module and the writer hold the same limits" {
+	local side_sh side_py pixels_sh pixels_py digits
+
+	side_sh=$(sed -n 's/^readonly BACKGROUND_MAX_SIDE=\([0-9]*\)$/\1/p' \
+		"$ROOT_DIR/lib/background.sh")
+	pixels_sh=$(sed -n 's/^readonly BACKGROUND_MAX_PIXELS=\([0-9]*\)$/\1/p' \
+		"$ROOT_DIR/lib/background.sh")
+	digits=$(sed -n 's/^readonly BACKGROUND_MAX_SIDE_DIGITS=\([0-9]*\)$/\1/p' \
+		"$ROOT_DIR/lib/background.sh")
+	side_py=$(sed -n 's/^MAX_DIMENSION = \([0-9]*\)$/\1/p' "$ROOT_DIR/lib/background.py")
+	pixels_py=$(sed -n 's/^MAX_PIXELS = \([0-9]*\)$/\1/p' "$ROOT_DIR/lib/background.py")
+
+	[ -n "$side_sh" ]
+	[ -n "$pixels_sh" ]
+	[ "$side_sh" = "$side_py" ]
+	[ "$pixels_sh" = "$pixels_py" ]
+
+	# The digit count is what keeps a number of any length away from a numeric
+	# test of the shell, so it is the length of the limit itself.
+	[ "$digits" = "${#side_sh}" ]
+}
+
 # The case a first installation is in: 'hyprctl' answers only inside a session,
 # so the detection an installation runs reads no monitor at all. The switch
 # still happens, because a machine with no wallpaper is better than a machine
@@ -355,7 +462,26 @@ pixel() {
 # monitor output name is written into any file the project produces.
 @test "the generated wallpaper file names no monitor output" {
 	local connectors='(^|[^A-Za-z0-9-])(eDP|DP|HDMI-A|HDMI-B|DVI-D|DVI-I|DVI-A|VGA|LVDS|DSI|Virtual|Unknown|HEADLESS|WL)-[0-9]+'
+
+	# The scan is proved able to report before it is trusted to report nothing.
+	# It reads the line a careless writer would produce, which is the monitor of
+	# the facts written into the block.
+	printf '    monitor = DP-2\n' | grep -qE "$connectors"
+
+	# The facts of this render name their monitors, so there is a name in the
+	# inputs for the file to carry.
+	make_facts 1920x1200@60.00 3440x1440@175.00
 	"$XGHOST" theme set tokyonight >/dev/null
+	run grep -F 'DP-' "$FACTS"
+	[ "$status" -eq 0 ]
+
+	run grep -nE "$connectors" "$WALLPAPER"
+	[ "$status" -ne 0 ]
+
+	# And the build that holds no image writes no name either: that file carries
+	# the note, which is written from what the module read.
+	make_unread_facts
+	"$XGHOST" theme set tokyonight 2>/dev/null
 	run grep -nE "$connectors" "$WALLPAPER"
 	[ "$status" -ne 0 ]
 }
@@ -380,6 +506,49 @@ pixel() {
 	run grep -rnE '^[[:space:]]*preload[[:space:]]*=' \
 		"$ROOT_DIR/config" "$ROOT_DIR/templates" "$ROOT_DIR/lib"
 	[ "$status" -ne 0 ]
+}
+
+# --- the program that writes the image ---------------------------------------
+
+# The writer documents exit 2 for an argument that is not the documented one,
+# and one line on standard error for every failure. A digit of another script is
+# an argument nobody wrote: 'isdigit' is true of it, and int() reads some of
+# them as numbers and raises on the rest.
+@test "the writer refuses a digit that is not a decimal one" {
+	local writer="$ROOT_DIR/lib/background.py"
+	local out="$BATS_TEST_TMPDIR/out.png"
+	local text
+
+	for text in '²' '١٠' '12x' ''; do
+		run python3 "$writer" "$text" 1080 1a1b26 323d5a "$out"
+		[ "$status" -eq 2 ]
+		[ "$(printf '%s\n' "$output" | wc -l)" -eq 1 ]
+		[[ $output == "background.py: "* ]]
+		[ ! -e "$out" ]
+	done
+
+	# And an image larger than the writer holds in memory is refused the same
+	# way, by the count of its pixels rather than by either side alone.
+	run python3 "$writer" 65535 65535 1a1b26 323d5a "$out"
+	[ "$status" -eq 2 ]
+	[ "$(printf '%s\n' "$output" | wc -l)" -eq 1 ]
+	[[ $output == *"pixels"* ]]
+	[ ! -e "$out" ]
+}
+
+# A failure to write names the reason. The reason of an OSError is its message,
+# and 'strerror' alone is None for an error that carries no errno.
+@test "the writer names the reason it could not write the file" {
+	local writer="$ROOT_DIR/lib/background.py"
+	local out="$BATS_TEST_TMPDIR/taken.png"
+
+	printf 'this file is here already\n' >"$out"
+	run python3 "$writer" 8 8 1a1b26 323d5a "$out"
+	[ "$status" -eq 1 ]
+	[ "$(printf '%s\n' "$output" | wc -l)" -eq 1 ]
+	[[ $output == *"$out"* ]]
+	[[ $output != *"None"* ]]
+	[ "$(cat "$out")" = 'this file is here already' ]
 }
 
 # --- what the repository holds -----------------------------------------------
@@ -421,6 +590,24 @@ pixel() {
 	"$XGHOST" theme set tokyonight >/dev/null
 	after=$(find "$ROOT_DIR/themes" "$ROOT_DIR/templates" "$ROOT_DIR/config" | LC_ALL=C sort)
 	[ "$before" = "$after" ]
+}
+
+# A directory at the path of the image is not an image the theme ships. Nothing
+# of it is copied into the output, so treating it as one would leave the
+# wallpaper file naming a path that holds nothing, and hyprpaper reading it.
+@test "a directory at the image path of a theme is not the image" {
+	use_own_inputs
+	make_facts 1280x720@60.00
+	mkdir -p "$XGHOST_THEMES_DIR/own/files/hypr/background.png"
+
+	run "$XGHOST" theme set own
+	[ "$status" -eq 0 ]
+
+	# The image is drawn, and it is the file the wallpaper names.
+	[ -f "$IMAGE" ]
+	[ "$(png_size "$IMAGE")" = "1280 720" ]
+	run grep -Fx "    path = $GENERATED/hypr/background.png" "$WALLPAPER"
+	[ "$status" -eq 0 ]
 }
 
 # A theme may ship the image by hand, which is the one rule of precedence in

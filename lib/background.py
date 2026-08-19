@@ -55,11 +55,21 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 BIT_DEPTH = 8
 COLOUR_TYPE_RGB = 2
 
-# The largest image this program will write. A wallpaper is the size of a
-# display, and a value far above that is a mistake in the machine facts rather
-# than a wall of pixels somebody wants: 65535 is wider and taller than any
-# display, and the whole image still fits in memory.
+# The largest image this program will write: the longest side, and the count of
+# pixels of the whole image. A wallpaper is the size of a display, and a value
+# far above that is a mistake in the machine facts rather than a wall of pixels
+# somebody wants.
+#
+# The area is capped as well as the side, because the side alone bounds no
+# memory: an image of 65535 by 65535 carries 12.9 GB of rows before they are
+# compressed, and the peak of this program is about twice what its rows hold. At
+# 64 million pixels the rows are about 192 MB, which is a figure a machine has.
+# 64 million pixels is nearly twice an 8K display, which is 7680 by 4320 and 33
+# million, and the image covers the largest display rather than all of them side
+# by side. lib/background.sh holds the same two numbers, so no size it passes is
+# refused here.
 MAX_DIMENSION = 65535
+MAX_PIXELS = 64000000
 
 
 def fail(code, message):
@@ -70,7 +80,12 @@ def fail(code, message):
 
 def parse_dimension(text, name):
     """Read one side of the image, in pixels."""
-    if not text.isdigit():
+    # 'isdigit' is true of the digits of every script, and int() reads some of
+    # them and not others: an Arabic-Indic ten is read as 10, and a superscript
+    # two is a digit this test admits and int() then raises on. Both are
+    # arguments nobody wrote. Both are refused here as the documented exit 2,
+    # rather than read as a number nobody meant or reported as a traceback.
+    if not (text.isascii() and text.isdigit()):
         fail(2, "%s is '%s', and it has to be a whole number of pixels"
              % (name, text))
     value = int(text, 10)
@@ -141,6 +156,10 @@ def main(argv):
 
     width = parse_dimension(argv[1], "the width")
     height = parse_dimension(argv[2], "the height")
+    if width * height > MAX_PIXELS:
+        fail(2, "the image is %d by %d pixels, and this program writes no image"
+             " larger than %d pixels" % (width, height, MAX_PIXELS))
+
     top = parse_colour(argv[3], "the top colour")
     bottom = parse_colour(argv[4], "the bottom colour")
     output = argv[5]
@@ -150,7 +169,9 @@ def main(argv):
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(image(width, height, top, bottom))
     except OSError as problem:
-        fail(1, "cannot write '%s': %s" % (output, problem.strerror))
+        # 'strerror' is None for an OSError that carries no errno, and the
+        # word 'None' is no report. The exception itself is the fallback.
+        fail(1, "cannot write '%s': %s" % (output, problem.strerror or problem))
 
     return 0
 
