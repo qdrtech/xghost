@@ -53,9 +53,10 @@ Two rules keep the list honest:
 - A package of the Arch `base` group is not declared. `util-linux` carries
   `flock` and `systemd` carries `localectl`, and every Arch installation has
   both already. Declaring them would say that this project chose them.
-- `tests/install.bats` reads the package table of `docs/bundles/hyprland.md` and
-  fails when a package that table lists is in neither manifest. The manifest
-  cannot drift away from the bundle that needs the packages.
+- `tests/install.bats` reads the package table of every page under
+  `docs/bundles/` and fails when a package one of those tables lists is in
+  neither manifest. The manifest cannot drift away from the bundles that need
+  the packages.
 
 ### Why the AUR is a second file rather than a marked line
 
@@ -287,19 +288,18 @@ the layout Hyprland works out itself. Everything else is already in place.
 
 The prescribed configuration names two programs that no manifest declares, and
 it names them on purpose: each one is a bundle of its own, and the manifest
-takes its line when that bundle lands. A first installation therefore has two
-visible gaps, and one more thing that is simply not there yet.
+takes its line when that bundle lands. A first installation therefore has one
+visible gap, and one more thing that is simply not there yet.
 
 | What is missing              | What you see                                                     | Issue |
 | ---------------------------- | ---------------------------------------------------------------- | ----- |
-| The bar, `waybar`            | No bar. `exec-once = waybar` fails at every login, and the Hyprland log records the failure. | [#12](https://github.com/qdrtech/xghost/issues/12) |
 | The launcher, `rofi`         | <kbd>Super</kbd>+<kbd>Space</kbd> does nothing. `$menu` names `rofi`, and the binding fails the same way. | [#13](https://github.com/qdrtech/xghost/issues/13) |
-| The notifications, `swaync`  | No notification is shown. Nothing prescribes a daemon yet, so nothing fails either. | [#14](https://github.com/qdrtech/xghost/issues/14) |
+| The notifications, `swaync`  | No notification is shown, and the bell of the bar opens nothing. Nothing prescribes a daemon yet, so nothing else fails either. | [#14](https://github.com/qdrtech/xghost/issues/14) |
 
 Nothing else in the session depends on those, so the desktop comes up, the
-terminal is themed, and every keybinding that names an installed program works.
-Install `waybar` or `rofi` by hand to have them before their bundles land. xghost
-prescribes no configuration for either one yet, so each runs with its own
+terminal is themed, the bar is styled, and every keybinding that names an
+installed program works. Install `rofi` by hand to have it before its bundle
+lands. xghost prescribes no configuration for it yet, so it runs with its own
 default.
 
 ## What an installation has never been observed doing

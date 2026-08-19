@@ -169,12 +169,13 @@ run_snippet() {
 KNOB_LABEL=Plain Label" ]
 }
 
-@test "the shipped schema declares the three knobs of this desktop" {
-	load KNOB_ANIMATIONS KNOB_GAP_SIZE KNOB_FONT
+@test "the shipped schema declares the four knobs of this desktop" {
+	load KNOB_ANIMATIONS KNOB_GAP_SIZE KNOB_FONT KNOB_BAR_POSITION
 	[ "$status" -eq 0 ]
 	[ "$output" = "KNOB_ANIMATIONS=on
 KNOB_GAP_SIZE=10
-KNOB_FONT=JetBrainsMono Nerd Font" ]
+KNOB_FONT=JetBrainsMono Nerd Font
+KNOB_BAR_POSITION=top" ]
 }
 
 # Every other test of this file points xghost at a copy of the schema, so this
@@ -187,6 +188,7 @@ KNOB_FONT=JetBrainsMono Nerd Font" ]
 	[[ $output == *"KNOB_ANIMATIONS = on"* ]]
 	[[ $output == *"KNOB_GAP_SIZE = 10"* ]]
 	[[ $output == *"KNOB_FONT = JetBrainsMono Nerd Font"* ]]
+	[[ $output == *"KNOB_BAR_POSITION = top"* ]]
 }
 
 @test "the schema reports a field that belongs to no knob" {
@@ -710,6 +712,8 @@ label = Plain Label" ]
 	[[ $output == *"KNOB_FONT = JetBrainsMono Nerd Font"* ]]
 	[[ $output == *"allowed: 'JetBrainsMono Nerd Font', 'CaskaydiaCove Nerd Font'"* ]]
 	[[ $output == *"default: 'JetBrainsMono Nerd Font'"* ]]
+	[[ $output == *"KNOB_BAR_POSITION = top"* ]]
+	[[ $output == *"allowed: 'top', 'bottom'"* ]]
 	[[ $output == *"the knobs are at $XGHOST_KNOBS_FILE"* ]]
 }
 

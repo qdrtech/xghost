@@ -53,4 +53,6 @@ what it is, and what an installation has never been observed doing.
   application that reads the generated output.
 - [The Hyprland bundle](docs/bundles/hyprland.md) — the compositor, and the
   first application whose configuration is rendered from the machine facts.
+- [The Waybar bundle](docs/bundles/waybar.md) — the bar, and the first
+  application that keeps the value of the file that includes the generated one.
 - [Architecture decision records](docs/adr/) — the decisions and their reasons.
