@@ -25,7 +25,15 @@
 # of its own has its standard error dropped, so the collected problem is the
 # only report.
 #
-# This module needs lib/palette.sh, lib/facts.sh and lib/knobs.sh.
+# One file of the output is not a template and not a fragment: the background
+# image of the theme. It is a raster image, so no substitution can produce it,
+# and lib/background.sh draws it from the same table of values every template
+# reads. It is written here rather than by the caller because this is the
+# module that builds the whole output tree, and a wallpaper that arrived after
+# the tree was moved into place would be a second switch of its own.
+#
+# This module needs lib/palette.sh, lib/facts.sh, lib/knobs.sh and
+# lib/background.sh.
 
 # The include sentinel. A library may be sourced more than once, because two
 # modules may each need it. The second source returns here, so the readonly
@@ -66,6 +74,16 @@ declare -A RENDER_UNKNOWN_FACTS=()
 RENDER_CONTENT=
 RENDER_MISSING=()
 RENDER_UNKNOWN=()
+
+# Set by render_tree: the relative path of the background image of this render,
+# or empty when it holds none, and the reason it holds none.
+#
+# An empty path is not a failure. lib/background.sh records the two cases it
+# covers, and the caller reports the note: a machine whose monitors nobody has
+# read yet has no resolution to draw at, and this project invents neither a
+# resolution nor a colour.
+RENDER_BACKGROUND=
+RENDER_BACKGROUND_NOTE=
 
 # A placeholder in a template. The name is upper case, so ordinary text such as
 # a CSS at-rule is never mistaken for one.
@@ -150,6 +168,8 @@ render_tree() {
 	local knobs_schema=$4 knobs_file=$5 out_dir=$6
 
 	RENDER_ERRORS=()
+	RENDER_BACKGROUND=
+	RENDER_BACKGROUND_NOTE=
 
 	if [ ! -d "$template_dir" ]; then
 		RENDER_ERRORS+=("the template directory does not exist: $template_dir")
@@ -262,6 +282,12 @@ render_tree() {
 		render_set_mode "$path" "$destination" "$relative" || true
 	done
 
+	# The background of the theme. It is drawn last, so a theme that ships the
+	# image by hand is left alone: that file has already been copied above, and
+	# the one rule of precedence in docs/theming.md is that a hand-written file
+	# of the theme wins over anything the project generates at the same path.
+	render_background "$out_dir" "$overrides_dir" || true
+
 	# The mode of every directory of the output, in one pass, so a directory
 	# 'mkdir -p' created on the way to a file is deliberate too.
 	if ! find "$out_dir" -type d -exec chmod "$RENDER_DIR_MODE" {} + 2>/dev/null; then
@@ -348,6 +374,53 @@ render_scalars() {
 	fi
 
 	[ "${#RENDER_ERRORS[@]}" -eq 0 ]
+}
+
+# Draw the background image of one render.
+#
+#   render_background OUT_DIR OVERRIDES_DIR
+#
+# The image is not a template. It is a raster file, and lib/background.sh draws
+# it from RENDER_SCALARS, which is the same table every template reads.
+#
+# Sets RENDER_BACKGROUND to the relative path of the image the output holds, and
+# RENDER_BACKGROUND_NOTE to the reason it holds none. A note is not a problem
+# and the render succeeds with it; lib/background.sh records the difference.
+#
+# Returns 1 when the image should have been drawn and could not be, and that
+# problem lands in RENDER_ERRORS like any other.
+render_background() {
+	local out_dir=$1 overrides_dir=$2
+	local relative=$BACKGROUND_IMAGE_RELATIVE
+	local status=0
+
+	# A theme that ships the image by hand has already had it copied into the
+	# output, so the output holds a background and nothing is drawn over it.
+	#
+	# A file, or a link, and nothing else. The copy that ran before this reads
+	# the files of the theme, so a directory at that path put nothing into the
+	# output, and treating it as an image already shipped would leave the
+	# wallpaper file naming a path that holds none. A link that points at
+	# nothing is a problem render_collect has already reported by name.
+	if [ -f "$overrides_dir/$relative" ] || [ -L "$overrides_dir/$relative" ]; then
+		RENDER_BACKGROUND=$relative
+		return 0
+	fi
+
+	background_render "$out_dir" RENDER_SCALARS || status=$?
+
+	case $status in
+	0)
+		RENDER_BACKGROUND=$relative
+		;;
+	1)
+		RENDER_BACKGROUND_NOTE=$BACKGROUND_NOTE
+		;;
+	*)
+		RENDER_ERRORS+=("$relative: $BACKGROUND_PROBLEM")
+		return 1
+		;;
+	esac
 }
 
 # Collect every file under one directory, symbolic links followed.

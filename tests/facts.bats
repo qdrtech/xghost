@@ -543,6 +543,7 @@ bg = #1a2b3c" ]
 		. "$1/lib/palette.sh"
 		. "$1/lib/facts.sh"
 		. "$1/lib/knobs.sh"
+		. "$1/lib/background.sh"
 		. "$1/lib/renderer.sh"
 		render_tree "$1/templates" "$1/themes/tokyonight" "$3" \
 			"$1/schema/knobs.conf" "" "$2/out" || true

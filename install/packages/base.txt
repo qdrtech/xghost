@@ -74,3 +74,15 @@ ttf-cascadia-code-nerd
 # What xghost itself reads. 'xdg-settings' is the source of the default browser
 # in the machine facts. docs/machine-facts.md, "Where each fact comes from".
 xdg-utils
+
+# What xghost itself writes. The background of a theme is a raster image, and
+# nothing else in this file can write one. lib/background.py draws it with the
+# standard library of Python alone: no image library is installed and none is
+# used. docs/backgrounds.md carries the vetting of this line, the alternative
+# that was weighed against it, and the two facts that decided it: 'python' is
+# already in the dependency tree of blueman and nautilus above, so this
+# declares a package every xghost machine installs already, and imagemagick
+# would add four packages and a far larger surface.
+#
+# The maintainer read that vetting and approved this line on 2026-08-14.
+python

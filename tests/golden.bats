@@ -74,6 +74,22 @@ setup() {
 	KNOB_SETS=(default alternate)
 
 	GENERATED="$XDG_STATE_HOME/xghost/generated"
+
+	# The two files of the generated output that are not committed here, and
+	# the reason each one is left out:
+	#
+	#   hypr/background.png   an image of several megapixels, drawn per theme.
+	#                         Criterion 7 of issue #20 keeps a generated image
+	#                         out of the repository, so a curl install stays a
+	#                         quick clone.
+	#   hypr/wallpaper.conf   it names the image by the stable path of the
+	#                         generated output, which is a path of the machine
+	#                         that rendered it. docs/backgrounds.md records why
+	#                         that path cannot be relative.
+	#
+	# Neither is left unproved: tests/background.bats renders both and asserts
+	# the size, the colours and the text of them.
+	GOLDEN_EXCLUDED=(-x background.png -x wallpaper.conf)
 }
 
 # Render every following command with one knob set.
@@ -133,7 +149,7 @@ tokyonight" ]
 			[ -n "$theme" ]
 			[ -d "$GOLDEN_DIR/$set/$theme" ]
 			"$XGHOST" theme set "$theme" >/dev/null
-			diff -ru "$GOLDEN_DIR/$set/$theme" "$GENERATED"
+			diff -ru "${GOLDEN_EXCLUDED[@]}" "$GOLDEN_DIR/$set/$theme" "$GENERATED"
 			count=$((count + 1))
 		done < <("$XGHOST" theme list)
 	done

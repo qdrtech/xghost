@@ -13,12 +13,12 @@ behaviour without reading the tree.
 | `config/`      | The prescribed configuration the project owns and symlinks into `~/.config`.      |
 | `docs/`        | The documentation, with the architecture decision records under `docs/adr/` and one page per bundle under `docs/bundles/`. |
 | `install/`     | The installer: its steps and its package manifests. See below.                    |
-| `lib/`         | The shared shell modules the commands and the installer source.                   |
+| `lib/`         | The shared shell modules the commands and the installer source, and `background.py`, the one program of this repository that is not shell. [Backgrounds](backgrounds.md) records why it exists. |
 | `migrations/`  | One script per migration, restricted by policy to system side effects.            |
 | `schema/`      | The schemas the project owns. `schema/knobs.conf` names every knob, the values it takes, and its default. |
 | `templates/`   | The templates the renderer reads to produce themed configuration.                 |
 | `tests/`       | The bats test suite, with its fixtures under `tests/fixtures/` and the helpers more than one suite needs in `tests/helpers.bash`. |
-| `themes/`      | One directory per theme: its palette, its background, and any hand-written file.  |
+| `themes/`      | One directory per theme: its palette, and any file it ships by hand. The background is drawn from the palette rather than shipped: see [Backgrounds](backgrounds.md). |
 
 One file sits at the top level beside those directories: `install.sh`, the front
 end of the installer. It sources `lib/install.sh` and runs the steps below.
@@ -60,6 +60,10 @@ The renderer writes it to `$XDG_STATE_HOME/xghost/generated`, which is usually
 `~/.local/state/xghost/generated`. Applications read that path. The renderer
 rebuilds it on demand and nobody edits it. [Theming](theming.md) records why the
 state directory holds it.
+
+The background image of the theme is generated output as well, at
+`hypr/background.png` under that path. No image is committed to this
+repository, which is what keeps a `curl` install a quick clone.
 
 ## Where the machine facts go
 

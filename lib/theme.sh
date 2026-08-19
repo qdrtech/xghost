@@ -40,6 +40,8 @@ XGHOST_LIB_DIR=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$XGHOST_LIB_DIR/facts.sh"
 # shellcheck source=lib/knobs.sh
 . "$XGHOST_LIB_DIR/knobs.sh"
+# shellcheck source=lib/background.sh
+. "$XGHOST_LIB_DIR/background.sh"
 # shellcheck source=lib/renderer.sh
 . "$XGHOST_LIB_DIR/renderer.sh"
 
@@ -346,6 +348,24 @@ theme_set_locked() {
 		return 1
 	fi
 
+	# The one file of the output the renderer cannot write, and the reason is
+	# the path inside it. hyprpaper resolves the path of a wallpaper against the
+	# working directory of the daemon, so the file names the image in full, and
+	# the full path is the stable path of the generated output. The renderer is
+	# a pure function of the theme, the facts and the knobs, and where its
+	# output will be moved to is none of those. lib/background.sh records it.
+	#
+	# It is written into the build before the switch, so it lands with the
+	# image it names and the two can never disagree.
+	if [ -n "$RENDER_BACKGROUND_NOTE" ]; then
+		xghost_warn "$name: $RENDER_BACKGROUND_NOTE"
+	fi
+	if ! theme_write_wallpaper "$staging/tree"; then
+		rm -rf "$staging"
+		trap - INT TERM HUP
+		return 1
+	fi
+
 	if ! printf '%s\n' "$name" 2>/dev/null >"$staging/theme"; then
 		rm -rf "$staging"
 		trap - INT TERM HUP
@@ -386,6 +406,45 @@ theme_set_locked() {
 	# that some switch finished. A directory another switch is still writing is
 	# therefore out of its reach.
 	theme_prune_builds
+}
+
+# Write the hyprpaper file that names the background of one build.
+#
+#   theme_write_wallpaper TREE
+#
+# TREE is the output directory the renderer has just filled. The file lands
+# inside it, so it is moved into place by the same rename as everything else
+# and a reader sees the image and the file that names it together.
+#
+# The path it holds is the stable path, not the path of this build. A build
+# directory is replaced by the next switch, and the stable path is the one the
+# desktop is configured against, so a daemon that reads this file after a
+# switch reads the wallpaper of the theme that is active.
+#
+# Returns 1 and sets THEME_PROBLEM when the file cannot be written.
+theme_write_wallpaper() {
+	local tree=$1
+	local destination=$tree/$BACKGROUND_WALLPAPER_RELATIVE
+	local image=
+
+	if [ -n "$RENDER_BACKGROUND" ]; then
+		image=$XGHOST_GENERATED_DIR/$RENDER_BACKGROUND
+	fi
+
+	if ! mkdir -p "${destination%/*}" 2>/dev/null; then
+		THEME_PROBLEM="cannot create the directory that holds the wallpaper file: ${destination%/*}. The active theme is unchanged."
+		return 1
+	fi
+	if ! background_wallpaper_conf "$image" "$RENDER_BACKGROUND_NOTE" \
+		2>/dev/null >"$destination"; then
+		THEME_PROBLEM="cannot write the wallpaper file at $destination. The active theme is unchanged."
+		return 1
+	fi
+	if ! chmod "$THEME_DIR_MODE" "${destination%/*}" 2>/dev/null ||
+		! chmod "$THEME_FILE_MODE" "$destination" 2>/dev/null; then
+		THEME_PROBLEM="cannot set the mode of the wallpaper file at $destination. The active theme is unchanged."
+		return 1
+	fi
 }
 
 # Drop every build directory the stable path does not point at.

@@ -42,6 +42,12 @@ The list is derived from two places: the package table of each bundle page under
 bar, the launcher and the notifications arrive with issues #12, #13 and #14, and
 each one adds its line then.
 
+Two packages are in the file for xghost itself rather than for a bundle:
+`xdg-utils`, which detection reads the default browser with, and `python`,
+which draws the background of a theme.
+[Backgrounds](backgrounds.md) carries the vetting of the second one, and the
+line **is a proposal** until the maintainer accepts it.
+
 Two rules keep the list honest:
 
 - A package of the Arch `base` group is not declared. `util-linux` carries
