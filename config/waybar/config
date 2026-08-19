@@ -40,7 +40,17 @@
   "include": ["\"${XDG_CONFIG_HOME:-$HOME/.config}/xghost-generated/waybar/position.json\""],
 
   "layer": "top",
-  "reload_style_on_change": true,
+
+  // 'reload_style_on_change' is not here, and its absence is a decision rather
+  // than an oversight. Waybar builds the watch list of that setting by testing
+  // each import of the style sheet with access(2), which resolves '..'
+  // physically, after following the symbolic link this directory is opened
+  // through. GTK resolves the same '..' lexically. The two therefore disagree,
+  // the generated imports are dropped from the watch list, and only style.css
+  // is watched. That file is prescribed, and no theme and no knob writes it. So
+  // the setting would watch the one file that never changes and miss the two
+  // that do. docs/bundles/waybar.md records the measurement, and reloading
+  // every running component from one place is issue #24.
 
   "modules-left": ["custom/notification", "clock", "custom/pacman", "tray"],
   "modules-center": ["hyprland/workspaces"],
@@ -90,9 +100,20 @@
   // The number of official packages that have an update, and the terminal that
   // installs them. The terminal is the terminal of this desktop, which
   // config/hypr/hyprland.conf names as $terminal.
+  //
+  // The interval is one hour, and it is counted in seconds. 'checkupdates' runs
+  // 'fakeroot -- pacman -Sy' against a private database, which is a package
+  // database synchronisation over the network. At the 30 seconds of the
+  // dotfiles this bar reaches the Arch mirrors 2880 times a day per session, it
+  // holds the radio of a portable machine awake, and a run that outlives the
+  // interval overlaps the next one over that one shared database. One hour is
+  // the interval the examples of Waybar use.
+  //
+  // The count is still immediate after an upgrade: the click below sends
+  // SIGRTMIN+8, and 'signal' below makes the module run again when it arrives.
   "custom/pacman": {
     "format": "󰅢   {}",
-    "interval": 30,
+    "interval": 3600,
     "exec": "checkupdates | wc -l",
     "on-click": "ghostty -e sh -c 'sudo pacman -Syu; echo Done. Press enter to close.; read'; pkill -SIGRTMIN+8 waybar",
     "signal": 8,

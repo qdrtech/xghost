@@ -3,11 +3,10 @@
 # Tests for the Waybar bundle: the prescribed configuration under config/waybar
 # and the templates under templates/waybar.
 #
-# Waybar is not installed on the machine this bundle was written on, and no test
-# here starts it. Every claim below is proved by rendering, by reading the two
-# prescribed files, and by resolving each path the way Waybar resolves it. What
-# that leaves unproved is recorded in docs/bundles/waybar.md, under "What this
-# bundle has never been observed doing".
+# No test here starts Waybar. Every claim below is proved by rendering, by
+# reading the two prescribed files, and by resolving each path the way Waybar
+# resolves it. What that leaves unproved is recorded in docs/bundles/waybar.md,
+# under "What this bundle has never been observed doing".
 #
 # Two rules of this bundle are what most of these tests are about, and both come
 # from the same fault: a generated file that reaches nothing, or that is
@@ -312,7 +311,18 @@ expanded_include() {
 # imports it, and Waybar opens the style sheet at the path 'xghost config link'
 # created. '..' is therefore the config directory of the user, where the bridge
 # is.
+#
+# Both XDG paths are moved, which is the case the include has above and the
+# Confirmation section of ADR 0002 asks every bundle after Ghostty for by name.
+# The renderer follows XDG_STATE_HOME and the import is resolved against
+# XDG_CONFIG_HOME, so the two ends have to be right at once on this route as
+# well as on the other one. A home directory built out of defaults can never
+# show that divergence.
 @test "the import of the style sheet reaches the file the renderer writes" {
+	export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config"
+	export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
+	mkdir -p "$XDG_CONFIG_HOME" "$XDG_STATE_HOME"
+
 	run link_prescribed
 	[ "$status" -eq 0 ]
 	"$XGHOST" theme set tokyonight >/dev/null
@@ -320,7 +330,7 @@ expanded_include() {
 	local opened="$XDG_CONFIG_HOME/waybar"
 	local resolved="${opened%/*}/$BRIDGE_NAME/waybar/colors.css"
 	[ -f "$resolved" ]
-	[ "$resolved" -ef "$GENERATED/waybar/colors.css" ]
+	[ "$resolved" -ef "$XDG_STATE_HOME/xghost/generated/waybar/colors.css" ]
 	run grep -Fx "@define-color bg $(palette_value tokyonight BG);" "$resolved"
 	[ "$status" -eq 0 ]
 }
@@ -329,6 +339,14 @@ expanded_include() {
 # with, and this style sheet defines none of its own. The dotfiles this bundle
 # comes from named four colours that their generated file never defined, which
 # is the fault this test exists for.
+#
+# The pattern carries the hyphen, and that is the point of it. GTK3 allows '-'
+# in the identifier of an '@define-color', so '@accent-alt' is one name. A
+# pattern that stopped at the hyphen would read it as '@accent', find 'accent'
+# in the palette, and pass. Nothing downstream catches that: a Gtk.CssProvider
+# that loads a sheet naming an undefined colour returns success and drops the
+# declaration in silence, which is how the four colours above went unnoticed
+# through every login.
 @test "every colour the style sheet names is defined by the generated palette" {
 	"$XGHOST" theme set tokyonight >/dev/null
 	local generated="$GENERATED/waybar/colors.css"
@@ -344,13 +362,62 @@ expanded_include() {
 			return 1
 		}
 		count=$((count + 1))
-	done < <(grep -oE '@[a-z][a-z0-9_]*' "$STYLE_FILE" | sed 's/^@//' | LC_ALL=C sort -u)
+	done < <(grep -oE '@[a-zA-Z][a-zA-Z0-9_-]*' "$STYLE_FILE" | sed 's/^@//' |
+		LC_ALL=C sort -u)
 	[ "$count" -gt 0 ]
 }
 
 @test "the style sheet defines no colour of its own" {
 	run grep -n '@define-color' "$STYLE_FILE"
 	[ "$status" -ne 0 ]
+}
+
+# An eight-digit hex in a palette would stop this bar from starting. GTK3 reads
+# '#RRGGBBAA' in an '@define-color' as a colour it cannot parse and raises
+# 'Missing semicolon at end of color definition', which is an error, and an
+# '@import' that errors is the fatal case this bundle is built around.
+#
+# Waybar carries a workaround for exactly that spelling, 'transform_8bit_to_hex',
+# and it does not cover this: it rewrites the style sheet Waybar opened and never
+# a file that sheet imports. The generated palette is imported, so GTK reads it
+# as written.
+#
+# Every name of the palette today is caught before that, and by accident.
+# templates/hypr/colors.conf asks for 'NAME_HEX', lib/palette.sh derives that
+# form from a six-digit value alone, and the render then fails by name. That
+# guard belongs to another bundle and covers the names that bundle consumes. A
+# name added for the bar alone carries no such guard: the render succeeds and
+# the value reaches the imported file. This test is the guard that depends on no
+# other bundle.
+#
+# The names are read out of the template rather than listed here, so a palette
+# name added to templates/waybar/colors.css later is covered on the day it is
+# added.
+@test "every palette value the bar imports is a six-digit hex" {
+	local names
+	names=$(grep -oE '@[A-Z][A-Z0-9_]*@' "$TEMPLATE_DIR/colors.css" |
+		tr -d '@' | LC_ALL=C sort -u)
+	[ -n "$names" ]
+
+	local theme name value count=0
+	while IFS= read -r theme; do
+		[ -n "$theme" ] || continue
+		while IFS= read -r name; do
+			value=$(palette_value "$theme" "$name")
+			[ -n "$value" ] || {
+				printf 'the theme %s declares no %s, which the bar imports\n' \
+					"$theme" "$name" >&2
+				return 1
+			}
+			[[ $value =~ ^#[0-9a-fA-F]{6}$ ]] || {
+				printf 'the theme %s writes %s=%s; GTK cannot parse it and the bar would not start\n' \
+					"$theme" "$name" "$value" >&2
+				return 1
+			}
+			count=$((count + 1))
+		done <<<"$names"
+	done < <("$XGHOST" theme list)
+	[ "$count" -gt 0 ]
 }
 
 # --- the knobs ---------------------------------------------------------------
@@ -409,8 +476,26 @@ expanded_include() {
 	[ "$status" -eq 0 ]
 
 	# One family reaches the bar, and it is written in one file.
-	run bash -c "cd '$ROOT_DIR' && grep -rlE '^[[:space:]]*font-family[[:space:]]*:' config templates | LC_ALL=C sort | paste -sd, -"
+	#
+	# The pattern is not anchored to the start of a line. A rule written on one
+	# line, 'window#waybar { font-family: "Comic Sans"; }', holds the property
+	# after a brace rather than after white space alone, and an anchored pattern
+	# reads that file as one that names no family at all. Such a rule wins on
+	# specificity over the '*' of the generated file, so the knob would reach
+	# the bar and change nothing anyone can see.
+	local guard='(^|[{;[:space:]])font-family[[:space:]]*:'
+	run bash -c "cd '$ROOT_DIR' && grep -rlE '$guard' config templates | LC_ALL=C sort | paste -sd, -"
 	[ "$output" = "templates/waybar/knobs.css" ]
+
+	# And the guard fires on that evasion. It is written into a copy: no test of
+	# this project writes into the checkout.
+	local copy="$BATS_TEST_TMPDIR/evasion"
+	mkdir -p "$copy"
+	cp -R "$ROOT_DIR/config" "$ROOT_DIR/templates" "$copy/"
+	printf 'window#waybar { font-family: "Comic Sans"; }\n' \
+		>>"$copy/config/waybar/style.css"
+	run bash -c "cd '$copy' && grep -rlE '$guard' config templates | LC_ALL=C sort | paste -sd, -"
+	[ "$output" = "config/waybar/style.css,templates/waybar/knobs.css" ]
 }
 
 # --- what the bundle names ---------------------------------------------------
@@ -451,7 +536,7 @@ expanded_include() {
 # through the variable rather than in full. It is not a command: Waybar reads it
 # to find a file.
 @test "no command of the bundle names a script file or a home directory" {
-	run grep -nE '"(exec|exec-if|on-click[a-z-]*)":.*(~|\$HOME|\.sh)' "$CONFIG_FILE"
+	run grep -nE '"(exec|exec-if|on-[a-z-]+)":.*(~|\$HOME|\.sh)' "$CONFIG_FILE"
 	[ "$status" -ne 0 ]
 	run grep -nE '\.sh([^a-z]|$)' "$CONFIG_FILE" "$STYLE_FILE"
 	[ "$status" -ne 0 ]

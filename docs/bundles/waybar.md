@@ -74,7 +74,7 @@ file.
 
 | Half of Waybar          | Directive       | Expands `$VAR`?          | Expands `~`? | A target that is missing |
 | ----------------------- | --------------- | ------------------------ | ------------ | ------------------------ |
-| The configuration file  | `include` array | yes, through `wordexp(3)`| yes          | ADR 0002 records it as silent |
+| The configuration file  | `include` array | yes, through `wordexp(3)`| yes          | loud: `spdlog::warn`, and it prints |
 | The style sheet, GTK3   | CSS `@import`   | **no**                   | **no**       | **fatal: Waybar exits 1** |
 
 ### The style sheet has one form available, and this is it
@@ -245,14 +245,17 @@ unchanged. The rest is here.
 | `position` is gone from the configuration file                | It is the knob, and a `position` here would overrule the generated one. |
 | The four colours the style sheet named are the palette         | See "The colours the dotfiles never defined" below.                    |
 | `font-family` is gone from the style sheet                     | It is `KNOB_FONT`, and a family here would overrule the generated one. `"SF Pro Display"` went with it: it is a macOS font that no Arch machine carries. |
+| The white of the drawer arrow under the pointer is `@text`      | `rgba(255, 255, 255, 0.2)` is a colour of the style sheet rather than of the theme, which the rule at the top of that file forbids. It matches the rule directly above it, which already wrote `alpha(@text, 0.2)`. Both shipped themes are dark, so the two look alike today and would part company on a light one. |
 | `kitty` is `ghostty` in two modules                            | The terminal of this desktop. See above.                               |
 | `yay -Syu` is `sudo pacman -Syu`                               | xghost installs no AUR helper, and it says so in `install/packages/aur.txt`. A button that runs a program the installation never installs is a button that reports `command not found` into a terminal that then closes. `checkupdates` counts official packages in any case. |
+| `"interval": 30` on `custom/pacman` is `"interval": 3600`      | The interval is counted in seconds, and `checkupdates` runs `fakeroot -- pacman -Sy` against a private database, which is a synchronisation over the network. At 30 seconds the bar reaches the Arch mirrors 2880 times a day per session, holds the radio of a portable machine awake, and overlaps its own runs over that one database whenever a run outlives the interval. One hour is the interval the examples of Waybar use. `"signal": 8` is kept, so the count is still immediate after an upgrade. |
 | The colour picker module is dropped                            | It ran `~/.config/waybar/scripts/colorpicker.sh`, which is a script file this project does not ship, and the script read the colour cache of pywal, which this project does not use. It also needed two packages of its own. |
 | The battery module is dropped                                  | It was defined and named in no module list, so it drew nothing. This bundle prescribes what ran. Putting it back is one entry in `group/expand` and the block from the history of the dotfiles. |
 | `persistent-workspaces` is dropped                             | See "The workspaces the bar shows" below.                              |
 | The calendar drops `<span color='#fAfBfC'>`                    | A colour written into the configuration file follows no theme, and the tooltip is Pango markup, which no style sheet can reach. The bold that marked today is kept. |
 | `tooltip-format-disconnected` is `Disconnected` rather than `Error` | A network that is switched off is not an error, and the tooltip is what the user reads. |
 | Two keys that do nothing are dropped                           | `escape` on a module with no `exec`, and `exec-if: exit 0`, which always succeeds. |
+| `reload_style_on_change` is dropped                            | It cannot reach the generated imports of this bundle. See "What this bundle has never been observed doing" below, which records the two paths that were measured. |
 | The three scripts of the dotfiles are dropped                  | `launch.sh` killed the bar and started it again, and chose the configuration by user name; `refresh.sh` was a toggle nothing ran; `colorpicker.sh` is the module above. The compositor starts the bar with `exec-once = waybar`, and the keybinding that restarts it is in `conf/keybinding.conf`. |
 
 ### The colours the dotfiles never defined
@@ -341,9 +344,13 @@ without it.
   defined by the generated palette, that the style sheet defines no colour and
   names no font family, that the knob reaches the output at every value the
   schema names, that the two modules that open a terminal open the terminal of
-  this desktop, and that no template of the bundle names a machine fact. Two
-  tests are the order of an installation: after link, detect and render, every
-  path the bar reads is a file; after link alone, the imports reach nothing.
+  this desktop, and that no template of the bundle names a machine fact. It
+  proves that every palette value the bar imports is a six-digit hex, because an
+  eight-digit one is an error GTK raises and an import that errors is fatal. It
+  proves the guard on the font family by evading it: a one-line rule is written
+  into a copy of the checkout, and the guard names that copy. Two tests are the
+  order of an installation: after link, detect and render, every path the bar
+  reads is a file; after link alone, the imports reach nothing.
 - `tests/golden.bats` compares the rendered colours, font family and bar
   position of every theme with the committed output under
   `tests/golden/<knob set>/<theme>/waybar/`. The two knob sets are `top` and
@@ -353,31 +360,59 @@ without it.
 
 ## What this bundle has never been observed doing
 
-**Waybar has never run against it.** Waybar is not installed on the machine this
-bundle was written on, and this project installs nothing. Every claim above is
-proved by rendering, by reading the two prescribed files as the data they are,
-and by resolving each path the way the source of Waybar 0.15.0 and of GTK 3
-resolve it. What that leaves unobserved, exactly:
+**Waybar has never run against it.** No bar was started against this bundle,
+because the machine it was written on runs a live session and a bar started
+there would appear on it. Every claim above is proved by rendering, by reading
+the two prescribed files as the data they are, by resolving each path the way
+the source of Waybar 0.15.0 and of GTK 3 resolve it, and by loading a style
+sheet into a `Gtk.CssProvider`, which parses one without a window and without a
+compositor. What that leaves unobserved:
 
 - **The bar has never drawn.** No module has been seen on a screen. The glyphs,
   the drawer of `group/expand`, and the styling of every module are carried over
   from a bar that ran in the dotfiles, and the colours and the font are new.
 - **No exit code has been read.** That a missing `@import` is fatal, and that a
-  missing include is silent, are both taken from ADR 0002 rather than from a run
-  here. The bundle depends on neither: the render precedes the first session, so
-  both files are there whichever way Waybar reports their absence.
+  missing include is loud, are both taken from ADR 0002 rather than from a run
+  here. GTK 3 was read directly for the first of the two: a `Gtk.CssProvider`
+  that loads a style sheet whose `@import` reaches nothing raises `GLib.Error`,
+  and ADR 0002 records that Waybar exits 1 on it. The bundle depends on neither:
+  the render precedes the first session, so both files are there whichever way
+  Waybar reports their absence.
 - **The merge has never been watched.** That the including file wins is taken
   from the source of `Config::mergeConfig`, and it is what the whole shape of
   this bundle rests on. `tests/waybar.bats` proves the rule this project can
   prove — that no key is written twice — and not the behaviour of Waybar itself.
-- **`reload_style_on_change` is untested.** Waybar watches the style sheet it
-  opened. Whether it also watches a file that sheet imports, and therefore
-  whether a theme switch restyles a running bar, was not observed. A theme
-  switch and a knob change both write the new files and stop, and reloading
-  every running component from one place is
-  [issue #24](https://github.com/qdrtech/xghost/issues/24).
+- **A running bar is never restyled.** This one is measured rather than open.
+  `reload_style_on_change` was in the dotfiles and this bundle drops it. Waybar
+  builds the watch list of that setting from the imports of the style sheet, and
+  it tests each import with `access(2)`, which resolves `..` physically, after
+  following the symbolic link at `$XDG_CONFIG_HOME/waybar`. GTK resolves the
+  same `..` lexically. The two disagree, on this machine, for the path this
+  bundle ships:
 
-A first session with this bar is therefore the first test of it. The two failures
-to look for are the ones this page is about: a bar that does not appear at all,
-which is an import that reached nothing, and a bar that appears with the wrong
-position or the wrong colours, which is a key written in two files.
+  ```
+  $XDG_CONFIG_HOME/xghost-generated/waybar/colors.css            exists: YES  (GTK's target)
+  $XDG_CONFIG_HOME/waybar/../xghost-generated/waybar/colors.css  exists: NO   (Waybar's probe)
+  ```
+
+  So the generated imports are dropped from the watch list and only `style.css`
+  is watched, which is a prescribed file that no theme and no knob writes. The
+  setting would watch the one file that never changes and miss the two that do.
+  A theme switch and a knob change therefore write the new files and stop, and
+  reloading every running component from one place is
+  [issue #24](https://github.com/qdrtech/xghost/issues/24). What was not
+  observed is Waybar itself doing this; the two paths above were.
+
+A first session with this bar is therefore the first test of it. Three failures
+are the ones to look for, and the first two are what this page is about:
+
+- **No bar at all.** An `@import` reached nothing.
+- **A bar with the wrong position or the wrong colours.** A key is written in
+  two files, so the prescribed one overruled the generated one.
+- **A bar at the top that was never told to be there.** This one shows nothing
+  at all, and it is the reason to check the include rather than the bar. A
+  missing include leaves `position` at the default of Waybar, which is `top`,
+  and `top` is the default of `KNOB_BAR_POSITION` as well. The two agree, so a
+  bridge that reaches nothing looks exactly like a bridge that works to anyone
+  who never moves the bar. `xghost settings set KNOB_BAR_POSITION bottom` is the
+  one command that tells them apart.

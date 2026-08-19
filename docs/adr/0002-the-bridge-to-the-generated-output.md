@@ -86,7 +86,7 @@ the path covers exactly that moment.
 Option 1 is rejected because the path is right only while `XDG_STATE_HOME`
 holds its default. The renderer follows the variable and the application does
 not, so the two halves part company on any machine that moved it. The miss is
-silent in four of the applications below. Neither GTK CSS route expands `~` at
+silent in three of the applications below. Neither GTK CSS route expands `~` at
 all, so two bundles have no form of this option to write.
 
 Option 2 is rejected because only Hyprland, the Waybar include array, and the
@@ -102,7 +102,7 @@ machine.
 | -------------- | ------------------------ | --------------------------- | ------------ | ----------------------------------- |
 | Ghostty 1.3.1  | `config-file`            | no                          | yes          | **silent**                          |
 | Hyprland 0.56.2| `source =`               | yes, as `$VAR`, not `${VAR}`| yes          | loud                                |
-| Waybar 0.15.0  | `include` array          | yes, through `wordexp`      | yes          | **silent**                          |
+| Waybar 0.15.0  | `include` array          | yes, through `wordexp`      | yes          | loud: `spdlog::warn`, at the default log level |
 | Waybar, GTK3   | CSS `@import`            | no                          | **no**       | fatal, Waybar exits 1               |
 | Rofi 2.0.0     | `@import` and `@theme`   | no                          | yes          | **silent**, falls back to the default theme |
 | SwayNC 0.12.6  | `config.json`            | **no include mechanism**    | —            | an unknown key is dropped in silence |
@@ -137,14 +137,18 @@ One rule follows for every bundle:
 
 ### Which applications fail in silence
 
-Ghostty, Rofi, the Waybar `include` array, and the SwayNC GTK4 stylesheet
-report nothing when an include misses. Rofi falls back to its default theme.
-SwayNC drops an unknown key from `config.json` without a word. In each case the
-application starts, it looks wrong, and no log line says why.
+Ghostty, Rofi, and the SwayNC GTK4 stylesheet report nothing when an include
+misses. Rofi falls back to its default theme. SwayNC drops an unknown key from
+`config.json` without a word. In each case the application starts, it looks
+wrong, and no log line says why.
 
-Hyprland and the shell are loud: each reports a source that it could not read.
-The Waybar GTK3 stylesheet is louder still, because an `@import` that misses is
-fatal and Waybar exits 1.
+Hyprland, the shell, and the Waybar `include` array are loud: each reports a
+source that it could not read. `Config::resolveConfigIncludes` calls
+`spdlog::warn("Unable to find resource file: {}", …)`, and that line prints on a
+default run: `src/main.cpp` sets a log level only when `-l` is passed, so the
+logger holds the default level of spdlog, which is `info`. The Waybar GTK3
+stylesheet is louder still, because an `@import` that misses is fatal and Waybar
+exits 1.
 
 A bundle author therefore cannot treat "it started" as evidence that the
 include was found. The Ghostty bundle asserts on `ghostty +show-config`, which
