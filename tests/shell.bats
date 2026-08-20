@@ -137,6 +137,58 @@ tmux_option() {
 	tmux -S "$TMUX_SOCKET" show-options -gqv "$1"
 }
 
+# Print the command one key is bound to, in one key table.
+#
+# 'list-keys' pads its columns to the widest entry of the table it prints, so
+# the width depends on the other keys in that table and on the version of tmux.
+# awk splits on runs of white space, so nothing here reads a column position,
+# and the key is compared as a whole string rather than as a pattern.
+key_command() {
+	local table=$1 key=$2
+	tmux -S "$TMUX_SOCKET" list-keys -T "$table" | awk -v t="$table" -v k="$key" '
+		$1 == "bind-key" && $2 == "-T" && $3 == t && $4 == k {
+			out = ""
+			for (i = 5; i <= NF; i++) {
+				out = out (i > 5 ? " " : "") $i
+			}
+			print out
+		}'
+}
+
+# Print every prefix key that is bound to a bare split, one per line, sorted.
+#
+# This reads the commands rather than the keys, so it says nothing about how a
+# version of tmux writes '%' or '"' in a listing. A key the prescribed file
+# does not unbind appears here, which is what makes the assertion able to fail.
+split_keys() {
+	tmux -S "$TMUX_SOCKET" list-keys -T prefix | awk '
+		$1 == "bind-key" && $2 == "-T" && $3 == "prefix" {
+			cmd = ""
+			for (i = 5; i <= NF; i++) {
+				cmd = cmd (i > 5 ? " " : "") $i
+			}
+			if (cmd == "split-window -h" || cmd == "split-window -v") {
+				print $4
+			}
+		}' | sort
+}
+
+# Print the shell the prescribed tmux configuration names.
+prescribed_default_shell() {
+	sed -n 's/^set -g default-shell //p' "$TMUX_CONF"
+}
+
+# Run the command the reload binding runs, in the private server of this test.
+#
+# The command is taken out of the binding rather than written again here, so a
+# change to the prescribed file is what these tests resolve.
+run_reload_binding() {
+	local command
+	command=$(sed -n 's/^bind r run-shell //p' "$TMUX_CONF")
+	[ -n "$command" ] || return 1
+	eval "tmux -S \"\$TMUX_SOCKET\" run-shell $command"
+}
+
 #
 # The prescribed files.
 #
@@ -356,11 +408,13 @@ tmux_option() {
 # tmux. Every command here names the private socket of this test.
 #
 
-@test "tmux reads the prescribed configuration and holds every setting of it" {
+@test "tmux holds every setting of the prescribed configuration" {
 	require_program tmux
 	start_private_tmux "$TMUX_CONF"
 
-	[ "$(tmux_option default-shell)" = /usr/bin/zsh ]
+	# Every setting here is a setting of tmux itself, so each one holds on any
+	# machine that has tmux. 'default-shell' is not among them, because tmux
+	# refuses a shell that is not on the machine. The two tests below cover it.
 	[ "$(tmux_option mouse)" = on ]
 	[ "$(tmux_option prefix)" = C-a ]
 	[ "$(tmux_option base-index)" = 1 ]
@@ -369,50 +423,116 @@ tmux_option() {
 	[ "$(tmux -S "$TMUX_SOCKET" show-options -sqv escape-time)" = 0 ]
 }
 
+# The text of the setting, which is true on every machine, with tmux or
+# without it. '/usr/bin/zsh' is where the Arch 'zsh' package puts the shell,
+# and the manifest is what puts that package on the machine.
+@test "the prescribed tmux configuration names the shell this desktop installs" {
+	[ "$(prescribed_default_shell)" = /usr/bin/zsh ]
+
+	# shellcheck source=lib/install.sh
+	. "$ROOT_DIR/lib/install.sh"
+	install_paths
+	run -0 install_read_manifest "$ROOT_DIR/install/packages/base.txt"
+	[[ $'\n'$output$'\n' == *$'\n'zsh$'\n'* ]]
+}
+
+# tmux refuses a 'default-shell' whose path is not executable, and it says
+# nothing at all: the option keeps the value of $SHELL instead. So this test
+# needs the shell to be on the machine, and it is the one test of this bundle
+# that cannot be checked without the program it names.
+#
+# SHELL is set to something the prescribed file does not name, so the value
+# read back proves that tmux read the line. Without that, the test passes on
+# any machine whose owner already runs the shell, which is every machine this
+# desktop is installed on and was how this test came to pass while proving
+# nothing.
+@test "tmux takes the shell of this desktop from the prescribed configuration" {
+	require_program tmux
+	local shell
+	shell=$(prescribed_default_shell)
+	if [ ! -x "$shell" ]; then
+		skip "$shell is not on this machine, and tmux refuses a shell that is not there"
+	fi
+	[ "$shell" != /bin/sh ]
+
+	SHELL=/bin/sh tmux -S "$TMUX_SOCKET" -f "$TMUX_CONF" \
+		new-session -d -s probe /bin/sh
+	[ "$(tmux_option default-shell)" = "$shell" ]
+}
+
 @test "tmux binds the four pane keys, both splits, and neither key they replace" {
 	require_program tmux
 	start_private_tmux "$TMUX_CONF"
 
-	local keys
-	keys=$(tmux -S "$TMUX_SOCKET" list-keys -T root)
-	[[ $keys == *"M-h                       select-pane -L"* ]]
-	[[ $keys == *"M-j                       select-pane -D"* ]]
-	[[ $keys == *"M-k                       select-pane -U"* ]]
-	[[ $keys == *"M-l                       select-pane -R"* ]]
+	[ "$(key_command root M-h)" = "select-pane -L" ]
+	[ "$(key_command root M-j)" = "select-pane -D" ]
+	[ "$(key_command root M-k)" = "select-pane -U" ]
+	[ "$(key_command root M-l)" = "select-pane -R" ]
+	[ "$(key_command prefix C-a)" = "send-prefix" ]
 
-	keys=$(tmux -S "$TMUX_SOCKET" list-keys -T prefix)
-	[[ $keys == *"split-window -h"* ]]
-	[[ $keys == *"split-window -v"* ]]
-	[[ $keys != *'-T prefix \"'* ]]
-	[[ $keys != *'-T prefix %'* ]]
+	# Exactly two prefix keys split a pane, and they are the two this file
+	# binds. A '%' or a '"' that the file stopped unbinding would be a third.
+	[ "$(split_keys | tr '\n' ' ')" = "- | " ]
 }
 
 # The reload binding is the one line of this bundle that names its own path.
 # tmux expands '$VAR' in a 'source-file' path and refuses '${VAR:-default}', so
 # the path is expanded by a shell instead. This proves it with the config
 # directory moved, which is the case a tmux-only path would get wrong.
-@test "the tmux reload binding finds the configuration with XDG_CONFIG_HOME moved" {
+#
+# The assertion is on the settings the reload put back, and not on the status
+# of the command. tmux reports a 'default-shell' that is not on the machine and
+# carries on reading the rest of the file, so the status is 1 on a machine
+# without the shell and 0 on a machine with it, while the file is read either
+# way. The test below covers the status.
+@test "the tmux reload binding re-reads the configuration with XDG_CONFIG_HOME moved" {
 	require_program tmux
 	export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/moved-config"
 	mkdir -p "$XDG_CONFIG_HOME"
 	run -0 link_prescribed
 
 	start_private_tmux "$XDG_CONFIG_HOME/tmux/tmux.conf"
-	tmux -S "$TMUX_SOCKET" set -g @xghost-probe cleared
-	[ "$(tmux_option @xghost-probe)" = cleared ]
 
-	# The command the binding runs, taken out of the binding rather than
-	# written again here.
-	local command
-	command=$(sed -n 's/^bind r run-shell //p' "$TMUX_CONF")
-	[ -n "$command" ]
-	tmux -S "$TMUX_SOCKET" set -gu @xghost-probe
-	eval "tmux -S \"\$TMUX_SOCKET\" run-shell $command"
+	# Two settings of the prescribed file, put to values that file never
+	# names. The reload is what puts them back, so a binding that reached no
+	# file fails here. Neither setting depends on a program being installed.
+	tmux -S "$TMUX_SOCKET" set -g base-index 9
+	tmux -S "$TMUX_SOCKET" set -g pane-base-index 9
+	tmux -S "$TMUX_SOCKET" set -g prefix C-b
+	[ "$(tmux_option base-index)" = 9 ]
 
-	# The file it sourced is the prescribed one, so the settings of that file
-	# are in the server again.
-	[ "$(tmux_option default-shell)" = /usr/bin/zsh ]
-	[ -z "$(tmux_option @xghost-probe)" ]
+	# The status is deliberately not asserted here. See the comment above.
+	run run_reload_binding
+
+	[ "$(tmux_option base-index)" = 1 ]
+	[ "$(tmux_option pane-base-index)" = 1 ]
+	[ "$(tmux_option prefix)" = C-a ]
+}
+
+# The other half of the binding. 'source-file' succeeds only when every line of
+# the file is one this machine accepts, and the '&&' in the binding reaches
+# 'display-message' only on that status. A machine without the prescribed shell
+# gets the reload and no message, which is why this is a test of its own.
+@test "the tmux reload binding ends well when the shell of this desktop is there" {
+	require_program tmux
+	local shell
+	shell=$(prescribed_default_shell)
+	if [ ! -x "$shell" ]; then
+		skip "$shell is not on this machine, so 'source-file' reports that line"
+	fi
+
+	# The server keeps the environment it started in, and 'run-shell' hands
+	# that environment to the shell, so the link has to be in place before the
+	# server starts rather than after it.
+	export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/moved-config"
+	mkdir -p "$XDG_CONFIG_HOME"
+	run -0 link_prescribed
+
+	start_private_tmux "$XDG_CONFIG_HOME/tmux/tmux.conf"
+	tmux -S "$TMUX_SOCKET" set -g base-index 9
+
+	run -0 run_reload_binding
+	[ "$(tmux_option base-index)" = 1 ]
 }
 
 #

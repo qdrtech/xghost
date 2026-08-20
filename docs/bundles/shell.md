@@ -259,6 +259,32 @@ the binding reloads the server the key was pressed in. `tests/shell.bats` runs
 it with `XDG_CONFIG_HOME` moved away from its default and reads the settings
 back out of the server.
 
+### tmux refuses a shell that is not on the machine
+
+`set -g default-shell /usr/bin/zsh` is the Arch path of the `zsh` package the
+manifest declares, so it is right on every machine this desktop installs on.
+What tmux does when the path is **not** there was read from tmux 3.7 on a
+private socket, and it is worth writing down, because the two halves differ:
+
+| When tmux meets it                          | What tmux does                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------- |
+| Reading the file at start, with `-f`        | Drops the setting **in silence**. The option keeps the value of `$SHELL`. |
+| `source-file`, in a running server          | Reports `not a suitable shell: <path>` and returns 1. It reads the rest of the file all the same. |
+
+Two things follow, and the tests are built on both. A machine without the shell
+still gets every other setting of this file, because `source-file` carries on
+past the line it refused. And the reload binding returns 1 on such a machine, so
+the `&&` in it never reaches `display-message`: the configuration is reloaded
+and no message is shown.
+
+This is also the one assertion of this bundle that a machine can pass by
+accident. `default-shell` falls back to `$SHELL`, and `$SHELL` on the machine
+this bundle was written on is the very path the file names, so a test that
+compared the two proved nothing at all: it passed with the line deleted from
+the file. `tests/shell.bats` starts that server with `SHELL=/bin/sh`, which the
+prescribed file never names, so the value it reads back can only have come from
+the file.
+
 ## The colours
 
 The prompt takes its colours from the starship palette, which the renderer
@@ -362,8 +388,16 @@ bundle in every tmux pane.
   the theme as a truecolor escape, and the same shell started before the render
   prints the report above instead. It proves that the shell writes no file into
   the checkout, which is what the two paths in "What the shell writes" are for.
-  It reads every setting and every key binding back out of a running tmux server,
-  and runs the reload binding with `XDG_CONFIG_HOME` moved. It runs the install
+  It reads every setting and every key binding back out of a running tmux server
+  on a private socket, and runs the reload binding with `XDG_CONFIG_HOME` moved.
+  The tmux tests are split by what a machine has to carry for the assertion to
+  mean anything: the settings, the key bindings and the reload hold on any
+  machine with tmux, and the two that need the shell of this desktop to be
+  installed skip when it is not. Neither key assertion reads a column of
+  `list-keys` output, because that width is computed from the other keys in the
+  table and from the version of tmux; the keys are compared as whole fields, and
+  the two splits are read back as the set of prefix keys bound to a split, so a
+  `%` or a `"` the file stopped unbinding is a third member of that set. It runs the install
   step in all of its cases, including the one where a `~/.zshrc` is already
   there. It holds the list of everything the dotfiles keep, so a line that came
   back would fail there.
@@ -394,6 +428,10 @@ the tests.
 - **tmux has never been used, only started.** The tests read the settings and
   the bindings out of a server. No key has been pressed, and no pane has been
   split by a person.
+- **tmux 3.4 has never run this file.** Everything above was read from tmux 3.7
+  on Arch, and from tmux on the `ubuntu-24.04` runner of continuous integration,
+  which is where the version difference in `list-keys` was found. No other
+  version has been tried.
 - **The prompt has never been seen.** `starship prompt` was read as text, and
   the colours in it were compared with the palette. Whether the glyphs of the
   Nerd Font draw is not something a string comparison answers.
