@@ -20,9 +20,12 @@ behaviour without reading the tree.
 | `tests/`       | The bats test suite, with its fixtures under `tests/fixtures/` and the helpers more than one suite needs in `tests/helpers.bash`. |
 | `themes/`      | One directory per theme: its palette, and any file it ships by hand. The background is drawn from the palette rather than shipped: see [Backgrounds](backgrounds.md). |
 
-One file sits at the top level beside those directories: `install.sh`, the front
-end of the installer. It sources `lib/install.sh` and runs the steps below.
-[Installing](installing.md) records what each group does.
+Two files sit at the top level beside those directories. `install.sh` is the
+front end of the installer: it sources `lib/install.sh` and runs the steps
+below. `boot.sh` is the entry point a fresh machine reaches over `curl`: it
+installs git, clones this repository to the install location, and hands off to
+`install.sh`. [Installing](installing.md) records both, and what each group of
+steps does.
 
 ## Inside `install/`
 
