@@ -17,7 +17,25 @@ in place; the bar, the launcher and the notifications are not.
 
 ## Install
 
-Run it as the user who will use the desktop, on Arch Linux:
+One command installs the desktop on Arch Linux. Run it as the user who will use
+the desktop:
+
+```sh
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/qdrtech/xghost/main/boot.sh)"
+```
+
+`boot.sh` installs git if this machine has none, clones the repository to
+`~/.local/share/xghost`, and hands off to the installer in that clone. It does
+nothing else, and it is under a hundred lines, so you can read it before you run
+it rather than piping a script you have not seen into a shell:
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/qdrtech/xghost/main/boot.sh
+less boot.sh
+sh boot.sh
+```
+
+From a checkout you already have, run the installer itself:
 
 ```sh
 ./install.sh
