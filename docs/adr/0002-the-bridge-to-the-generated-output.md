@@ -107,7 +107,7 @@ machine.
 | Hyprland 0.56.2| `source =`               | yes, as `$VAR`, not `${VAR}`| yes          | loud                                |
 | Waybar 0.15.0  | `include` array          | yes, through `wordexp`      | yes          | loud: `spdlog::warn`, at the default log level |
 | Waybar, GTK3   | CSS `@import`            | no                          | **no**       | fatal, Waybar exits 1               |
-| Rofi 2.0.0     | `@import` and `@theme`   | no                          | yes          | **silent**, falls back to the default theme. A relative path is resolved twice; see below. |
+| Rofi 2.0.0     | `@import` and `@theme`   | no                          | yes          | **silent**; a missing `@theme` target leaves no theme at all, a missing `@import` merges nothing. A relative path is resolved twice; see below. |
 | SwayNC 0.12.6  | `config.json`            | **no include mechanism**    | —            | an unknown key is dropped in silence |
 | SwayNC, GTK4   | CSS `@import`            | no                          | **no**       | **silent**                          |
 | bash and zsh   | `source`                 | yes, and `${XDG_STATE_HOME:-…}` | yes      | loud                                |
@@ -178,16 +178,57 @@ one for the open.
 directory, `~/.config/xghost-generated/rofi/colors.rasi`. That keeps the bridge
 and keeps `XDG_STATE_HOME` followed, and it gives up `XDG_CONFIG_HOME`, which is
 the one place in the project where a variable is assumed rather than followed.
-That page records the consequence and the two ways out of it.
+That page records the consequence, the ways out of it, and the one that was
+considered and rejected.
 
-The optional import of Rofi, `?import "file"`, is not a way out. It resolves its
-argument against the **current working directory** rather than against the
-directory of the including file, so it is not the `?` that Ghostty has.
+### The optional import of Rofi works, and it is the one directive that reports
+
+This is the second correction, and it reverses what the first draft of this
+section said. `?import "file"` resolves its argument against the **directory of
+the including file first**, and it falls back to the working directory. The
+path named in its warning is the last attempt, which is the working directory
+one, and reading that path as the rule is how the first draft got it wrong.
+
+Measured with a file present in one place at a time, and the working directory
+somewhere else in every case:
+
+```
+present only beside the including file   found
+present in both places                   the copy beside the including file wins
+present only in the working directory    found
+present nowhere                          a warning on standard error, exit 0
+```
+
+The difference between the two forms is that last line, and it holds through the
+path a session takes:
+
+```
+?import "~/gen/missing.rasi"   exit 0, a WARNING on standard error
+@import "~/gen/missing.rasi"   exit 0, standard error empty
+```
+
+The warning is printed both for `rofi -no-config -theme FILE -dump-theme` and
+for a launcher reading its own configuration out of `$XDG_CONFIG_HOME`, which is
+the form that reports nothing about a parse failure. It is the only signal this
+application gives about a missing include.
+
+`@theme` has no optional form. `?theme` is not in this language: it is a parse
+error, it drops the whole file that holds it, and it drops it in silence when
+that file is the configuration of the launcher. So a bundle that loads a palette
+with `@theme` keeps `@theme`, and it can make its other includes optional.
+
+[The Rofi bundle](../bundles/rofi.md) writes the font line as `?import` for that
+reason, and the colours line stays `@theme`. One render writes both files, so
+the warning about the font file is the report that the colours are missing as
+well.
 
 ### Which applications fail in silence
 
 Ghostty, Rofi, and the SwayNC GTK4 stylesheet report nothing when an include
-misses. Rofi falls back to its default theme. SwayNC drops an unknown key from
+misses. A missing `@import` target is dropped by Rofi and the launcher keeps the
+theme it has; a missing `@theme` target leaves it with **no theme at all**,
+because `@theme` discards the default before it reads the file it names. SwayNC
+drops an unknown key from
 `config.json` without a word. In each case the application starts, it looks
 wrong, and no log line says why.
 

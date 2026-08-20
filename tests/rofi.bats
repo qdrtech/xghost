@@ -19,11 +19,17 @@
 # not one:
 #
 #   Rofi exits 0 on a theme that fails to parse. The exit code proves nothing.
-#   Empty standard error is the only reliable signal, and it is reliable only in
-#   the first form: a file that fails to parse as the configuration of the
-#   launcher reports nothing at all.
+#   Empty standard error is the only reliable signal of a parse, and it is
+#   reliable only in the first form: a file that fails to parse as the
+#   configuration of the launcher reports nothing at all.
 #
-# docs/bundles/rofi.md records both, and the measurements behind them.
+# A missing include is the other way round. The font line of the prescribed file
+# is the optional import, '?import', and a missing target reports in both forms,
+# the launcher's own configuration path included. That report is what the last
+# test of this file reads, and it is the one thing this application says about
+# an include that reached nothing.
+#
+# docs/bundles/rofi.md records all of it, and the measurements behind it.
 #
 # The tests that run Rofi skip on a machine without it, which is the continuous
 # integration runner. Everything those tests prove about the shipped files is
@@ -149,8 +155,25 @@ schema_values() {
 # The pairs are read out of the template rather than listed in a test, so a
 # palette name added to templates/rofi/colors.rasi later is covered on the day
 # it is added.
+#
+# The name pattern holds an underscore on purpose. A pattern of letters and
+# hyphens alone would pass over the one name this suite exists to catch, the
+# guard below would never see it, and the two tests that compare the template
+# with what the launcher holds would each run one comparison short. Every loop
+# over these pairs therefore counts them and compares the count with
+# declared_colours.
 template_colours() {
-	sed -n 's/^[[:space:]]*\([a-z][a-z-]*\):[[:space:]]*@\([A-Z][A-Z0-9_]*\)@;.*/\1 \2/p' \
+	sed -n 's/^[[:space:]]*\([a-z][a-z0-9_-]*\):[[:space:]]*@\([A-Z][A-Z0-9_]*\)@;.*/\1 \2/p' \
+		"$TEMPLATE_DIR/colors.rasi"
+}
+
+# Print the number of palette names the colour template declares.
+#
+# This is read with a pattern of its own, and it is the count every loop over
+# template_colours is measured against. A name the extractor cannot read is a
+# name no assertion of this suite ever reaches, and the two counts then differ.
+declared_colours() {
+	grep -cE '^[[:space:]]*[A-Za-z_][A-Za-z0-9_-]*:[[:space:]]*@[A-Z][A-Z0-9_]*@;' \
 		"$TEMPLATE_DIR/colors.rasi"
 }
 
@@ -183,6 +206,20 @@ prescribed_colours() {
 	[ -L "$XDG_CONFIG_HOME/$BRIDGE_NAME" ]
 }
 
+# The prompt of the input bar is one glyph of the Nerd Font private use area,
+# U+F002, and it is the reason the two font packages are in the package table of
+# docs/bundles/rofi.md. It is one byte sequence in a file of plain text, so a
+# carry-over that loses it drops it in silence and the input bar draws a blank
+# prompt. The count of non-ASCII lines is the guard: this file holds exactly one
+# such line, and it is that glyph.
+@test "the prompt of the input bar carries the Nerd Font glyph" {
+	run grep -cP '[^\x00-\x7F]' "$CONFIG_FILE"
+	[ "$output" = "1" ]
+
+	run grep -cP '^\s+str:\s+"  \x{f002}";$' "$CONFIG_FILE"
+	[ "$output" = "1" ]
+}
+
 # The keybinding of the compositor runs the launcher, and the mode it asks for
 # has to be a mode the prescribed configuration declares. The dotfiles this
 # bundle comes from declared both, and 'rofi -show drun' is what the key runs.
@@ -204,25 +241,25 @@ prescribed_colours() {
 #
 # '@theme' discards the theme loaded so far. A second one would throw the first
 # away, and one written under the blocks of the prescribed file would throw
-# every one of them away and leave the launcher drawing the default theme of
-# Rofi. Neither failure reports anything.
+# every one of them away and leave the launcher with the palette and no styling
+# at all. Neither failure reports anything.
 @test "the launcher loads the generated files, and it loads them in one order" {
 	run grep -c '^@theme ' "$CONFIG_FILE"
 	[ "$output" = "1" ]
 
 	run grep -Fx '@theme "~/.config/xghost-generated/rofi/colors.rasi"' "$CONFIG_FILE"
 	[ "$status" -eq 0 ]
-	run grep -Fx '@import "~/.config/xghost-generated/rofi/knobs.rasi"' "$CONFIG_FILE"
+	run grep -Fx '?import "~/.config/xghost-generated/rofi/knobs.rasi"' "$CONFIG_FILE"
 	[ "$status" -eq 0 ]
 
 	# The '@theme' is the first of the two.
 	local first
-	first=$(grep -nE '^@(theme|import) ' "$CONFIG_FILE" | head -1)
+	first=$(grep -nE '^[@?](theme|import) ' "$CONFIG_FILE" | head -1)
 	[[ $first == *"@theme"* ]]
 
 	# And both come before the first widget block, which is the window.
 	local last_directive first_block
-	last_directive=$(grep -nE '^@(theme|import) ' "$CONFIG_FILE" | tail -1 | cut -d: -f1)
+	last_directive=$(grep -nE '^[@?](theme|import) ' "$CONFIG_FILE" | tail -1 | cut -d: -f1)
 	first_block=$(grep -n '^window {' "$CONFIG_FILE" | head -1 | cut -d: -f1)
 	[ -n "$last_directive" ]
 	[ -n "$first_block" ]
@@ -282,10 +319,11 @@ prescribed_colours() {
 }
 
 @test "the generated palette carries every colour of every theme" {
-	local theme name key value count=0
+	local theme name key value count=0 names
 	while IFS= read -r theme; do
 		[ -n "$theme" ] || continue
 		"$XGHOST" theme set "$theme" >/dev/null
+		names=0
 		while read -r name key; do
 			value=$(palette_value "$theme" "$key")
 			[ -n "$value" ]
@@ -295,8 +333,13 @@ prescribed_colours() {
 					"$GENERATED/rofi/colors.rasi"
 				[ "$status" -eq 0 ]
 			}
-			count=$((count + 1))
+			names=$((names + 1))
 		done < <(template_colours)
+
+		# Every name the template declares was compared, so no name can go
+		# missing from this loop without the count saying so.
+		[ "$names" -eq "$(declared_colours)" ]
+		count=$((count + 1))
 	done < <("$XGHOST" theme list)
 	[ "$count" -gt 0 ]
 }
@@ -315,6 +358,11 @@ prescribed_colours() {
 		}
 		count=$((count + 1))
 	done < <(template_colours)
+
+	# The guard above reads a name only if the extractor emits it, so the count
+	# is part of the guard: a name the extractor passes over is a name this test
+	# never sees.
+	[ "$count" -eq "$(declared_colours)" ]
 	[ "$count" -gt 0 ]
 
 	run grep -nE '^[[:space:]]*[a-z0-9-]*_[a-z0-9_-]*:' "$CONFIG_FILE"
@@ -342,7 +390,7 @@ prescribed_colours() {
 		[[ $line != *'$'* ]]
 		[[ $line == *"$BRIDGE_NAME"* ]]
 		count=$((count + 1))
-	done < <(grep -E '^@(theme|import) ' "$CONFIG_FILE")
+	done < <(grep -E '^[@?](theme|import) ' "$CONFIG_FILE")
 	[ "$count" -eq 2 ]
 }
 
@@ -387,11 +435,14 @@ prescribed_colours() {
 @test "the bundle page records the one variable the launcher does not follow" {
 	local page="$ROOT_DIR/docs/bundles/rofi.md"
 	[ -f "$page" ]
-	run grep -c 'XDG_CONFIG_HOME' "$page"
-	[ "$status" -eq 0 ]
-	[ "$output" -gt 0 ]
-	run grep -F 'xghost doctor' "$page"
-	[ "$status" -eq 0 ]
+	# The sentence itself, not the name of the variable: a page that had dropped
+	# the claim, or reversed it, would still hold 'XDG_CONFIG_HOME' many times.
+	run grep -cF \
+		'A machine that moves `XDG_CONFIG_HOME` has a launcher that reaches neither' \
+		"$page"
+	[ "$output" = "1" ]
+	run grep -cF 'xghost doctor' "$page"
+	[ "$output" -ge 1 ]
 }
 
 # --- the knob ----------------------------------------------------------------
@@ -435,9 +486,11 @@ prescribed_colours() {
 }
 
 # The other half of the order. A launcher started between the link step and the
-# render step reaches neither generated file, and Rofi says nothing about it:
-# there is no optional import in this bundle, because the one Rofi offers is
-# broken. docs/bundles/rofi.md records the measurement.
+# render step reaches neither generated file. The font line is the optional
+# import, so that state is the one state of this bundle Rofi reports, and the
+# colours line cannot be optional: '?theme' is not in the language and it drops
+# the whole prescribed file. docs/bundles/rofi.md records both measurements, and
+# the test below reads the report back out of Rofi.
 @test "the imports reach nothing before the first render" {
 	run link_prescribed
 	[ "$status" -eq 0 ]
@@ -447,8 +500,10 @@ prescribed_colours() {
 		[ ! -e "$HOME/.config/$BRIDGE_NAME/rofi/$name.rasi" ]
 	done
 
-	run grep -n '^?import' "$CONFIG_FILE"
-	[ "$status" -ne 0 ]
+	run grep -c '^?import ' "$CONFIG_FILE"
+	[ "$output" = "1" ]
+	run grep -c '^?theme' "$CONFIG_FILE"
+	[ "$output" = "0" ]
 }
 
 # --- what Rofi itself says ---------------------------------------------------
@@ -457,6 +512,12 @@ prescribed_colours() {
 # proof that it parsed is that Rofi said nothing.
 @test "every file of the bundle parses, and empty standard error is the proof" {
 	require_rofi
+
+	# The link step and the render step both run first. The font line is an
+	# optional import, so a bundle read before either one reports the missing
+	# file, and this test asks a different question: whether the files parse.
+	run link_prescribed
+	[ "$status" -eq 0 ]
 	"$XGHOST" theme set tokyonight >/dev/null
 
 	local file count=0
@@ -501,11 +562,25 @@ prescribed_colours() {
 
 	local own="$BATS_TEST_TMPDIR/own/rofi"
 	mkdir -p "$own"
-	printf '* {\n    text_muted: #A9B1D6;\n}\nwindow { width: 1em; }\n' \
-		>"$own/config.rasi"
 
+	# The positive control comes first. Empty standard error holds for a
+	# configuration directory Rofi never read at all, so a typo in the prefix
+	# below, or a release that stops reading it under '-dump-theme', would leave
+	# this test green and prove nothing. The marker is the proof that the file
+	# reached the launcher.
+	printf 'window { width: 4321px; }\n' >"$own/config.rasi"
 	XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/own" run --separate-stderr dump_theme
 	[ "$status" -eq 0 ]
+	[ "$stderr" = "" ]
+	[[ $output == *"4321px"* ]]
+
+	# The same file, with one name of the palette written with an underscore.
+	# The whole file is dropped, so the marker is gone, and Rofi says nothing.
+	printf '* {\n    text_muted: #A9B1D6;\n}\nwindow { width: 4321px; }\n' \
+		>"$own/config.rasi"
+	XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/own" run --separate-stderr dump_theme
+	[ "$status" -eq 0 ]
+	[[ $output != *"4321px"* ]]
 	[ "$stderr" = "" ]
 }
 
@@ -533,13 +608,20 @@ prescribed_colours() {
 		while read -r name key; do
 			value=$(palette_value "$theme" "$key")
 			[ -n "$value" ]
-			[[ $output == *"$name:"*"rgba ( $(rgb_of "$value"), 100 % );"* ]] || {
+
+			# One line, matched whole. A pattern of '"$name:"*"rgba ( … )"'
+			# spans the newlines between them, so it asks only whether the name
+			# and the value each appear somewhere, and it holds for a launcher
+			# that has them bound to each other the wrong way round.
+			printf '%s\n' "$output" | grep -qE \
+				"^[[:space:]]*$name:[[:space:]]+rgba \\( $(rgb_of "$value"), 100 % \\);$" || {
 				printf 'the launcher does not hold %s of the theme %s\n' \
 					"$name" "$theme" >&2
 				return 1
 			}
 			colours=$((colours + 1))
 		done < <(template_colours)
+		[ "$colours" -eq "$(declared_colours)" ]
 		[ "$colours" -gt 0 ]
 
 		# And it holds no colour beyond them. A literal colour is written out as
@@ -578,9 +660,11 @@ prescribed_colours() {
 }
 
 # The failure this bundle is built to prevent, shown happening. After the link
-# step and before the render step the launcher parses clean, reports nothing,
-# and holds none of the palette. It is the state a first session would find if
-# the render step were ever moved after it.
+# step and before the render step the launcher holds none of the palette. It is
+# the state a first session would find if the render step were ever moved after
+# it, and it is the one state of this bundle Rofi reports: the font line is an
+# optional import, and one render writes both files, so the report names the
+# font file and the colours are missing with it.
 @test "before the first render the launcher holds none of the palette" {
 	require_rofi
 
@@ -589,10 +673,20 @@ prescribed_colours() {
 
 	run --separate-stderr dump_theme
 	[ "$status" -eq 0 ]
-	[ "$stderr" = "" ]
 
-	local name key
+	# The report, read out of Rofi rather than assumed. This is the whole reason
+	# the font line is '?import': with '@import' this standard error is empty.
+	[[ $stderr == *"knobs.rasi"* ]]
+	[[ $stderr == *"No such file"* ]]
+
+	local name key count=0
 	while read -r name key; do
-		[[ $output != *"$name:"*"rgba ("* ]]
+		printf '%s\n' "$output" | grep -qE "^[[:space:]]*$name:" && {
+			printf 'the launcher holds %s before the first render\n' "$name" >&2
+			return 1
+		}
+		count=$((count + 1))
 	done < <(template_colours)
+	[ "$count" -eq "$(declared_colours)" ]
+	[ "$count" -gt 0 ]
 }

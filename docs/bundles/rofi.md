@@ -3,9 +3,11 @@
 Rofi is the launcher of xghost. `rofi -show drun` is what the compositor runs on
 `SUPER + space`, and `config/hypr/hyprland.conf` names that command as `$menu`.
 
-It is the first bundle whose application reports **nothing at all** when the
-generated output does not reach it, and the first one that cannot use the
-relative include every other bundle writes.
+It is the first bundle that cannot use the relative include every other bundle
+writes, and the first whose application says nothing about a file it failed to
+parse. It says one thing, and one only: the optional import of the font file
+reports when that file is missing, and this bundle is built around that one
+report.
 
 The bundle is one prescribed file and two generated ones:
 
@@ -43,8 +45,11 @@ from the home directory:
 
 ```
 @theme "~/.config/xghost-generated/rofi/colors.rasi"
-@import "~/.config/xghost-generated/rofi/knobs.rasi"
+?import "~/.config/xghost-generated/rofi/knobs.rasi"
 ```
+
+The second one is the optional form, and "The optional import is the one report
+this bundle gets" below records why.
 
 **The relative form does not work in Rofi 2.0.0, and it fails in silence.** This
 is a measurement rather than a preference, and it was taken on a real machine
@@ -85,11 +90,14 @@ directory specification written out, so:
 > generated file.** Rofi reads its configuration from
 > `$XDG_CONFIG_HOME/rofi/config.rasi`, and that file then names a bridge under
 > `$HOME/.config`, where `xghost config link` created none. The launcher opens
-> with no colour of the theme and no font of the knob, and nothing anywhere says
-> why.
+> with no colour of the theme and no font of the knob. The `?import` of the font
+> file reports it on the standard error of the launcher, which in a session is
+> the log of the compositor rather than a terminal, so the report is written
+> down somewhere the person at the keyboard is not looking.
 
 This is the one path in the project that assumes a variable rather than
-following it, and it is written down here rather than hidden. Two things follow:
+following it, and it is written down here rather than hidden. Three things
+follow:
 
 - **This belongs on the list for `xghost doctor`
   ([issue #19](https://github.com/qdrtech/xghost/issues/19)).** The doctor
@@ -97,28 +105,68 @@ following it, and it is written down here rather than hidden. Two things follow:
   one thing more, that `$XDG_CONFIG_HOME` is `$HOME/.config`, and report the
   launcher as unthemed when it is not. Every other bundle is unaffected, so the
   check belongs to this one.
-- **The way out is the linker.** If `xghost config link` ever placed
+- **One way out is the linker.** If `xghost config link` ever placed
   `$XDG_CONFIG_HOME/rofi` as a real directory of per-file links rather than as
   one directory link, the relative form would work here as it does everywhere
   else: the two resolutions agree when nothing on the path is a symbolic link,
   and that was measured as well. It was not done for this bundle because a
   per-file link means a prescribed file added by a `git pull` no longer appears
   until the link command is run again.
+- **A second way was considered and rejected: a stub in the checkout.** Rofi
+  tests `<install location>/config/xghost-generated/rofi/colors.rasi` for
+  existence and then opens the bridge copy, so a committed stub at the tested
+  path satisfies the test and the launcher reads the **bridge** file, not the
+  stub. That was measured: with the relative form and a stub reading
+  `font: "STUB 11"`, the launcher holds `font: "BRIDGE 11"`, and with the stub
+  removed it holds neither and says nothing. ADR 0002 forbids
+  `config/xghost-generated` because Ghostty resolves an include under the real
+  path and would read the checkout copy in place of the bridge, and a subtree
+  that holds `rofi/` alone does not shadow the Ghostty path, so the rule that
+  forbids it is not the rule that would break. It is rejected anyway: a
+  committed file that nothing ever reads, whose whole purpose is to exist, is
+  worse than a hole that is written down. It would also have to be kept in step
+  with the name of every generated file this bundle ever adds.
 
-### `?import` is not available to this project
+### The optional import is the one report this bundle gets
 
-Rofi offers an optional import, `?import "file"`, which is exactly what a bundle
-author reaches for: it is the `?` that lets the Ghostty configuration start
-before the first render. **It is broken in Rofi 2.0.0.** It resolves its
-argument against the **current working directory** rather than against the
-directory of the file that imported it, which is the working directory the
-compositor happened to pass the launcher. The measured warning names a path
-built from the working directory of the shell that started it.
+Rofi offers an optional import, `?import "file"`. An earlier draft of this page
+and of ADR 0002 said it resolves its argument against the current working
+directory. **That was wrong**, and the mistake was to read the path in its
+warning message, which names the last place it looked, as the rule.
 
-So this bundle has no optional import, and the two directives above are the
-plain ones. That is not a loss: an import that reaches nothing is silent here
-whether or not it is optional, so the `?` would buy nothing but the warning it
-prints in the one case it resolves wrongly.
+Measured, with the working directory somewhere else in every case:
+
+| The file is                             | Result                                  |
+| --------------------------------------- | --------------------------------------- |
+| only beside the including file          | found                                   |
+| in both places                          | the copy beside the including file wins |
+| only in the working directory           | found                                   |
+| nowhere                                 | a warning on standard error, exit 0     |
+
+So it resolves against the directory of the including file **first**, and the
+working directory is a later fallback. The path this bundle writes starts from
+the home directory, so no base is used at all and the difference does not reach
+it.
+
+What does reach it is the last line of the table:
+
+```
+?import "~/.config/xghost-generated/rofi/knobs.rasi"   exit 0, a WARNING on standard error
+@import "~/.config/xghost-generated/rofi/knobs.rasi"   exit 0, standard error empty
+```
+
+**The font line is therefore `?import`.** That warning is printed when Rofi
+reads its own configuration out of `$XDG_CONFIG_HOME`, which is the form that
+reports nothing about a parse failure, so it is the only thing this launcher
+ever says about a missing include. One render writes both generated files, so a
+missing font file is the report that the colours are missing with it, and every
+failure this page names as the worst one, the bridge gone, the render not run
+yet, `XDG_CONFIG_HOME` moved, reaches standard error instead of nothing.
+
+**The colours line stays `@theme`, because there is no optional form of it.**
+`?theme` is not in this language. It is a parse error, it drops the whole
+prescribed file, and through the launcher's own configuration path it drops it
+without a word.
 
 ## The rule of this bundle: `@theme` first, and once
 
@@ -128,7 +176,7 @@ one of each, and the order is the whole design:
 
 1. `@theme` loads the generated palette. The default theme of Rofi is discarded
    here, and that is why it is `@theme` and not `@import`.
-2. `@import` merges the generated font.
+2. `?import` merges the generated font, and reports when that file is missing.
 3. Every block of the prescribed file is parsed after both, so each one draws
    with the colours of step 1 and the family of step 2.
 
@@ -172,15 +220,21 @@ the underscore kept. `templates/rofi/colors.rasi` converts them to hyphens, and
 `tests/rofi.bats` fails on a name that holds one.
 
 The first draft of this bundle carried three of them. Rofi reported
-`Failed to parse theme` and exited 0, and the launcher held the default theme.
+`Failed to parse theme` and exited 0, and the launcher held the default theme:
+the file the `@theme` named was reached and dropped, so the default was never
+discarded. That is the difference between a file that fails to parse and a file
+that is missing, and "What this bundle has never been observed doing" below uses
+it to tell the two apart on sight.
 
 ## How theme validity is tested
 
 **The exit code proves nothing.** Rofi 2.0.0 exits 0 on a theme that fails to
 parse, and it exits 0 on a theme whose imports reached nothing.
 [Issue #13](https://github.com/qdrtech/xghost/issues/13) names this, and it was
-measured again here: a file with an underscore in a name exits 0 and writes 109
-bytes to standard error.
+measured again here: a file with an underscore in a name exits 0 and reports on
+standard error. The size of that report is not a constant, because the message
+carries the process id and the path of the file, so no test of this project
+counts its bytes.
 
 **Empty standard error is the only reliable signal, and it is reliable in one of
 the two forms.** The asymmetry is measured, and it decides the shape of every
@@ -190,6 +244,10 @@ test in `tests/rofi.bats`:
 | ----------------------------------------- | -------------------------- | ------------------------------ |
 | `rofi -no-config -theme FILE -dump-theme` | **reports on standard error**, exits 0 | no  |
 | `rofi -dump-theme`                        | **reports nothing**, exits 0 | yes |
+
+A missing include is the other way round, and it is the reason the font line is
+`?import`: the second form **does** report a missing optional import, and
+neither form reports a missing `@import` or a missing `@theme` target.
 
 So the suite uses both, for two different questions:
 
@@ -222,6 +280,7 @@ rest is here.
 | `font` is gone from the `configuration` block              | It is `KNOB_FONT`. A `font` in the theme wins over a `font` in the configuration block, so the two lines the dotfiles carried were one line doing nothing. |
 | `@theme "generated-theme.rasi"` is the two directives above | The generated files of the dotfiles were written by `scripts/theme-switch.sh` into the config directory. This project renders into the state directory and reaches it through the bridge. |
 | The geometry of `generated-theme.rasi` is dropped           | That file set `window` width, padding and border, `listview` lines and spacing, and `element` padding, and the prescribed file below it set every one of them again. The prescribed values are the ones that drew. Only the colours are generated here, so nothing generated is overruled. |
+| The global `* { background-color: @bg; text-color: @fg; }` is gone | `generated-theme.rasi` set both for every widget at once. `templates/rofi/colors.rasi` declares the palette and no default, so the global block of the launcher holds ten colours, a font, and no `background-color` and no `text-color`. `@theme` has discarded the block Rofi ships, which sets `background-color: transparent`. Every widget the prescribed file styles carries its own colours; a widget it does not style, `message`, `case-indicator`, `num-filtered-rows` and `element-index` among them, now has no colour source at all, and `textbox` outside `error-message` inherits from nothing. Whether any of them is ever drawn is one of the things below that has never been observed. |
 | `@color11` is `@accent`                                     | The generated file of the dotfiles aliased `color11` to `accent`. One name for one colour. |
 | `@background` is `@bg`, `@foreground` is `@text`            | The same aliases, in the other direction: the palette names of this project are what every other bundle writes. |
 | `@border-width` is `1px` and `@border-radius` is `6px`      | See "The names the dotfiles drew with that nothing defined" below.      |
@@ -278,10 +337,15 @@ than a launcher that fails.
 ## What the tests prove
 
 - `tests/rofi.bats` proves the bundle. It reads the prescribed file as the data
-  it is: exactly one `@theme`, first, naming the colours; no relative import and
-  no state directory in either path; no colour and no font of its own; every
-  `@name` it draws with defined by the generated palette; no underscore in any
-  name; no machine fact in any template. It follows both imports through the
+  it is: exactly one `@theme`, first, naming the colours; one `?import` and no
+  `?theme`; no relative import and no state directory in either path; no colour
+  and no font of its own; every `@name` it draws with defined by the generated
+  palette; no underscore in any name; the prompt glyph still there, as the one
+  non-ASCII line of the file; no machine fact in any template. Every loop over
+  the palette names counts what it compared and fails when that count is not the
+  number of names the template declares, so a name the reader of the template
+  cannot read is a name that fails the suite rather than one that disappears
+  from it. It follows both imports through the
   bridge to the files the renderer wrote, and does it again with
   `XDG_STATE_HOME` moved. It renders every theme and compares the generated
   palette with the palette of the theme, and it drives `KNOB_FONT` at every
@@ -294,9 +358,14 @@ than a launcher that fails.
   file reports nothing when it is the launcher's own configuration, that the
   launcher holds the palette of each theme and exactly ten colours, that it
   holds the family `KNOB_FONT` names, and that before the first render it holds
-  none of the palette. Those tests skip on a machine with no Rofi, which is the
-  continuous integration runner; everything they prove about the shipped files
-  is proved again by reading them.
+  none of the palette and says so on standard error through the `?import`. The
+  test of the silent form carries a positive control: it dumps a valid marker
+  out of the same configuration directory first, so that empty standard error
+  cannot be the silence of a file that was never read. The palette assertions
+  match one whole line, so a name bound to the wrong value fails. Those tests
+  skip on a machine with no Rofi, which is the continuous integration runner;
+  everything they prove about the shipped files is proved again by reading
+  them.
 - `tests/golden.bats` compares the rendered colours and font family of every
   theme with the committed output under `tests/golden/<knob set>/<theme>/rofi/`.
 - `tests/install.bats` reads the package table above and fails when a package it
@@ -324,14 +393,31 @@ theme it holds. What that leaves unobserved:
 - **No icon lookup has been watched.** The two icon themes above are read out of
   the dependencies of `rofi` and of `gtk3` rather than from a launcher that drew
   an icon.
+- **No widget outside the prescribed file has been seen.** The dotfiles set a
+  colour for every widget at once through the global block named in the table
+  above, and this bundle does not. `rofi -dump-theme` shows the twenty-four
+  widgets the prescribed file styles and no other, so `message`,
+  `case-indicator`, `num-filtered-rows` and `element-index` have no colour of
+  their own. Which of them `drun` draws, and what they look like when it does,
+  is not known here.
 
 A first session with this launcher is therefore the first test of it. Three
 failures are the ones to look for:
 
-- **A launcher with no colour at all**, or one whose text is invisible. An
-  import reached nothing. Check `$XDG_CONFIG_HOME` first: if it is not
+- **A launcher with no colour at all**, or one whose text is invisible. The
+  `@theme` target was missing, so the default theme was discarded and nothing
+  took its place. The font file is missing with it, so the `?import` reported it
+  on the standard error of the launcher: read the log of the compositor. Check
+  `$XDG_CONFIG_HOME` first, and the bridge second: if the variable is not
   `$HOME/.config`, that is this page, above.
-- **A Solarized light launcher.** The `@theme` reached nothing, so the default
-  theme of Rofi was never discarded.
+- **A Solarized light launcher.** This is **not** a path that missed. A `@theme`
+  whose target is missing discards the default theme and loads nothing in its
+  place, which leaves a launcher with no colour at all, the symptom above.
+  Solarized light means a file **was** reached and **failed to parse**, so the
+  whole of it was dropped and the default theme survived. Run
+  `rofi -no-config -theme ~/.config/xghost-generated/rofi/colors.rasi -dump-theme`
+  and read standard error: that form reports a parse failure, and the launcher's
+  own configuration path does not. An underscore in a name is the likeliest
+  cause, and it has its own section above.
 - **A launcher that ignores a theme switch or `KNOB_FONT`.** A colour or a font
   was written into the prescribed file, which is parsed last and wins.

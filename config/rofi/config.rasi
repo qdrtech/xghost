@@ -39,9 +39,17 @@ configuration {
  * directory is still never written out and XDG_STATE_HOME is still followed.
  * XDG_CONFIG_HOME is not: this is the one path of the project that assumes the
  * default. docs/bundles/rofi.md names the failure that leaves.
+ *
+ * The second line is the optional form, '?import'. A missing target is silent
+ * for '@import' and reported for '?import', and the report is printed when the
+ * launcher reads its own configuration, which is the path a session takes. One
+ * render writes both files, so a missing font file is the signal that the
+ * colours are missing as well. The colours line cannot take the same form:
+ * '?theme' is not in this language, and it is a parse error that drops this
+ * whole file in silence. docs/bundles/rofi.md records both measurements.
  */
 @theme "~/.config/xghost-generated/rofi/colors.rasi"
-@import "~/.config/xghost-generated/rofi/knobs.rasi"
+?import "~/.config/xghost-generated/rofi/knobs.rasi"
 
 // Main //
 window {
@@ -81,7 +89,7 @@ inputbar {
 textbox-prompt-colon {
     enabled:                     true;
     expand:                      false;
-    str:                         "  ";
+    str:                         "  ";
     padding:                     1em 1em 0em 0em;
     text-color:                  @text;
     border-radius:               2em 0em 0em 2em;
