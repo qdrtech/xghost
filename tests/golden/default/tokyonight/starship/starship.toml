@@ -13,6 +13,12 @@
 #
 # Carried over from qdrtech/dotfiles, the Starship section of
 # scripts/theme-switch.sh. What changed is recorded in docs/bundles/shell.md.
+#
+# Every section below is named by the format string above it. starship renders a
+# module only when the format string names it, so a section the format string
+# leaves out is a section that sets colours and symbols nothing ever draws. Four
+# of the dotfiles were in that state and are not here. docs/bundles/shell.md
+# records which four and how that was read back out of starship.
 
 format = """
 $username$directory$git_branch$git_status$fill$python$lua$nodejs$golang$package$docker_context$jobs$time$cmd_duration$line_break
@@ -84,24 +90,7 @@ style = 'accent'
 symbol = ' '
 format = 'via [$symbol($version )]($style)'
 
-[bun]
-symbol = '🍔 '
-style = 'success'
-format = 'via [$symbol($version)]($style) '
-
 [golang]
-style = 'accent'
-symbol = ' '
-
-[haskell]
-style = 'accent'
-symbol = ' '
-
-[rust]
-style = 'warn'
-symbol = ' '
-
-[ruby]
 style = 'accent'
 symbol = ' '
 

@@ -15,4 +15,57 @@ XGHOST_ROOT_DIR=$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=../lib/linker.sh
 . "$XGHOST_ROOT_DIR/lib/linker.sh"
 
-linker_unlink "$@"
+# The ZDOTDIR line install/steps/config/40-shell.sh writes into ~/.zshenv. That
+# file is outside the config directory, so the linker never created it, never
+# recorded it and does not remove it. Removing the link record alone would leave
+# zsh with a ZDOTDIR that names a directory this command has just removed, and
+# zsh then reads no startup file at all: not the prescribed one, and not the
+# ~/.zshrc of the user either, because ZDOTDIR still moves it. So the file is
+# named here, with the one line that undoes it.
+#
+# The pattern is the exact line the step writes. A ~/.zshenv that holds a
+# ZDOTDIR of the user is not this line, so this command says nothing about it.
+XGHOST_ZDOTDIR_LINE='export ZDOTDIR="${XDG_CONFIG_HOME:-$HOME/.config}/zsh"'
+
+report_zshenv() {
+	local dry_run=$1
+	local zshenv=$HOME/.zshenv
+
+	if [ ! -f "$zshenv" ]; then
+		return 0
+	fi
+	if ! grep -qxF -- "$XGHOST_ZDOTDIR_LINE" "$zshenv" 2>/dev/null; then
+		return 0
+	fi
+
+	if [ "$dry_run" -eq 1 ]; then
+		linker_say "would be left in place: $zshenv, which xghost wrote and this command does not remove"
+	else
+		linker_say "left in place: $zshenv, which xghost wrote and this command does not remove"
+	fi
+	linker_warn "$zshenv still points ZDOTDIR at a directory this command removed, so zsh now reads no startup file at all, your own ~/.zshrc included"
+	linker_warn "what to do: remove it with 'rm $zshenv', then open a new terminal."
+}
+
+dry_run=0
+for argument in "$@"; do
+	if [ "$argument" = --dry-run ]; then
+		dry_run=1
+	fi
+done
+
+status=0
+linker_unlink "$@" || status=$?
+
+# Status 2 is an option this command does not take. Nothing was read and nothing
+# was removed, so there is nothing to report about ~/.zshenv.
+if [ "$status" -eq 2 ]; then
+	exit "$status"
+fi
+
+# Otherwise the report is printed whatever the unlink did, because the file is
+# there either way and a run that left some links behind still moved ZDOTDIR out
+# from under zsh for the ones it removed.
+report_zshenv "$dry_run"
+
+exit "$status"

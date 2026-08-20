@@ -27,7 +27,7 @@ come across. "What the dotfiles keep" below lists every line and its reason.
 xghost config link     $XDG_CONFIG_HOME/zsh              -> <install location>/config/zsh
                        $XDG_CONFIG_HOME/tmux             -> <install location>/config/tmux
                        $XDG_CONFIG_HOME/xghost-generated -> $XDG_STATE_HOME/xghost/generated
-install.sh             ~/.zshenv                          holds one ZDOTDIR line
+install.sh             ~/.zshenv                          holds the ZDOTDIR and STARSHIP_CONFIG lines
 xghost theme set NAME  $XDG_STATE_HOME/xghost/generated/starship/starship.toml
 ```
 
@@ -66,11 +66,14 @@ inline, and that fails loudly on a file it cannot read. That opens a form the
 other four bundles have no way to write: naming the state directory itself, and
 reaching the generated output with no link in between.
 
-**This bundle names the bridge all the same.** The prescribed zshrc holds:
+**This bundle names the bridge all the same.** Two files hold the same line,
+the prescribed zshrc and the `~/.zshenv` the install step writes:
 
 ```sh
 export STARSHIP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/xghost-generated/starship/starship.toml"
 ```
+
+"Where the export lives" below records why it is in both.
 
 The line uses what only the shell can do, and it uses it on the half of the path
 that needs it. `XDG_CONFIG_HOME` is unset on most machines, and
@@ -119,6 +122,43 @@ lines above say which one the reader is looking at. This is the state between
 `config/10-link.sh` and `config/30-theme.sh`, and a shell opened in that window
 is the only way to meet it on a finished installation.
 
+### Where the export lives, and the boundary it draws
+
+The report above covers a shell that read the prescribed zshrc. A shell that
+did not read it is the second half of the same silent fallback, and it needs the
+export somewhere else.
+
+zsh reads `.zshrc` for an **interactive** shell alone. `zsh -c` and `zsh -l -c`
+both leave `STARSHIP_CONFIG` unset, and starship with that variable unset reads
+`~/.config/starship.toml` and says nothing. On a machine that ran the dotfiles
+this bundle came from, that path holds the prompt `scripts/theme-switch.sh`
+wrote, so a starship outside an interactive zsh would draw the old prompt.
+
+So the export is in the `~/.zshenv` that
+`install/steps/config/40-shell.sh` writes, beside the `ZDOTDIR` line. zsh reads
+`~/.zshenv` for **every** shell it starts. Two other places were tried and
+neither one works:
+
+| Where                       | What zsh does with it                                                     |
+| --------------------------- | -------------------------------------------------------------------------- |
+| `~/.zshenv`                 | Read for every shell: interactive, login, `zsh -c`, and a zsh script. **This is where the line is.** |
+| `config/zsh/.zshenv`        | Never read. zsh reads `~/.zshenv` as `$ZDOTDIR/.zshenv` **before** `ZDOTDIR` is set, and it does not read a `.zshenv` again once the variable names another directory. |
+| `config/zsh/.zprofile`      | Read for a login shell only, so `zsh -c` and a zsh script still fall back.  |
+
+The prescribed zshrc keeps the same line, and the two carry the same text on
+purpose. That copy covers an interactive shell whose `~/.zshenv` was written by
+hand and carries the `ZDOTDIR` line alone, which is what the refusal messages of
+the install step ask a reader to write. `tests/shell.bats` compares the two texts
+and fails when they stop matching, so the duplication cannot drift.
+
+**A leftover `~/.config/starship.toml`.** This bundle writes nothing at that
+path and removes nothing from it. A machine that used the dotfiles has a file
+there, and it is now read by no shell of this desktop. Delete it once the prompt
+of this bundle is drawing, or keep it: with `STARSHIP_CONFIG` set for every zsh,
+nothing reads it either way. It is named here so that a reader who deletes it
+knows what they are deleting, and so that a reader who meets an unexpected
+prompt has the one path to look at.
+
 ## zsh has one entry point, and it is not in the config directory
 
 zsh reads `~/.zshrc`. It reads `$ZDOTDIR/.zshrc` instead when `ZDOTDIR` is set,
@@ -128,40 +168,66 @@ anything else.
 That file is in the home directory rather than in the config directory, so
 [the linker](../linking.md) cannot reach it: it links the top level entries of
 `config/` into `$XDG_CONFIG_HOME` and creates the bridge, and it writes nothing
-anywhere else. `install/steps/config/40-shell.sh` is what puts the line there:
+anywhere else. `install/steps/config/40-shell.sh` is what puts the lines there,
+and it writes two:
 
 ```sh
 export ZDOTDIR="${XDG_CONFIG_HOME:-$HOME/.config}/zsh"
+export STARSHIP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/xghost-generated/starship/starship.toml"
 ```
 
+The first is what makes zsh read the prescribed `.zshrc` at all. The second is
+there because `~/.zshenv` is the one file zsh reads for every shell, and "Where
+the export lives" above records the boundary it draws.
+
 The step **creates** `~/.zshenv` and never edits one. It follows
-`install/steps/post-install/10-command-path.sh`, which creates one path under
-the home directory when nothing is there, names what it found when something
-is, and is removed by neither `xghost config unlink` nor anything else, because
-no prescribed entry stands behind it.
+`install/steps/post-install/10-command-path.sh` for the one case the two share:
+that step creates one path under the home directory when nothing is there, and
+`xghost config unlink` removes neither path, because no prescribed entry stands
+behind either one. The two differ on a path that holds something else, and they
+differ on purpose. `10-command-path.sh` calls `install_fail` there and **stops
+the installation**, because every config step runs the command it links. This
+step reports and carries on.
 
-Five cases, and four of them change nothing:
+Seven cases, and six of them change nothing:
 
-| What the step finds                        | What it does                                                   |
-| ------------------------------------------ | -------------------------------------------------------------- |
-| Neither `~/.zshenv` nor `~/.zshrc`         | Writes `~/.zshenv` with the line above, and says so.           |
-| A `~/.zshenv` that already holds the line  | Nothing. This is the second run of an installation.            |
-| A `~/.zshenv` that sets `ZDOTDIR` itself   | Nothing. That path is a choice the user made.                  |
-| A `~/.zshenv` that sets something else     | Nothing. It prints the line and where to put it.               |
-| No `~/.zshenv` and a `~/.zshrc`            | Nothing. See below.                                            |
+| What the step finds                                                    | What it does                                                       |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Neither `~/.zshenv` nor a zsh startup file                             | Writes `~/.zshenv` with both lines above, and says so.               |
+| A `~/.zshenv` that already holds the `ZDOTDIR` line                    | Nothing. This is the second run of an installation. A file that carries no `STARSHIP_CONFIG` line is reported, because the step edits no file it did not write. |
+| A `~/.zshenv` that sets `ZDOTDIR` itself                               | Nothing. That path is a choice the user made.                        |
+| A `~/.zshenv` that sets something else                                 | Nothing. It prints the two lines and where to put them.              |
+| A `~/.zshenv` that is a directory                                      | Nothing. zsh reads nothing from a directory and no line can be added to one, so it says that rather than advice that cannot be followed. |
+| No `~/.zshenv` and a `~/.zshrc`, `~/.zprofile`, `~/.zlogin` or `~/.zlogout` | Nothing. It names the file it found. See below.                 |
+| A home directory that does not take the write                          | Nothing. It reports the path and the permissions to check.           |
 
-The last case is the one worth the paragraph. `ZDOTDIR` moves the file zsh
-reads, so a `~/.zshrc` that is already there stops being read: every alias and
-every export in it goes, at the next login, with no message anywhere. The step
-refuses that. It names both files, states that the two cannot both be the file
-zsh reads, and prints the line for the reader to add once they have moved what
-they want to keep.
+The sixth case is the one worth the paragraph. `ZDOTDIR` moves **every** startup
+file of zsh, not `.zshrc` alone: `$ZDOTDIR/.zprofile`, `$ZDOTDIR/.zlogin` and
+`$ZDOTDIR/.zlogout` are where zsh looks once the variable is set. A `PATH`
+addition, an `ssh-agent`, a `umask` or a keychain unlock in any of those four
+would stop running at the next login, with no message anywhere. The step refuses
+that. It names the file it found rather than the class of file, states that the
+two cannot both be the file zsh reads, and prints the lines for the reader to
+add once they have moved what they want to keep.
 
-None of the five cases fails the installation. The rest of the desktop is in
-place either way, and zsh is a login shell rather than a part of the session.
+A file it found that is a **dangling symbolic link** gets its own message. There
+is nothing at the end of it to move out, so telling the reader to move what they
+want to keep would be advice about an empty path. The step refuses all the same,
+because `ZDOTDIR` would stop zsh looking at the link at all and a link that is
+repointed tomorrow would then be read by nothing.
+
+None of the seven cases fails the installation, the last one included. The rest
+of the desktop is in place either way, and zsh is a login shell rather than a
+part of the session, so a home directory that will not take one file is a report
+and not a stop.
 
 **To undo it: remove `~/.zshenv`.** zsh then reads `~/.zshrc` again, and nothing
-of this bundle is left in the home directory.
+of this bundle is left in the home directory. `xghost config unlink` does not
+remove it and never will, because the linker wrote it under no record; that
+command names the file and prints the same one line instead. Removing the links
+without removing `~/.zshenv` leaves `ZDOTDIR` pointing at a directory that is
+gone, and zsh then reads no startup file at all, the `~/.zshrc` of the user
+included.
 
 ### What the shell writes, and where
 
@@ -183,6 +249,15 @@ zsh creates neither directory, so the prescribed file creates both with
 `mkdir -p`. A `mkdir` that fails reports on standard error, and nothing in the
 file hides one.
 
+**The first shell after an installation has an empty history.** The history of
+the dotfiles is at `~/.histfile`, this bundle claims no migration and needs
+none, and nothing copies that file to the new path. The old file is left exactly
+where it is and is read by nothing. `install/steps/config/40-shell.sh` says so
+on the run that writes `~/.zshenv`, so the empty history is not a surprise the
+reader meets alone in a terminal. A reader who wants the old history keeps it by
+hand: `cat ~/.histfile >>"${XDG_STATE_HOME:-$HOME/.local/state}/zsh/history"`
+with no shell running, or the file is deleted, or it is left where it is.
+
 ## What the dotfiles keep
 
 This is criterion 3 of [issue #15](https://github.com/qdrtech/xghost/issues/15),
@@ -191,33 +266,37 @@ and it is a filter rather than a migration. Every line below stayed in
 shipping the working configuration of one person in a public product is worse
 than a bundle that is thin.
 
-| Line of `zshrc/.zshrc`                                  | Why it stayed                                                                |
+The table names the **shape** of each line rather than what it held. A page that
+listed the contents would republish exactly what criterion 3 keeps out of the
+bundle, so the registry region of an employer, the account names and the private
+paths are not here. Each row still says what class of thing was left behind,
+which is what a reader needs to tell whether their own line is covered.
+
+| Lines of `zshrc/.zshrc`                                | Why they stayed                                                              |
 | -------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `alias dle='sh ~/.config/scripts/docker-login-ecr.sh'`   | The work-specific line the issue names. The script runs `aws sts get-caller-identity` and logs Docker into an ECR registry in `us-east-1`. It is the configuration of an employer. |
-| `alias gitprune='sh ~/.config/scripts/git-prune.sh'`     | Names a script in the dotfiles that this project does not ship, and this project ships no scripts directory. |
-| `sh ~/.config/scripts/term-startup.sh`                   | Runs `figlet qdrtech` and `fastfetch`. The word it prints is the name of the maintainer, and this project installs neither program. |
-| `export PATH=$PATH:$HOME/.config/scripts`                | The scripts directory of the maintainer.                                      |
-| `alias ts='bash "${DOTFILES_DIR:-$HOME/dotfiles}/scripts/theme-switch.sh"'` | Replaced by `xghost theme set`, which is criterion 4. The path it named is a checkout of the dotfiles. |
-| `export EDITOR="nvim"` and `export SUDO_EDITOR="$EDITOR"` | This desktop installs no editor, so the line names a program that need not be on the machine. Which editor to ship is a decision this bundle does not carry. |
-| `export FZF_DEFAULT_COMMAND='fd'`                        | Neither `fzf` nor `fd` is installed by this project.                          |
-| The `bun` completions, `BUN_INSTALL` and its `PATH` line  | A runtime the user installed by hand into `$HOME/.bun`.                       |
-| `NVM_DIR` and the two files it sources                   | The same, for `nvm`.                                                          |
-| The `pnpm` block                                         | The same, for `pnpm`.                                                         |
-| `FLYCTL_INSTALL` and its `PATH` line                     | A `fly.io` account of the maintainer.                                         |
-| `export PATH="$HOME/.opencode/bin:$PATH"`                | A tool the user installed by hand.                                            |
-| The `wal` sequence block, and the `sed` in it            | Reads the colour cache of pywal. This project renders its colours instead, and [the Waybar bundle](waybar.md) dropped the pywal colour picker for the same reason. |
-| `PS1='%n@%m %~$'`                                        | starship replaces the prompt two lines later, so the line already did nothing. |
-| `zstyle :compinstall filename "$HOME/.zshrc"`            | A marker `compinstall` writes about its own bookkeeping, naming a file this bundle does not use. |
-| `HISTFILE=~/.histfile`                                   | The setting is kept and the path is not. See "What the shell writes, and where" above. |
-| `alias ls="ls -G"`                                       | `-G` is the colour flag of the BSD `ls` of macOS. GNU `ls -G` drops the group column instead, so the line changed the output and undid the `--color=auto` alias above it. |
-| `alias ..` through `alias .........`                     | Eight levels of parent directory. It is a navigation habit of one person, and there is no depth this project could defend as the right one. |
+| A work-specific alias that authenticates against a private container registry | The line criterion 3 names. It is the configuration of an employer, and the registry and the region it names belong to that employer rather than to this desktop. |
+| Two aliases and a `PATH` line that name a personal scripts directory | Each one runs a script that lives in the dotfiles. This project ships no scripts directory and no script the alias could reach. |
+| A start-up line that draws a banner and a system summary  | The banner is the name of the maintainer, and this project installs neither of the two programs the line runs. |
+| The alias that ran the theme switcher of the dotfiles     | Replaced by `xghost theme set`, which is criterion 4. The path it named is a checkout of the dotfiles. |
+| The editor exports                                        | This desktop installs no editor, so the lines name a program that need not be on the machine. Which editor to ship is a decision this bundle does not carry. |
+| A fuzzy-finder default command                            | Neither the finder nor the search tool it names is installed by this project. |
+| Five blocks that set up language runtimes and package managers installed by hand | Each one names a directory under the home directory of one person and sources files that this project neither installs nor creates. A guard would not help: there is nothing on this desktop for them to find. |
+| A `PATH` line and an install directory for a hosting provider and for a personal tool | Accounts and installations of the maintainer. |
+| The pywal sequence block, and the `sed` in it             | Reads the colour cache of pywal. This project renders its colours instead, and [the Waybar bundle](waybar.md) dropped the pywal colour picker for the same reason. |
+| The `PS1` assignment                                      | starship replaces the prompt two lines later, so the line already did nothing. |
+| The `compinstall` marker `zstyle`                         | A marker `compinstall` writes about its own bookkeeping, naming a file this bundle does not use. |
+| The history path                                          | The setting is kept and the path is not. See "What the shell writes, and where" above. |
+| An `ls` alias carrying a BSD colour flag                  | That flag is the colour flag of the BSD `ls` of macOS. GNU `ls` reads it as "drop the group column" instead, so the line changed the output and undid the `--color=auto` alias above it. |
+| Eight parent-directory aliases                            | A navigation habit of one person, and there is no depth this project could defend as the right one. |
 
 | Line of `tmux/.tmux.conf`                                | Why it stayed                                                                |
 | -------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | The four `tpm` lines: the plugin manager, `tmux-resurrect`, `tmux-continuum`, and `@continuum-restore` | `tpm` is a repository the user clones into `~/.tmux/plugins/tpm` by hand. This project installs no package for it and clones no repository, so `run -b ~/.tmux/plugins/tpm/tpm` would name a path that is not there at every server start. Shipping it would also mean running code fetched from GitHub at the start of every session, which no other bundle of this project does. |
 
-Two lines of the dotfiles reached this bundle changed rather than dropped, and
-both are in "What changed from the dotfiles" below.
+Three lines of the dotfiles reached this bundle changed rather than dropped:
+the `~/.local/bin` `PATH` line, the reload binding, and the lower case `m-j`.
+All three are in "What changed from the dotfiles" below, with the rest of what
+that section changed.
 
 ## What changed from the dotfiles
 
@@ -228,10 +307,11 @@ both are in "What changed from the dotfiles" below.
 | `bind -n m-j` is `bind -n M-j`                             | tmux accepts the lower case form and binds `M-j`, which was read back from a running server, so the key worked. The line is written like its three neighbours so that a reader is not left wondering. |
 | The starship `[aws]` module and `$aws` in the format string | The prompt showed an AWS profile and the duration of its credentials. The issue names the AWS content of these dotfiles as the thing that stays behind, and a module that draws an employer's profile name into a prompt is on that side of the line. |
 | The empty starship `[git_state]` section                    | It set nothing. A section that declares no key states an intent that the file does not carry. |
+| The starship `[rust]`, `[ruby]`, `[haskell]` and `[bun]` sections | The `format` string names none of the four, so starship rendered none of them. See "Four sections that drew nothing" above. |
 | The starship palette is named `xghost` rather than `theme`  | One name for the palette of this project, in the one file that declares it.  |
 
-Everything else is carried over unchanged, the emoji of `[package]` and `[bun]`
-included: changing a symbol is a styling decision, and this bundle makes none.
+Everything else is carried over unchanged, the emoji of `[package]` included:
+changing a symbol is a styling decision, and this bundle makes none.
 
 ### The reload binding
 
@@ -268,8 +348,25 @@ private socket, and it is worth writing down, because the two halves differ:
 
 | When tmux meets it                          | What tmux does                                                     |
 | ------------------------------------------- | ------------------------------------------------------------------- |
-| Reading the file at start, with `-f`        | Drops the setting **in silence**. The option keeps the value of `$SHELL`. |
+| Reading the file at start, with `-f`        | Drops the setting **in silence** and works the shell out itself. See the fallback below. |
 | `source-file`, in a running server          | Reports `not a suitable shell: <path>` and returns 1. It reads the rest of the file all the same. |
+
+What tmux falls back to is not `$SHELL`. Its `getshell()` takes `$SHELL` only
+when that value passes `checkshell()`, which wants an absolute path to something
+executable that is not tmux itself; otherwise it takes the shell of the passwd
+entry, and if that fails too, `/bin/sh`. Read back from tmux 3.7b on a private
+socket, with `default-shell` naming a path that is not there:
+
+| `$SHELL`      | What `default-shell` read back as | Why                                       |
+| ------------- | --------------------------------- | ------------------------------------------- |
+| `/bin/bash`   | `/bin/bash`                       | Passes `checkshell()`.                     |
+| `/bin/dash`   | `/usr/bin/zsh`                    | Not on this machine, so the passwd shell.  |
+| unset         | `/usr/bin/zsh`                    | The passwd shell.                          |
+
+That matters for one reason only, and it is the reason the assertion below is
+built the way it is: on a machine whose passwd shell is already `/usr/bin/zsh`,
+which is every machine this desktop is installed on, the fallback lands on the
+very path the prescribed file names.
 
 Two things follow, and the tests are built on both. A machine without the shell
 still gets every other setting of this file, because `source-file` carries on
@@ -278,12 +375,15 @@ the `&&` in it never reaches `display-message`: the configuration is reloaded
 and no message is shown.
 
 This is also the one assertion of this bundle that a machine can pass by
-accident. `default-shell` falls back to `$SHELL`, and `$SHELL` on the machine
-this bundle was written on is the very path the file names, so a test that
-compared the two proved nothing at all: it passed with the line deleted from
-the file. `tests/shell.bats` starts that server with `SHELL=/bin/sh`, which the
-prescribed file never names, so the value it reads back can only have come from
-the file.
+accident. The fallback lands on `/usr/bin/zsh` on the machine this bundle was
+written on, by way of the passwd entry, which is the very path the file names.
+A test that only read the option back proved nothing at all: it passed with the
+line deleted from the file. `tests/shell.bats` starts that server with
+`SHELL=/bin/sh`, which the prescribed file never names and which `checkshell()`
+accepts, so the fallback is `/bin/sh` and the value read back can only have come
+from the file. The helper that reads the path out of the prescribed file returns
+non-zero on an empty result, so a deleted line fails that test rather than
+skipping it.
 
 ## The colours
 
@@ -292,13 +392,36 @@ writes from the palette of the theme. Every name of the palette reaches it:
 
 | Palette name  | Where the prompt draws it                                  |
 | ------------- | ----------------------------------------------------------- |
-| `accent`      | The directory, and the Node version.                        |
+| `accent`      | The directory, the Node version, and the Go version.        |
 | `accent_alt`  | The Python version, and the Docker context.                 |
 | `error`       | The git branch, the root user name, the job marker, and the error character. |
-| `success`     | The git status, the Bun version, and the prompt character.  |
-| `warn`        | The user name, the Rust version, the package version, and the command duration. |
+| `success`     | The git status, and the prompt character.                   |
+| `warn`        | The user name, the package version, and the command duration. |
 | `text`        | The word `on` before a branch, and the corner of the second line. |
 | `bg`, `surface`, `surface_alt`, `text_muted` | Declared in the palette and named by no module today. A palette that declared only what it draws would break every time a module was added. |
+
+Every row above was read back out of `starship explain`, in a directory holding
+a `Cargo.toml` and a `package.json`, against the rendered file of a theme. The
+table was wrong before that: it credited `warn` with the Rust version and
+`success` with the Bun version, and neither one ever drew. "Four sections that
+drew nothing" below records why.
+
+### Four sections that drew nothing
+
+starship renders a module only when the `format` string names it. The format
+string of this bundle names fourteen, and the file carried four more sections
+that it did not name: `[rust]`, `[ruby]`, `[haskell]` and `[bun]`. Each one set
+a colour and a symbol that starship never reached. `starship explain` in a
+directory holding both a `Cargo.toml` and a `package.json` listed the Node
+version and the package version and neither of those two.
+
+The four sections are gone rather than added to the format string. Adding them
+would change what the prompt draws, and **this bundle makes no styling
+decision**: what it renders is what the dotfiles rendered, to the byte. Deleting
+four sections that render nothing changes no prompt at all, and it is the only
+one of the two options that can be taken without deciding that this desktop
+should show a Rust version. A later issue that wants those modules adds them to
+the format string and to the table above in one change.
 
 Two modules draw in a colour of the terminal rather than of the starship
 palette, and both are already theme colours: `[time]` takes the default yellow
@@ -397,17 +520,39 @@ bundle in every tmux pane.
   `list-keys` output, because that width is computed from the other keys in the
   table and from the version of tmux; the keys are compared as whole fields, and
   the two splits are read back as the set of prefix keys bound to a split, so a
-  `%` or a `"` the file stopped unbinding is a third member of that set. It runs the install
-  step in all of its cases, including the one where a `~/.zshrc` is already
-  there. It holds the list of everything the dotfiles keep, so a line that came
-  back would fail there.
+  `%` or a `"` the file stopped unbinding is a third member of that set. It runs
+  the install step in all seven of its cases, including a home directory that
+  does not take the write, a `~/.zshenv` that is a directory, a dangling
+  `~/.zshrc` symbolic link, and each of the four startup files `ZDOTDIR` moves.
+  It plants a symbolic link at the path the temporary file used to be written
+  to and proves that the file it points at is untouched. It reads
+  `STARSHIP_CONFIG` back out of a `zsh -c`, a `zsh -l -c` and an interactive
+  zsh, and compares the two copies of that line byte for byte. It runs
+  `xghost config unlink` and reads `~/.zshenv` out of its report. It holds the
+  list of everything the dotfiles keep, so a line that came back would fail
+  there.
 - `tests/golden.bats` compares the rendered starship configuration of every
   theme with the committed output under
   `tests/golden/<knob set>/<theme>/starship/starship.toml`. No knob reaches this
   bundle, so the two knob sets hold the same file, and the palette of each theme
   is what differs.
-- `tests/install.bats` reads the package table above and fails when a package it
-  lists is declared by no manifest.
+- `tests/install.bats` reads the package table of **every** bundle page and
+  fails when a package one of them lists is declared by no manifest. That is the
+  cross-check for the table above, and it is derived: a package added to the
+  table is read by it without the test changing. `tests/shell.bats` reads the
+  same table and asserts the same thing for this page alone, so a page whose
+  table stopped being readable fails in the suite of its own bundle as well.
+
+- `tests/negative-control` is the other direction, and it is a script rather
+  than a suite. It copies the checkout, breaks one source on purpose, and
+  requires the test aimed at that break to fail and to be named in the report.
+  Every test of this bundle that was added or changed for this bundle has a
+  control there. It exists because four tests of this bundle shipped unable to
+  fail: one compared a variable with itself, one was true whatever the
+  prescribed file said, and two skipped rather than failed when the line they
+  read was deleted. A green suite does not tell those apart from the tests that
+  work, and this script does. It is run by hand; continuous integration runs
+  `bats tests`.
 
 Every test that needs zsh, tmux or starship skips when the program is absent,
 because continuous integration has none of the three. Every tmux command names a
@@ -419,7 +564,7 @@ the tests.
 ## What this bundle has never been observed doing
 
 - **No installation has run this step.** `install/steps/config/40-shell.sh` was
-  driven directly, in a temporary home directory, in all five of its cases. No
+  driven directly, in a temporary home directory, in all seven of its cases. No
   `./install.sh` has written a `~/.zshenv` on a real machine.
 - **No login shell has read the file.** The zsh the tests start is an
   interactive zsh with `ZDOTDIR` and `HOME` inside a temporary directory. It is
@@ -435,3 +580,7 @@ the tests.
 - **The prompt has never been seen.** `starship prompt` was read as text, and
   the colours in it were compared with the palette. Whether the glyphs of the
   Nerd Font draw is not something a string comparison answers.
+- **No `~/.config/starship.toml` has been deleted by anybody following this
+  page.** The leftover file was read on one machine to confirm that the silent
+  fallback had something to land on. Nothing of this project writes that path,
+  reads it, or removes it.

@@ -90,6 +90,15 @@ source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
 # XDG_CONFIG_HOME, and the bridge follows XDG_STATE_HOME. The shell is one of
 # the two places in this project that can write the XDG default inline, and
 # that is what the ':-' below is.
+#
+# The same line is in the ~/.zshenv that install/steps/config/40-shell.sh
+# writes, and the two carry the same text on purpose. zsh reads this file for
+# an interactive shell alone, so this copy covers a terminal and nothing else;
+# the ~/.zshenv copy covers every other zsh, which is what keeps 'zsh -c' and a
+# zsh script off the silent fallback of starship. This copy is what an
+# interactive shell gets when the ~/.zshenv on the machine was written by hand
+# and carries the ZDOTDIR line alone. tests/shell.bats fails when the two texts
+# stop matching, and docs/bundles/shell.md records the boundary.
 export STARSHIP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/xghost-generated/starship/starship.toml"
 
 # starship falls back to its own default prompt, and says nothing at all, when

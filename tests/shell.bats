@@ -49,10 +49,17 @@ setup() {
 	unset STARSHIP_CONFIG
 
 	export HOME="$BATS_TEST_TMPDIR/home"
-	export XDG_CONFIG_HOME="$HOME/.config"
-	export XDG_STATE_HOME="$HOME/.local/state"
-	export XDG_CACHE_HOME="$HOME/.cache"
-	mkdir -p "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME"
+
+	# None of the three is the default the XDG specification gives it, and that
+	# is deliberate. A test that compared an expansion against $XDG_CONFIG_HOME
+	# while that variable held "$HOME/.config" would pass whether the line it
+	# read expanded the variable or fell back to the default, because the two
+	# are the same string. Every assertion in this file that reads one of these
+	# paths is able to tell the two apart because of these three lines.
+	export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/xdg-config"
+	export XDG_STATE_HOME="$BATS_TEST_TMPDIR/xdg-state"
+	export XDG_CACHE_HOME="$BATS_TEST_TMPDIR/xdg-cache"
+	mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME"
 
 	use_fixed_machine_facts
 	use_own_knobs
@@ -82,7 +89,14 @@ link_prescribed() {
 }
 
 unlink_prescribed() {
-	XGHOST_CONFIG_SOURCE="$ROOT_DIR/config" "$XGHOST" config unlink
+	XGHOST_CONFIG_SOURCE="$ROOT_DIR/config" "$XGHOST" config unlink "$@"
+}
+
+# Remove every startup file of zsh from the temporary home directory of this
+# test, so that a case of the install step is driven from a known state.
+clear_zsh_startup_files() {
+	rm -f -- "$HOME/.zshenv" "$HOME/.zshrc" "$HOME/.zprofile" \
+		"$HOME/.zlogin" "$HOME/.zlogout"
 }
 
 # Print the value one theme declares for one palette name.
@@ -96,18 +110,39 @@ without_comments() {
 	grep -v '^[[:space:]]*#' "$1"
 }
 
-# Expand the STARSHIP_CONFIG line of the prescribed zshrc the way a shell
-# expands it, in the environment of this test.
+# Print the STARSHIP_CONFIG line of one file, whole.
 #
 # The line is read out of the file rather than written again here, so a change
-# to the prescribed file is what this resolves.
-starship_config_from_zshrc() {
+# to the file is what the tests below resolve. An empty result is a failure: a
+# file that stopped carrying the line must fail a test rather than hand an empty
+# string to the next assertion.
+starship_config_line() {
 	local line
-	line=$(grep -m1 '^export STARSHIP_CONFIG=' "$ZSHRC") || return 1
+	line=$(grep -m1 '^export STARSHIP_CONFIG=' "$1") || return 1
+	[ -n "$line" ] || return 1
+	printf '%s\n' "$line"
+}
+
+# Expand the STARSHIP_CONFIG line of one file the way a shell expands it, in the
+# environment of this test.
+starship_config_from() {
+	local line
+	line=$(starship_config_line "$1") || return 1
 	(
 		eval "$line"
 		printf '%s\n' "$STARSHIP_CONFIG"
 	)
+}
+
+# The prescribed zshrc, which is the copy an interactive shell reads.
+starship_config_from_zshrc() {
+	starship_config_from "$ZSHRC"
+}
+
+# The ~/.zshenv the install step writes, which is the copy every other zsh
+# reads. The step has to have run for this to resolve.
+starship_config_from_zshenv() {
+	starship_config_from "$HOME/.zshenv"
 }
 
 # Run the install step of this bundle the way lib/install.sh runs one: in a
@@ -174,8 +209,18 @@ split_keys() {
 }
 
 # Print the shell the prescribed tmux configuration names.
+#
+# An empty result is a failure rather than an empty string. Two tests below skip
+# when the path this prints is not executable, and without this guard a file
+# that stopped naming a shell at all would print nothing, fail the '-x' test,
+# and skip: the deletion of the line would be reported as a machine that lacks
+# the shell. run_reload_binding() and starship_config_line() carry the same
+# guard for the same reason.
 prescribed_default_shell() {
-	sed -n 's/^set -g default-shell //p' "$TMUX_CONF"
+	local shell
+	shell=$(sed -n 's/^set -g default-shell //p' "$TMUX_CONF")
+	[ -n "$shell" ] || return 1
+	printf '%s\n' "$shell"
 }
 
 # Run the command the reload binding runs, in the private server of this test.
@@ -277,15 +322,50 @@ run_reload_binding() {
 }
 
 @test "every colour of the prompt is a colour of the active theme" {
-	local theme name value
+	local theme name value count=0
 	while IFS= read -r theme; do
 		"$XGHOST" theme set "$theme" >/dev/null
 		while IFS= read -r name; do
 			value=$(palette_value "$theme" "$name")
 			run -0 grep -Fq "\"$value\"" "$GENERATED/starship/starship.toml"
+			count=$((count + 1))
 		done < <(sed -n 's/^\([A-Z][A-Z0-9_]*\)=.*/\1/p' "$ROOT_DIR/themes/$theme/palette.conf")
 		run -1 grep -qE '@[A-Z][A-Z0-9_]*@' "$GENERATED/starship/starship.toml"
 	done < <("$XGHOST" theme list)
+
+	# A theme list that printed nothing, or a palette file that stopped being
+	# read, would run neither loop and reach this line having asserted nothing.
+	# The test above this one carries the same guard.
+	[ "$count" -gt 0 ]
+}
+
+# starship renders a module only when the format string names it. Four sections
+# of this template were named by nothing, so they set a colour and a symbol that
+# starship never reached, and the colour table of docs/bundles/shell.md credited
+# two palette names with a version string neither one ever drew.
+@test "the format string of the prompt names every module the template configures" {
+	local format section count=0
+	format=$(sed -n '/^format = """/,/"""$/p' "$STARSHIP_TEMPLATE")
+	[ -n "$format" ]
+
+	while IFS= read -r section; do
+		# A name with a dot is a sub-table of another section, or the palette,
+		# and the format string names neither.
+		case $section in
+		*.*) continue ;;
+		esac
+
+		count=$((count + 1))
+		[[ $format == *"\$$section"* ]] || {
+			printf 'the template configures [%s] and the format string never names it, so starship renders none of it\n' \
+				"$section" >&2
+			return 1
+		}
+	done < <(sed -n 's/^\[\([a-z_.]*\)\]$/\1/p' "$STARSHIP_TEMPLATE")
+
+	# A template whose section headers stopped matching would read no section
+	# at all and pass the loop above.
+	[ "$count" -gt 0 ]
 }
 
 @test "the prescribed zshrc names the generated prompt through the bridge" {
@@ -321,13 +401,23 @@ run_reload_binding() {
 # the XDG base directory specification inline, which is the one thing ADR 0002
 # records the shell as able to do.
 @test "the prompt path is right when XDG_CONFIG_HOME is unset" {
+	# setup() puts XDG_CONFIG_HOME somewhere that is not "$HOME/.config", so
+	# the two assertions below are two different strings. They were the same
+	# string while setup() used the default, and the second one could not fail.
 	local config_home="$XDG_CONFIG_HOME"
+	[ "$config_home" != "$HOME/.config" ]
 	unset XDG_CONFIG_HOME
 
 	local resolved
 	resolved=$(starship_config_from_zshrc)
+
+	# The inline default is what the path came from.
 	[ "$resolved" = "$HOME/.config/$BRIDGE_NAME/starship/starship.toml" ]
-	[ "$resolved" = "$config_home/$BRIDGE_NAME/starship/starship.toml" ]
+
+	# And not the value the variable held, which is what a line that wrote
+	# '$XDG_CONFIG_HOME' with no default would have produced, and what a line
+	# that hard-coded the directory of this test would have produced too.
+	[ "$resolved" != "$config_home/$BRIDGE_NAME/starship/starship.toml" ]
 }
 
 @test "starship reads the generated configuration without an error" {
@@ -400,8 +490,23 @@ run_reload_binding() {
 	done < <(find "$ROOT_DIR/config/zsh" -mindepth 1 ! -name '.zshrc')
 
 	# The two paths it does write, and both are outside the checkout.
-	[ -f "$XDG_STATE_HOME/zsh/history" ] || [ -d "$XDG_STATE_HOME/zsh" ]
-	[ -d "$XDG_CACHE_HOME/zsh" ]
+	#
+	# The commands are piped in rather than given with '-c'. 'zsh -i -c true'
+	# runs no command line, so it saves no history at all, and an assertion
+	# that accepted the directory as well as the file was true whatever the
+	# prescribed HISTFILE said: the 'mkdir' in that file creates the directory
+	# before anything reads the setting.
+	printf 'true\nexit\n' |
+		env ZDOTDIR="$XDG_CONFIG_HOME/zsh" zsh -i >/dev/null 2>&1
+
+	[ -f "$XDG_STATE_HOME/zsh/history" ]
+	run -0 grep -qxF 'true' "$XDG_STATE_HOME/zsh/history"
+	[ -f "$XDG_CACHE_HOME/zsh/zcompdump" ]
+
+	# The two paths zsh and compinit use when the prescribed settings are not
+	# read. Neither is written.
+	[ ! -e "$HOME/.histfile" ]
+	[ ! -e "$ROOT_DIR/config/zsh/.zcompdump" ]
 }
 
 #
@@ -598,27 +703,273 @@ run_reload_binding() {
 	[ ! -e "$HOME/.zshenv" ]
 }
 
+# The temporary file is named by mktemp, so this reads the directory rather
+# than one name. The name used to be fixed, and a test that knew it would go on
+# passing over a step that had gone back to a fixed name.
 @test "the step leaves no temporary file behind" {
 	run -0 run_shell_step
-	[ ! -e "$HOME/.zshenv.xghost-new" ]
+
+	local path
+	while IFS= read -r path; do
+		printf 'the step left %s behind\n' "$path" >&2
+		return 1
+	done < <(find "$HOME" -maxdepth 1 -name '.zshenv.*')
+}
+
+# The one path in this project that writes a real dotfile. The temporary file
+# used to be a fixed name beside ~/.zshenv, and a redirection follows a symbolic
+# link: a link planted at that name sent the write and the chmod into the file
+# at the far end, put ~/.zshenv there as a symbolic link into it, and let the
+# step report success.
+@test "the step writes through no symbolic link planted beside ~/.zshenv" {
+	printf 'REAL CONTENT THE USER CARES ABOUT\n' >"$HOME/victim"
+	ln -s "$HOME/victim" "$HOME/.zshenv.xghost-new"
+
+	run -0 run_shell_step
+
+	# The file at the far end of the link is exactly as it was.
+	[ "$(cat "$HOME/victim")" = 'REAL CONTENT THE USER CARES ABOUT' ]
+
+	# The link itself is left alone: the step follows it and removes it neither.
+	[ -L "$HOME/.zshenv.xghost-new" ]
+	[ "$(readlink "$HOME/.zshenv.xghost-new")" = "$HOME/victim" ]
+
+	# And the step did its own work, at its own path, as a regular file.
+	[ ! -L "$HOME/.zshenv" ]
+	[ -f "$HOME/.zshenv" ]
+	run -0 grep -Fxq 'export ZDOTDIR="${XDG_CONFIG_HOME:-$HOME/.config}/zsh"' \
+		"$HOME/.zshenv"
+}
+
+# ZDOTDIR moves every startup file of zsh, not .zshrc alone. A PATH addition, an
+# ssh-agent or a umask in .zprofile, .zlogin or .zlogout stops running at the
+# next login, and the guard used to read .zshrc and nothing else.
+@test "the step refuses to orphan any startup file that ZDOTDIR moves" {
+	local base count=0
+	for base in .zshrc .zprofile .zlogin .zlogout; do
+		clear_zsh_startup_files
+		printf 'umask 077\n' >"$HOME/$base"
+
+		run -0 run_shell_step
+		count=$((count + 1))
+
+		# The file that was found is named, rather than the class of file.
+		[[ $output == *"$HOME/$base is there"* ]]
+		[[ $output == *"would stop zsh reading it"* ]]
+		[ ! -e "$HOME/.zshenv" ]
+		[ "$(cat "$HOME/$base")" = 'umask 077' ]
+	done
+	[ "$count" -eq 4 ]
+}
+
+# Refusing is right. The advice was not: there is nothing at the end of a
+# dangling link to move out of it.
+@test "the step reports a dangling ~/.zshrc without advice about what to keep" {
+	ln -s "$HOME/nothing-is-here" "$HOME/.zshrc"
+
+	run -0 run_shell_step
+	[[ $output == *"points at a target that does not exist"* ]]
+	[[ $output != *"move what you want to keep"* ]]
+	[ ! -e "$HOME/.zshenv" ]
+	[ -L "$HOME/.zshrc" ]
+}
+
+# The same shape at the other path: no line can be added to a directory, so
+# "add this line to ~/.zshenv" was advice that could not be followed.
+@test "the step reports a ~/.zshenv that is a directory and prints no line to add" {
+	mkdir "$HOME/.zshenv"
+
+	run -0 run_shell_step
+	[[ $output == *"is a directory"* ]]
+	[[ $output != *"add this line to"* ]]
+	[[ $output != *"add these two lines to"* ]]
+	[ -d "$HOME/.zshenv" ]
+	[ -z "$(find "$HOME/.zshenv" -mindepth 1)" ]
+}
+
+# The step reports and carries on. install_fail is exit 1, which fails the run,
+# and docs/installing.md says this step never fails the installation.
+@test "the step reports a home directory it cannot write and ends well" {
+	if [ "$(id -u)" -eq 0 ]; then
+		skip "root writes a directory whatever the mode of that directory says"
+	fi
+
+	chmod 0555 "$HOME"
+	run run_shell_step
+	chmod 0755 "$HOME"
+
+	[ "$status" -eq 0 ]
+	[[ $output == *"cannot create a temporary file"* ]]
+	[[ $output == *"the rest of the desktop is in place"* ]]
+	[ ! -e "$HOME/.zshenv" ]
+}
+
+# The file of a run that wrote the ZDOTDIR line and no other. The step edits no
+# file it did not write, so it reports the missing line rather than adding it.
+@test "the step reports a ~/.zshenv that carries no STARSHIP_CONFIG line" {
+	printf '%s\n' 'export ZDOTDIR="${XDG_CONFIG_HOME:-$HOME/.config}/zsh"' \
+		>"$HOME/.zshenv"
+
+	run -0 run_shell_step
+	[[ $output == *"already in place"* ]]
+	[[ $output == *"carries no STARSHIP_CONFIG line"* ]]
+	[ "$(cat "$HOME/.zshenv")" = \
+		'export ZDOTDIR="${XDG_CONFIG_HOME:-$HOME/.config}/zsh"' ]
+}
+
+@test "the step tells the reader that the first shell has an empty history" {
+	run -0 run_shell_step
+	[[ $output == *"empty history"* ]]
+	[[ $output == *".histfile"* ]]
+
+	# And nothing was migrated, which is what the report says.
+	[ ! -e "$HOME/.histfile" ]
+}
+
+#
+# STARSHIP_CONFIG outside an interactive shell.
+#
+# starship reads ~/.config/starship.toml and says nothing when the variable is
+# unset, so a shell that does not read the prescribed .zshrc draws whatever that
+# path holds. On a machine that used the dotfiles this bundle came from, it
+# holds the prompt the old theme switcher wrote.
+#
+
+@test "the ~/.zshenv the step writes carries the STARSHIP_CONFIG line of the zshrc" {
+	run -0 run_shell_step
+
+	# The same text in both files. A path that diverged between the two would
+	# be the divergence ADR 0002 exists to prevent, in the one line this bundle
+	# writes twice.
+	[ "$(starship_config_line "$HOME/.zshenv")" = "$(starship_config_line "$ZSHRC")" ]
+}
+
+@test "the ~/.zshenv line resolves to the generated prompt through the bridge" {
+	run -0 run_shell_step
+	run -0 link_prescribed
+	run -0 "$XGHOST" theme set tokyonight
+
+	local resolved
+	resolved=$(starship_config_from_zshenv)
+	[ "$resolved" = "$XDG_CONFIG_HOME/$BRIDGE_NAME/starship/starship.toml" ]
+	[ -f "$resolved" ]
+	[ "$(readlink -f "$resolved")" = \
+		"$(readlink -f "$GENERATED/starship/starship.toml")" ]
+}
+
+@test "STARSHIP_CONFIG is set in a zsh that never reads the prescribed zshrc" {
+	require_program zsh
+	run -0 run_shell_step
+	run -0 link_prescribed
+	run -0 "$XGHOST" theme set tokyonight
+
+	local expected="$XDG_CONFIG_HOME/$BRIDGE_NAME/starship/starship.toml"
+
+	# zsh reads .zshrc for an interactive shell alone, so neither of these two
+	# reads it. Both read ~/.zshenv, which is why the line is there. Both
+	# printed UNSET while the line was in the prescribed .zshrc alone.
+	[ "$(zsh -c 'printf "%s\n" "${STARSHIP_CONFIG:-UNSET}"' 2>/dev/null)" = "$expected" ]
+	[ "$(zsh -l -c 'printf "%s\n" "${STARSHIP_CONFIG:-UNSET}"' 2>/dev/null)" = "$expected" ]
+
+	# And the interactive shell, which reads both files, still resolves it.
+	[ "$(zsh -i -c 'printf "%s\n" "${STARSHIP_CONFIG:-UNSET}"' </dev/null 2>/dev/null)" \
+		= "$expected" ]
+}
+
+# Why the line is in ~/.zshenv rather than in a prescribed file of the bundle.
+# Both candidates were tried, and this is what zsh does with each of them.
+@test "zsh reads no .zshenv from ZDOTDIR, and reads .zprofile for a login shell alone" {
+	require_program zsh
+	local zdotdir="$BATS_TEST_TMPDIR/own-zsh"
+	mkdir -p "$zdotdir"
+	printf 'export FROM_ZDOTDIR_ZSHENV=1\n' >"$zdotdir/.zshenv"
+	printf 'export FROM_ZDOTDIR_ZPROFILE=1\n' >"$zdotdir/.zprofile"
+	printf 'export ZDOTDIR="%s"\n' "$zdotdir" >"$HOME/.zshenv"
+
+	# zsh reads ~/.zshenv as $ZDOTDIR/.zshenv before ZDOTDIR is set, and never
+	# reads a .zshenv again. A prescribed config/zsh/.zshenv would be read by
+	# nothing at all.
+	[ "$(zsh -c 'printf "%s\n" "${FROM_ZDOTDIR_ZSHENV:-UNSET}"' 2>/dev/null)" = UNSET ]
+	[ "$(zsh -l -c 'printf "%s\n" "${FROM_ZDOTDIR_ZSHENV:-UNSET}"' 2>/dev/null)" = UNSET ]
+
+	# A prescribed config/zsh/.zprofile would be read by a login shell and by
+	# no other, so 'zsh -c' and a zsh script would still fall back.
+	[ "$(zsh -c 'printf "%s\n" "${FROM_ZDOTDIR_ZPROFILE:-UNSET}"' 2>/dev/null)" = UNSET ]
+	[ "$(zsh -l -c 'printf "%s\n" "${FROM_ZDOTDIR_ZPROFILE:-UNSET}"' 2>/dev/null)" = 1 ]
+}
+
+#
+# What 'config unlink' says about the file it does not remove.
+#
+
+# ZDOTDIR outlives the links. A ~/.zshenv left behind names a directory that has
+# just been removed, and zsh then reads no startup file at all, the ~/.zshrc of
+# the user included.
+@test "'config unlink' names the ~/.zshenv it leaves behind" {
+	run -0 run_shell_step
+	run -0 link_prescribed
+
+	run -0 unlink_prescribed
+	[[ $output == *"left in place: $HOME/.zshenv"* ]]
+	[[ $output == *"rm $HOME/.zshenv"* ]]
+	[[ $output == *"reads no startup file"* ]]
+
+	# It names the file. It does not remove it.
+	[ -f "$HOME/.zshenv" ]
+}
+
+@test "a dry run of 'config unlink' names the ~/.zshenv it would leave" {
+	run -0 run_shell_step
+	run -0 link_prescribed
+
+	run -0 unlink_prescribed --dry-run
+	[[ $output == *"would be left in place: $HOME/.zshenv"* ]]
+	[ -L "$XDG_CONFIG_HOME/zsh" ]
+	[ -f "$HOME/.zshenv" ]
+}
+
+@test "'config unlink' says nothing about a ~/.zshenv that xghost did not write" {
+	printf 'export ZDOTDIR=$HOME/my-zsh\n' >"$HOME/.zshenv"
+	run -0 link_prescribed
+
+	run -0 unlink_prescribed
+	[[ $output != *".zshenv"* ]]
+	[ "$(cat "$HOME/.zshenv")" = 'export ZDOTDIR=$HOME/my-zsh' ]
 }
 
 #
 # The bundle page.
 #
 
-@test "the bundle page names every package the manifest declares for it" {
+# Every package the page lists is read out of the page, so a package added to
+# that table is covered without this test changing. The list was hard-coded
+# before, it held five of the six rows, and 'ttf-jetbrains-mono-nerd' was in the
+# table and in no assertion.
+#
+# tests/install.bats runs the same cross-check over every bundle page. This one
+# is here as well so that a shell page whose table stopped being readable fails
+# in the suite of its own bundle rather than only in the installer suite.
+@test "the manifest declares every package the bundle page lists" {
 	# shellcheck source=lib/install.sh
 	. "$ROOT_DIR/lib/install.sh"
 	install_paths
 	run -0 install_read_manifest "$ROOT_DIR/install/packages/base.txt"
 	local declared=$output
 
-	local name
-	for name in zsh starship tmux zsh-syntax-highlighting zsh-autosuggestions; do
-		run -0 grep -qE "^\| \`$name\` +\| \`extra\` +\|" "$ROOT_DIR/docs/bundles/shell.md"
-		[[ $'\n'$declared$'\n' == *$'\n'"$name"$'\n'* ]]
-	done
+	local page="$ROOT_DIR/docs/bundles/shell.md"
+	local name rows=0
+	while IFS= read -r name; do
+		rows=$((rows + 1))
+		[[ $'\n'$declared$'\n' == *$'\n'"$name"$'\n'* ]] || {
+			printf 'shell.md lists %s and the base manifest does not declare it\n' \
+				"$name" >&2
+			return 1
+		}
+	done < <(sed -n 's/^| `\([a-z0-9@._+-]*\)` *| `extra` *|.*|$/\1/p' "$page")
+
+	# A table that stopped matching would pass the loop above without a package
+	# name ever being read.
+	[ "$rows" -gt 0 ]
 }
 
 # No file of this project may hold a value that belongs to one machine. The
