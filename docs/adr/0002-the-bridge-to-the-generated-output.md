@@ -72,9 +72,12 @@ linker places:    $XDG_CONFIG_HOME/xghost-generated -> $XDG_STATE_HOME/xghost/ge
 Neither end of that path is written out in full. The directory the include
 starts from moves with `XDG_CONFIG_HOME`, and the bridge moves with
 `XDG_STATE_HOME`, so the include is right for every value of both. One relative
-include and one link serve every application in the table below, because GTK
-resolves an `@import` against the directory of the importing file, which is the
-rule Ghostty and Rofi already follow.
+include and one link serve every application in the table below except one,
+because GTK resolves an `@import` against the directory of the importing file,
+which is the rule Ghostty already follows. The exception is Rofi, which resolves
+such a path twice and by two rules that disagree; "Rofi tests one path and opens
+another" below records the measurement and the form the Rofi bundle writes
+instead.
 
 `generated` under the state directory is itself a symbolic link, which
 `xghost theme set` replaces in one step. The bridge points at that link rather
@@ -104,7 +107,7 @@ machine.
 | Hyprland 0.56.2| `source =`               | yes, as `$VAR`, not `${VAR}`| yes          | loud                                |
 | Waybar 0.15.0  | `include` array          | yes, through `wordexp`      | yes          | loud: `spdlog::warn`, at the default log level |
 | Waybar, GTK3   | CSS `@import`            | no                          | **no**       | fatal, Waybar exits 1               |
-| Rofi 2.0.0     | `@import` and `@theme`   | no                          | yes          | **silent**, falls back to the default theme |
+| Rofi 2.0.0     | `@import` and `@theme`   | no                          | yes          | **silent**, falls back to the default theme. A relative path is resolved twice; see below. |
 | SwayNC 0.12.6  | `config.json`            | **no include mechanism**    | —            | an unknown key is dropped in silence |
 | SwayNC, GTK4   | CSS `@import`            | no                          | **no**       | **silent**                          |
 | bash and zsh   | `source`                 | yes, and `${XDG_STATE_HOME:-…}` | yes      | loud                                |
@@ -134,6 +137,52 @@ One rule follows for every bundle:
 > the active theme.
 
 [The Ghostty bundle](../bundles/ghostty.md) records how the rule was verified.
+
+### Rofi tests one path and opens another
+
+This one is a correction. The row above was taken from the source and from the
+behaviour of `~`, and it is right about both. What it did not cover is a
+relative path resolved through a symbolic link, which is the shape every bundle
+of this project writes, and Rofi is the one application in the table that gets
+it wrong.
+
+Rofi resolves a relative `@import` or `@theme` twice:
+
+- It **tests the file for existence** on the raw joined path, `<directory of the
+  including file>/<import>`. The kernel resolves that path, so `..` is applied
+  physically, after following every symbolic link before it.
+- It then **opens the path it canonicalises itself**, which applies `..`
+  lexically, to the text of the path.
+
+The two agree while nothing on the path is a symbolic link. `xghost config link`
+makes the config directory of every bundle one, so for this project they
+disagree:
+
+```
+tested   $XDG_CONFIG_HOME/rofi/../xghost-generated/rofi/colors.rasi
+      -> <install location>/config/xghost-generated/rofi/colors.rasi
+opened   $XDG_CONFIG_HOME/xghost-generated/rofi/colors.rasi
+```
+
+The file has to exist at **both** paths, and Rofi reads the second. The bridge
+puts it at the second alone, so the import is dropped, nothing is printed, and
+the launcher exits 0. The first path is `config/xghost-generated` inside the
+checkout, which the rule above forbids, and a file there would be one that
+nothing ever reads.
+
+Ghostty is not affected, and the reason is directly above: Ghostty tries both
+bases and takes whichever one holds a file. Rofi tries one base for the test and
+one for the open.
+
+[The Rofi bundle](../bundles/rofi.md) therefore writes the path from the home
+directory, `~/.config/xghost-generated/rofi/colors.rasi`. That keeps the bridge
+and keeps `XDG_STATE_HOME` followed, and it gives up `XDG_CONFIG_HOME`, which is
+the one place in the project where a variable is assumed rather than followed.
+That page records the consequence and the two ways out of it.
+
+The optional import of Rofi, `?import "file"`, is not a way out. It resolves its
+argument against the **current working directory** rather than against the
+directory of the including file, so it is not the `?` that Ghostty has.
 
 ### Which applications fail in silence
 
@@ -204,6 +253,12 @@ What becomes harder:
 - Every include in the installation depends on one link. A user who removes the
   bridge unthemes every silent application at once, with no error anywhere.
   That link is a thing for `xghost doctor` to check.
+- One bundle assumes `XDG_CONFIG_HOME` rather than following it, because of the
+  resolution rule above. A machine that moves that variable has an unthemed
+  launcher and no message anywhere, so `xghost doctor`
+  ([issue #19](https://github.com/qdrtech/xghost/issues/19)) has a second thing
+  to check: that `$XDG_CONFIG_HOME` is `$HOME/.config`, reported against
+  [the Rofi bundle](../bundles/rofi.md) and against no other.
 - The checkout must never hold `config/xghost-generated`, because of the
   path-precedence rule above.
 - A prescribed file has to sit one directory below the config directory, so
@@ -227,6 +282,9 @@ What becomes harder:
   validates clean.
 - A reviewer checks that no `config/xghost-generated` directory has entered the
   checkout.
+- `tests/rofi.bats` proves the exception: it asserts that neither path of the
+  Rofi bundle is relative and that neither names the state directory, and it
+  follows both through the bridge under a non-default `XDG_STATE_HOME`.
 
 ## More information
 

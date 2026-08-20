@@ -140,7 +140,7 @@ Where each one lands:
 | -------------------- | --------------------------------------------------------------------- |
 | `KNOB_ANIMATIONS`    | `generated/hypr/animation.conf`, the whole `animations` block of Hyprland. |
 | `KNOB_GAP_SIZE`      | `generated/hypr/knobs.conf`, `gaps_in` and `gaps_out` of Hyprland.    |
-| `KNOB_FONT`          | `generated/hypr/knobs.conf`, `misc:font_family` of Hyprland, `generated/ghostty/font.conf`, `font-family` of Ghostty, and `generated/waybar/knobs.css`, the family the bar draws in. Not the lock screen. |
+| `KNOB_FONT`          | `generated/hypr/knobs.conf`, `misc:font_family` of Hyprland, `generated/ghostty/font.conf`, `font-family` of Ghostty, `generated/waybar/knobs.css`, the family the bar draws in, and `generated/rofi/knobs.rasi`, the family the launcher draws in. Not the lock screen. |
 | `KNOB_BAR_POSITION`  | `generated/waybar/position.json`, the `position` of the bar.          |
 
 `KNOB_BAR_POSITION` names two of the four positions Waybar draws. `left` and

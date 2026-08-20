@@ -55,4 +55,6 @@ what it is, and what an installation has never been observed doing.
   first application whose configuration is rendered from the machine facts.
 - [The Waybar bundle](docs/bundles/waybar.md) — the bar, and the first
   application that keeps the value of the file that includes the generated one.
+- [The Rofi bundle](docs/bundles/rofi.md) — the launcher, and the one
+  application that cannot reach the generated output by a relative path.
 - [Architecture decision records](docs/adr/) — the decisions and their reasons.

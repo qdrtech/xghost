@@ -228,7 +228,7 @@ tokyonight" ]
 		run grep -Fx '    gaps_in = 20' "$GOLDEN_DIR/alternate/$theme/hypr/knobs.conf"
 		[ "$status" -eq 0 ]
 
-		# KNOB_FONT is a scalar, and it reaches two bundles.
+		# KNOB_FONT is a scalar, and it reaches four bundles.
 		run grep -Fx '    font_family = JetBrainsMono Nerd Font' \
 			"$GOLDEN_DIR/default/$theme/hypr/knobs.conf"
 		[ "$status" -eq 0 ]
@@ -246,6 +246,12 @@ tokyonight" ]
 		[ "$status" -eq 0 ]
 		run grep -F 'font-family: "CaskaydiaCove Nerd Font", sans-serif;' \
 			"$GOLDEN_DIR/alternate/$theme/waybar/knobs.css"
+		[ "$status" -eq 0 ]
+		run grep -Fx '    font: "JetBrainsMono Nerd Font 11";' \
+			"$GOLDEN_DIR/default/$theme/rofi/knobs.rasi"
+		[ "$status" -eq 0 ]
+		run grep -Fx '    font: "CaskaydiaCove Nerd Font 11";' \
+			"$GOLDEN_DIR/alternate/$theme/rofi/knobs.rasi"
 		[ "$status" -eq 0 ]
 
 		# KNOB_BAR_POSITION is a scalar, and it reaches the one key of the bar
