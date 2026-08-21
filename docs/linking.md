@@ -58,6 +58,10 @@ and has no fallback to the real one.
 [The Waybar bundle](bundles/waybar.md) records the one directive that resolves
 no relative path at all, and therefore names this same bridge through
 `XDG_CONFIG_HOME` rather than reaching it with `..`.
+[The Neovim bundle](bundles/neovim.md) records the one bundle that reaches this
+bridge with no `..` in its path at all: a `..` is applied by the kernel after
+the link above it is followed, so from inside `~/.config/nvim` it lands in the
+checkout. Lua builds the parent directory as text instead.
 
 The bridge is created beside the prescribed entries and never instead of one.
 It is a link the linker creates, so every rule below applies to it unchanged:

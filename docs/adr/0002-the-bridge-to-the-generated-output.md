@@ -110,6 +110,7 @@ machine.
 | Rofi 2.0.0     | `@import` and `@theme`   | no                          | yes          | **silent**; a missing `@theme` target leaves no theme at all, a missing `@import` merges nothing. A relative path is resolved twice; see below. |
 | SwayNC 0.12.6  | `config.json`            | **no include mechanism**    | —            | an unknown key is dropped in silence |
 | SwayNC, GTK4   | CSS `@import`            | no                          | **no**       | loud once: one `Gtk-WARNING` on standard error, and the daemon runs on |
+| Neovim 0.12.4  | Lua: `loadfile`          | yes, whatever Lua is given  | yes, through `stdpath` | loud, and **fatal to the rest of `init.lua`** with `require` or `dofile`; see below |
 | bash and zsh   | `source`                 | yes, and `${XDG_STATE_HOME:-…}` | yes      | loud                                |
 
 The shell is the only entry that can express the XDG default inline. Every
@@ -222,6 +223,83 @@ reason, and the colours line stays `@theme`. One render writes both files, so
 the warning about the font file is the report that the colours are missing as
 well.
 
+### Neovim computes the path, and a miss can stop the whole configuration
+
+Neovim is the first application in the table whose configuration is a
+programming language, and it is the only one that neither expands a path nor
+resolves one. It runs Lua, and Lua is given whatever path the prescribed file
+builds. So the two questions of this ADR change shape: not "does the directive
+expand a variable" but "which call builds the path", and not "is a miss silent"
+but "what does the miss do to the rest of the file".
+
+Both were measured on Neovim 0.12.4, with the bundle linked and a theme
+rendered. [The Neovim bundle](../bundles/neovim.md) records the measurements in
+full.
+
+**The relative include of every other bundle does not work here.** It is the
+Rofi fault again, from the other end. `xghost config link` makes
+`$XDG_CONFIG_HOME/nvim` a symbolic link into the checkout, and a `..` is applied
+by the kernel *after* it has followed that link, so the path lands in the
+checkout rather than in the config directory:
+
+```
+stdpath("config") .. "/../xghost-generated/nvim/colors.lua"    not readable
+  -> <install location>/config/xghost-generated/nvim/colors.lua
+```
+
+That is the directory this ADR forbids the checkout to hold, so the file would
+be one nothing ever writes.
+
+**Lua is what gets this bundle out of it.** `vim.fn.stdpath("config")` returns
+the config directory **as it was opened**, which is `$XDG_CONFIG_HOME/nvim` and
+not the checkout, and `fnamemodify(…, ":h")` takes its parent **as text**. A
+path built that way has no `..` for the kernel to apply, so it reaches the
+bridge:
+
+```lua
+vim.fn.fnamemodify(vim.fn.stdpath("config"), ":h") .. "/xghost-generated/nvim/colors.lua"
+```
+
+Both ends of that path still follow the environment, so the Neovim bundle keeps
+the property this ADR exists for, and it does not have to give up
+`XDG_CONFIG_HOME` the way [the Rofi bundle](../bundles/rofi.md) did.
+
+**A missing generated file is worse here than anywhere else in the table.** In
+every other bundle the worst case is an include that is dropped and an
+application that looks wrong. In Lua, the call that loads the file decides
+whether the rest of the configuration runs at all. Measured with the generated
+palette absent, each fixture setting a variable after the load:
+
+| The prescribed Lua uses | The rest of `init.lua` | The report | Exit code |
+| ----------------------- | ---------------------- | ---------- | --------- |
+| `dofile(path)` | **never runs** | `E5113`, on standard error | 0 |
+| `require(name)`, with `package.path` set | **never runs** | `E5113`, on standard error | 0 |
+| `loadfile(path)` | runs | whatever the bundle chooses to print | 0 |
+
+`require` and `dofile` raise, and an error raised in `init.lua` stops
+`init.lua`. A user who has not yet run `xghost theme set` would get an editor
+with no options, no keybindings and no plugins, because of a colour file. **So a
+Lua bundle of this project uses `loadfile`**, which returns `nil` and a message
+rather than raising, and reports the message itself.
+
+`pcall` around `dofile` keeps the editor alive too, and it is rejected for a
+different reason: it swallows every error the file could raise, which is the
+silence this ADR spends its length avoiding.
+
+Note the exit code in every row. A start with a broken `init.lua` exits 0, so
+Neovim belongs with Ghostty and Rofi under the rule at the end of the next
+section: read the state the application holds, never the code it exits with.
+
+**One more thing can swallow the report, and it is not the application.**
+`vim.notify` is a variable, and a plugin may replace it. The configuration this
+project prescribes loads `snacks.nvim` through LazyVim, which replaces
+`vim.notify` at `lua/snacks/init.lua:220` before `init.lua` reaches the bundle,
+and measured against the real configuration the warning then reached neither the
+message history nor standard error. `vim.api.nvim_echo` is an API function
+rather than a variable, so nothing can stand in front of it, and its second
+argument keeps the line in `:messages`. A Lua bundle of this project reports
+through `nvim_echo`.
+
 ### Which applications fail in silence
 
 Ghostty and Rofi report nothing when an include misses. A missing `@import`
@@ -315,7 +393,14 @@ What becomes harder:
   path-precedence rule above.
 - A prescribed file has to sit one directory below the config directory, so
   that `..` reaches it. A bundle that nests a prescribed file deeper has to
-  count its own `..` segments.
+  count its own `..` segments. A bundle written in a programming language does
+  not count them: it builds the parent as text and writes no `..` at all, which
+  is what [the Neovim bundle](../bundles/neovim.md) does from three directories
+  down.
+- A bundle whose configuration is a programming language has a failure mode no
+  other bundle has: the call that loads the generated file decides whether the
+  rest of the configuration runs. `loadfile` is the call that reports rather
+  than raises, and it is the one such a bundle uses.
 - The SwayNC configuration file is prescribed, not generated. It has no include
   to reach a rendered fragment through, and the only route to a generated copy
   is `swaync -c <path>` written into a compositor line that expands
@@ -342,6 +427,10 @@ What becomes harder:
 - `tests/rofi.bats` proves the exception: it asserts that neither path of the
   Rofi bundle is relative and that neither names the state directory, and it
   follows both through the bridge under a non-default `XDG_STATE_HOME`.
+- `tests/nvim.bats` proves the other exception: it resolves both the `..` form
+  and the lexical form inside a running editor and asserts which one reaches
+  the bridge, and it asserts that a missing generated file leaves the rest of
+  `init.lua` running and reports itself on standard error and in `:messages`.
 
 ## More information
 
