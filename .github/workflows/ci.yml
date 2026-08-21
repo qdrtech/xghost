@@ -46,6 +46,17 @@ jobs:
       - name: Report the bats version
         run: bats --version
 
+      # GTK 3 for Python. Without it every test that asks GTK what it parsed
+      # skips, and those are the tests that read the one thing no file in this
+      # repository can answer: what GTK keeps and what it drops.
+      # docs/bundles/supporting.md lists the tests that still skip here.
+      - name: Install GTK 3 for Python
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y python3-gi gir1.2-gtk-3.0
+          python3 -c 'import gi; gi.require_version("Gtk", "3.0"); from gi.repository import Gtk; print(Gtk.get_major_version(), Gtk.get_minor_version())'
+
       # The fixture directory holds command files today, so this step proves
       # the lint pass against real content.
       - name: Lint the fixture command metadata
@@ -66,4 +77,21 @@ jobs:
           fi
 
       - name: Run the test suite
-        run: bats --print-output-on-failure tests
+        run: |
+          set -euo pipefail
+          bats --print-output-on-failure tests | tee "$RUNNER_TEMP/tap.txt"
+
+      # TAP marks a skip on the line of the test and prints no count at the
+      # end, so a run whose skip set grew reads exactly like one whose skip set
+      # did not. This step prints the count. The suites assert their own skip
+      # budgets; this is what a reader of the log sees.
+      - name: Report the tests that skipped
+        if: always()
+        run: |
+          set -uo pipefail
+          if [ ! -f "$RUNNER_TEMP/tap.txt" ]; then
+            echo "the test suite wrote no report"
+            exit 0
+          fi
+          printf '%s tests skipped:\n' "$(grep -c '# skip' "$RUNNER_TEMP/tap.txt" || true)"
+          grep '# skip' "$RUNNER_TEMP/tap.txt" || true

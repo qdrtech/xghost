@@ -383,25 +383,60 @@ SUITE=tests/supporting.bats
 SETTINGS=config/gtk-3.0/settings.ini
 STYLE=config/gtk-3.0/gtk.css
 GTK_TEMPLATE=templates/gtk/colors.css
+SHADE=config/hyprshade/config.toml
+YAY=config/yay/config.json
 BASE_MANIFEST=install/packages/base.txt
 AUR_MANIFEST=install/packages/aur.txt
 
 # A key of the template is renamed. The render still succeeds, because the
 # palette name on the right is untouched, and the generated file still defines
-# ten colours. One of them is now called something the style sheet never names,
-# so every widget that drew with the background of the theme quietly goes back
-# to the background of the stock theme.
+# the same number of colours. One of them is now called something the style
+# sheet never names, so every widget that drew with the background of the theme
+# quietly goes back to the background of the stock theme.
 m_template_key_renamed() {
 	substitute "$GTK_TEMPLATE" '@define-color bg @BG@;' '@define-color background @BG@;'
 }
 
-# Two rows of the map are swapped. Every name is still defined, every value is
+# A colour is added to the template and nothing reads it. The render succeeds
+# and every style sheet still resolves, so only the direction nobody used to
+# test sees it: a palette name that reaches no window and that no page records
+# as one.
+m_template_gains_a_colour_nobody_reads() {
+	substitute "$GTK_TEMPLATE" '@define-color success @SUCCESS@;' \
+		'@define-color success @SUCCESS@;
+@define-color info @ACCENT@;'
+}
+
+# One row of the map is swapped. Every name is still defined, every value is
 # still a reference, and the sheet still parses, so a test that read the file
 # rather than the colours at the end of it sees nothing wrong. A selected row
 # is now drawn in the colour of an error.
 m_map_rows_swapped() {
 	substitute "$STYLE" '@define-color theme_selected_bg_color @accent;' \
 		'@define-color theme_selected_bg_color @error;'
+}
+
+# The same swap, applied to a name and its unfocused twin at once. The twins
+# stay consistent, so the twin test is satisfied, and the selection is red on
+# every machine. The first version of this suite passed this mutation: the
+# read-back test held a list of eleven pairs written by hand, and a swap of
+# both halves left every one of them true.
+m_both_selection_twins_diverge() {
+	substitute "$STYLE" '@define-color accent_bg_color @accent;' \
+		'@define-color accent_bg_color @error;'
+	substitute "$STYLE" '@define-color theme_selected_bg_color @accent;' \
+		'@define-color theme_selected_bg_color @error;'
+	substitute "$STYLE" '@define-color theme_unfocused_selected_bg_color @accent;' \
+		'@define-color theme_unfocused_selected_bg_color @error;'
+}
+
+# A name the hand-written list never held is repointed. Nothing is missing and
+# nothing is dropped; a widget that cannot be used is drawn in the colour of an
+# error. The first version of this suite passed this mutation as well, which is
+# why the pair table is now derived from the sheet and counted against it.
+m_an_unlisted_name_is_repointed() {
+	substitute "$STYLE" '@define-color unfocused_insensitive_color @text_muted;' \
+		'@define-color unfocused_insensitive_color @error;'
 }
 
 # One half of the map stops following the other. The unfocused twin is still
@@ -411,6 +446,32 @@ m_map_rows_swapped() {
 m_unfocused_twin_diverges() {
 	substitute "$STYLE" '@define-color theme_unfocused_bg_color @bg;' \
 		'@define-color theme_unfocused_bg_color @surface;'
+}
+
+# A name leaves the map. The sheet parses, every value that is left resolves,
+# and the count the tests derive falls with it, so only the page says that
+# something went. adw-gtk3 then draws the window of every application in the
+# background of the stock theme.
+m_a_libadwaita_name_leaves_the_sheet() {
+	substitute "$STYLE" '@define-color window_bg_color @bg;
+' ''
+}
+
+# The border goes back to the colour of the surface it is drawn on. It is a
+# palette name, it is a reference and not a colour, the sheet parses and GTK
+# holds it. It measures 1.00 against a list and it cannot be seen. This is the
+# first version of this bundle, and every test of it passed.
+m_the_border_holds_the_surface_again() {
+	substitute "$STYLE" '@define-color borders alpha(@text, 0.15);' \
+		'@define-color borders @surface;'
+	substitute "$STYLE" '@define-color unfocused_borders alpha(@text, 0.15);' \
+		'@define-color unfocused_borders @surface;'
+}
+
+# A widget that cannot be used goes back to the surface of one that can.
+m_the_disabled_surface_holds_the_base_again() {
+	substitute "$STYLE" '@define-color insensitive_bg_color mix(@surface, @text, 0.08);' \
+		'@define-color insensitive_bg_color @surface;'
 }
 
 # The settings file asks for the theme the dotfiles asked for. It is spelled
@@ -429,12 +490,66 @@ m_manifest_drops_the_theme_package() {
 		'# adw-gtk-theme               #'
 }
 
+# The cursor of GTK parts company with the cursor of the compositor. Both files
+# parse and both settings are valid, and the pointer changes size as it crosses
+# from a GTK window to the rest of the session.
+m_cursor_size_diverges() {
+	substitute "$SETTINGS" 'gtk-cursor-theme-size=24' 'gtk-cursor-theme-size=32'
+}
+
+# A second schedule is planted where hyprshade reads before it reads the
+# prescribed one. The file is valid TOML and a valid schedule, the linker still
+# places every directory, and hyprshade applies this one instead in silence.
+m_a_schedule_is_planted_in_the_hypr_directory() {
+	printf '[[shades]]\nname = "vibrance"\nstart_time = 09:00:00\n' \
+		>"$WORK/case/config/hypr/hyprshade.toml"
+}
+
+# The schedule loses its start time. The file is still valid TOML and hyprshade
+# still parses it; its validator is what refuses it, and a shade with no start
+# time is never applied.
+m_the_schedule_loses_its_start_time() {
+	substitute "$SHADE" 'start_time = 20:30:00
+' ''
+}
+
+# The schedule names a shader by path instead of by name. It is a path that
+# exists on the machine this was written on, and on no other, so the schedule
+# stops being one any machine can satisfy.
+m_the_schedule_names_a_path() {
+	substitute "$SHADE" 'name = "blue-light-filter"' \
+		'name = "/usr/share/hyprshade/shaders/blue-light-filter.glsl"'
+}
+
 # hyprshade moves to the manifest pacman installs. Every name is still
 # declared, the installation still finishes, and pacman then reports a package
 # it cannot find on every machine.
 m_hyprshade_moves_to_the_official_manifest() {
 	substitute "$AUR_MANIFEST" $'\nhyprshade\n' $'\n'
 	substitute "$BASE_MANIFEST" $'\nrofi\n' $'\nrofi\nhyprshade\n'
+}
+
+# The AUR helper gains a second setting. The file is valid JSON, yay reads it,
+# and the page that is supposed to record every setting of it records one.
+m_yay_gains_a_second_setting() {
+	substitute "$YAY" '  "cleanAfter": true' '  "cleanAfter": true,
+  "removeMake": true'
+}
+
+# ImageMagick comes back into the manifest. The name is spelled correctly and
+# the package exists, so the installation succeeds and every machine carries a
+# dependency that lib/background.py replaced.
+m_manifest_declares_imagemagick() {
+	substitute "$BASE_MANIFEST" $'\nrofi\n' $'\nrofi\nimagemagick\n'
+}
+
+# A test gains a skip. It is a real guard for a real dependency, it is written
+# the way the other six are written, and the suite goes on reporting that
+# everything passed on a machine where one more thing was never read.
+m_a_test_gains_a_skip() {
+	substitute "$SUITE" '@test "the cursor size of GTK is the cursor size of the compositor" {' \
+		'@test "the cursor size of GTK is the cursor size of the compositor" {
+	command -v gsettings >/dev/null || skip "this machine has no gsettings"'
 }
 
 # The line the shell bundle dropped comes back. It is valid zsh, it is guarded,
@@ -448,18 +563,39 @@ m_the_pywal_block_comes_back() {
 control "a key of the GTK template is renamed" \
 	"every colour the style sheet names is defined by the generated palette" \
 	m_template_key_renamed
-control "two rows of the map are swapped" \
+control "the GTK template gains a colour no style sheet reads" \
+	"every colour the generated palette defines is used or recorded as unused" \
+	m_template_gains_a_colour_nobody_reads
+control "one row of the map is swapped" \
 	"the widget colours GTK holds are the colours of the active theme" \
 	m_map_rows_swapped
+control "a selection and its unfocused twin are swapped together" \
+	"the widget colours GTK holds are the colours of the active theme" \
+	m_both_selection_twins_diverge
+control "a name no hand-written list held is repointed" \
+	"the widget colours GTK holds are the colours of the active theme" \
+	m_an_unlisted_name_is_repointed
 control "the unfocused half of the map stops following the focused half" \
 	"a window that does not hold the focus draws in the same colours" \
 	m_unfocused_twin_diverges
+control "a libadwaita name leaves the style sheet" \
+	"the map the bundle page records is the map the style sheet defines" \
+	m_a_libadwaita_name_leaves_the_sheet
+control "the border holds the colour of the surface it is drawn on" \
+	"the border of every theme is visible on both surfaces of it" \
+	m_the_border_holds_the_surface_again
+control "a widget that cannot be used holds the surface of one that can" \
+	"the border of every theme is visible on both surfaces of it" \
+	m_the_disabled_surface_holds_the_base_again
 control "the settings file names a theme no manifest installs" \
 	"every theme the settings file names is a theme a manifest installs" \
 	m_settings_names_a_theme_nobody_installs
 control "the manifest drops the package that ships the theme" \
 	"every theme the settings file names is a theme a manifest installs" \
 	m_manifest_drops_the_theme_package
+control "the cursor of GTK parts company with the cursor of the compositor" \
+	"the cursor size of GTK is the cursor size of the compositor" \
+	m_cursor_size_diverges
 # The same mutation, read by the cross-check that lives with the installer.
 # That test reads the package table of every bundle page, so this is what says
 # the table of the new page is one of the tables it reads.
@@ -468,9 +604,27 @@ control "the manifest drops the package the new bundle page lists" \
 	"the manifests declare every package a bundle page lists" \
 	m_manifest_drops_the_theme_package
 SUITE=tests/supporting.bats
+control "a second schedule is planted where hyprshade reads first" \
+	"the hyprshade schedule is the file hyprshade reads" \
+	m_a_schedule_is_planted_in_the_hypr_directory
+control "the schedule loses its start time" \
+	"the hyprshade schedule satisfies the rules hyprshade validates" \
+	m_the_schedule_loses_its_start_time
+control "the schedule names a shader by path" \
+	"the shader the schedule names is one hyprshade itself ships" \
+	m_the_schedule_names_a_path
 control "hyprshade is declared for pacman rather than for a helper" \
 	"hyprshade is declared by the AUR manifest and by no other" \
 	m_hyprshade_moves_to_the_official_manifest
+control "the AUR helper gains a second setting" \
+	"the yay configuration is the one setting the bundle page names" \
+	m_yay_gains_a_second_setting
+control "a manifest declares ImageMagick again" \
+	"no manifest declares imagemagick" \
+	m_manifest_declares_imagemagick
+control "a test gains a skip nobody wrote down" \
+	"the tests that can skip are the ones the bundle page lists" \
+	m_a_test_gains_a_skip
 control "the pywal block of the dotfiles comes back into the zshrc" \
 	"the prescribed zshrc reads no cache of a colour generator" \
 	m_the_pywal_block_comes_back
@@ -479,24 +633,33 @@ control "the pywal block of the dotfiles comes back into the zshrc" \
 	m_the_pywal_block_comes_back
 
 #
-# The supporting bundles: the weaker control.
+# The supporting bundles: the weaker controls.
 #
-# The test below records what GTK does with a relative import when the path it
-# was given holds a symbolic link. No change to this project can make GTK
-# resolve that path differently, so no mutation of the sources can break it,
-# and the control mutates the assertion instead. That proves the assertion runs
-# and is compared. It does not prove the test is sensitive to this project,
-# because it is not: it is a record of GTK.
+# The two tests below record what GTK does: how it resolves a relative import
+# when the path it was given holds a symbolic link, and what it keeps when that
+# import fails. No change to this project can make GTK do either of those
+# differently, so no mutation of the sources can break them, and the controls
+# mutate the assertion instead. That proves the assertion runs and is compared.
+# It does not prove the test is sensitive to this project, because it is not:
+# it is a record of GTK.
 #
 
 m_flip_the_gtk_resolution_assertion() {
 	substitute "$SUITE" '	[[ $output != *DECOY* ]]' '	[[ $output == *DECOY* ]]'
 }
 
+m_flip_the_null_error_assertion() {
+	substitute "$SUITE" '	[ "$first" = "return 1" ] || {' \
+		'	[ "$first" = "return 0" ] || {'
+}
+
 printf '\n'
 control "the recorded GTK behaviour is asserted the other way round" \
 	"GTK reads the bridge and not a file at the real path" \
 	m_flip_the_gtk_resolution_assertion
+control "the recorded result of a failed import is asserted the other way round" \
+	"a palette that is not there leaves every definition kept and reaching nothing" \
+	m_flip_the_null_error_assertion
 
 printf '\n%s: %d controls held, %d did not\n' "$PROGRAM" "$PASSED" "$FAILED"
 if [ "$FAILED" -gt 0 ]; then

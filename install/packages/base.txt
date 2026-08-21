@@ -116,7 +116,7 @@ rofi
 # so this project chose it.
 adw-gtk-theme                 # adw-gtk3-dark, the widget theme
 papirus-icon-theme            # Papirus-Dark, the icon theme
-default-cursors               # the 'default' cursor theme
+default-cursors               # the name 'default', redirected to Adwaita
 
 # The screen shader. Nothing is here for it: hyprshade is in aur.txt beside
 # this file, and the shader it applies is one the package itself ships.
