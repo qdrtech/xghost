@@ -1154,6 +1154,355 @@ control "the recorded resolution of '..' is asserted the other way round" \
 	"a '..' path from the config directory reaches the checkout and not the bridge" \
 	m_flip_the_dotdot_assertion
 
+#
+# The doctor. Deleted guards first, then perturbed inputs.
+#
+# A doctor is a report, and a report that says nothing passes "the command
+# succeeded" every time. So every verdict this command can print has a control
+# here: the ones that name a fault, the ones that count them, and the one that
+# decides the exit status from that count.
+#
+
+SUITE=tests/doctor.bats
+DOCTOR=lib/doctor.sh
+
+#
+# Deleted guards.
+#
+
+# Criterion 1. A doctor that always ends 0 passes a careless suite perfectly.
+m_the_doctor_always_ends_well() {
+	substitute "$DOCTOR" '	if [ "$DOCTOR_PROBLEMS" -eq 1 ]; then
+		doctor_say "1 problem"
+	else
+		doctor_say "$DOCTOR_PROBLEMS problems"
+	fi
+	return 1' '	if [ "$DOCTOR_PROBLEMS" -eq 1 ]; then
+		doctor_say "1 problem"
+	else
+		doctor_say "$DOCTOR_PROBLEMS problems"
+	fi
+	return 0'
+}
+
+# Criterion 1. The problems are printed and none of them is counted, so the
+# report reads exactly as before and the number at the end is always zero.
+m_no_problem_is_counted() {
+	substitute "$DOCTOR" '	DOCTOR_PROBLEMS=$((DOCTOR_PROBLEMS + 1))
+	printf' '	printf'
+}
+
+# Criterion 8. The checks stop at the first one that reports a problem. This is
+# the failure the criterion exists for: the output still looks like a report,
+# and every check after the first fault is missing from it.
+m_the_first_fault_ends_the_run() {
+	substitute "$DOCTOR" '	doctor_check_project || true
+	doctor_check_prescribed || true
+	doctor_check_packages || true
+	doctor_check_generated || true
+	doctor_check_links || true' '	doctor_check_project &&
+		doctor_check_prescribed &&
+		doctor_check_packages &&
+		doctor_check_generated &&
+		doctor_check_links'
+}
+
+# Criterion 2. The status of the checkout is never read, so no modified
+# prescribed file is ever named.
+m_the_prescribed_status_is_not_read() {
+	substitute "$DOCTOR" '	while IFS= read -r -d '"'"''"'"' entry; do' '	while false && IFS= read -r -d '"'"''"'"' entry; do'
+}
+
+# Criterion 2. A checkout git cannot read reads as a checkout with nothing
+# changed, which is the one answer that is never safe to give.
+m_an_unreadable_checkout_reads_as_clean() {
+	substitute "$DOCTOR" '	if ! top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || [ -z "$top" ]; then
+		doctor_problem "not checked: $dir is not inside a git working tree, so a modified prescribed file cannot be found"' '	top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || top=$dir
+	if false; then
+		doctor_problem "not checked: $dir is not inside a git working tree, so a modified prescribed file cannot be found"'
+}
+
+# Criterion 3. A query that could not answer reads as a machine with every
+# package installed.
+m_a_failed_query_reads_as_nothing_missing() {
+	substitute "$DOCTOR" '	if ! report=$(doctor_missing_packages "${packages[@]}"); then
+		doctor_problem "not checked: the packages this machine is missing could not be read"' '	report=$(doctor_missing_packages "${packages[@]}") || report=
+	if false; then
+		doctor_problem "not checked: the packages this machine is missing could not be read"'
+}
+
+# Criterion 3. The query stops being injected and the package manager of the
+# machine running the suite is asked directly.
+m_the_package_query_is_not_injected() {
+	substitute "$DOCTOR" '	if [ -n "${XGHOST_DOCTOR_PACKAGE_QUERY:-}" ]; then
+		"$XGHOST_DOCTOR_PACKAGE_QUERY" "$@"
+		return
+	fi
+	install_missing_packages "$@"' '	install_missing_packages "$@"'
+}
+
+# Criterion 4. The two trees are never compared, so no output is ever stale.
+m_the_output_is_never_compared() {
+	substitute "$DOCTOR" '	if [ "${#missing[@]}" -eq 0 ] && [ "${#different[@]}" -eq 0 ] &&
+		[ "${#extra[@]}" -eq 0 ]; then' '	if true; then'
+}
+
+# Criterion 4. The wallpaper file is left out of the fresh tree, so a healthy
+# machine is reported as holding a file no render produces.
+m_the_wallpaper_is_left_out_of_the_render() {
+	substitute "$DOCTOR" '	if ! theme_write_wallpaper "$work/tree"; then' '	if false && ! theme_write_wallpaper "$work/tree"; then'
+}
+
+# Criterion 5. A link that points somewhere else is accepted as a link that is
+# in place.
+m_a_link_that_points_elsewhere_is_accepted() {
+	substitute "$DOCTOR" '		if ! linker_link_matches "$destination" "$source"; then' '		if false; then'
+}
+
+# Criterion 5. A link that is not there is passed over.
+m_a_missing_link_is_passed_over() {
+	substitute "$DOCTOR" '		if [ ! -e "$destination" ] && [ ! -L "$destination" ]; then
+			found=$((found + 1))
+			doctor_problem "missing: $destination is not there; it should link to $source"
+			continue
+		fi' '		if [ ! -e "$destination" ] && [ ! -L "$destination" ]; then
+			continue
+		fi'
+}
+
+# Criterion 5. A link whose target is gone reads as a link that is in place.
+m_a_link_with_no_target_is_accepted() {
+	substitute "$DOCTOR" '		if [ ! -e "$source" ]; then
+			found=$((found + 1))
+			doctor_problem "the target is gone: $destination links to $source, and nothing is there"
+			continue
+		fi' '		if false; then
+			continue
+		fi'
+}
+
+# Criterion 5. The bridge is dropped from the report. No prescribed entry
+# stands behind it, so a check that read the prescribed directory alone would
+# never look at it, and every relative include resolves through it.
+m_the_bridge_is_not_checked() {
+	substitute "$DOCTOR" '	if ! doctor_record_holds "$LINKER_CONFIG_HOME/$LINKER_BRIDGE_NAME"; then
+		found=$((found + 1))' '	if false; then
+		found=$((found + 1))'
+}
+
+# Criterion 5. A prescribed entry that was never linked is not reported,
+# because the link record does not hold what the linker never created.
+m_an_unlinked_entry_is_not_reported() {
+	substitute "$DOCTOR" '			if doctor_record_holds "$LINKER_CONFIG_HOME/$base"; then
+				continue
+			fi' '			if true; then
+				continue
+			fi'
+}
+
+# Criterion 7. The report is coloured whether or not anybody is at a terminal.
+m_the_report_is_always_coloured() {
+	substitute "$DOCTOR" '	if [ -t 1 ]; then
+		DOCTOR_COLOUR=yes
+	else
+		DOCTOR_COLOUR=no
+	fi' '	DOCTOR_COLOUR=yes'
+}
+
+# Criterion 7. The colour is decided by testing whether /dev/tty can be read.
+# That test answers yes inside a process with no controlling terminal at all,
+# because /dev/tty is mode 0666, so the report carries colour down a pipe.
+m_the_colour_is_decided_by_dev_tty() {
+	substitute "$DOCTOR" '	if [ -t 1 ]; then
+		DOCTOR_COLOUR=yes
+	else
+		DOCTOR_COLOUR=no
+	fi' '	if [ -r /dev/tty ]; then
+		DOCTOR_COLOUR=yes
+	else
+		DOCTOR_COLOUR=no
+	fi'
+}
+
+# Criterion 8, inside one section. The three lines of the first section stop at
+# the first of them that reports a fault, so a checkout git cannot read takes
+# the theme and the machine facts down with it.
+m_the_first_fact_ends_the_section() {
+	substitute "$DOCTOR" '	doctor_report_version || status=1
+	doctor_report_theme || status=1
+	doctor_report_facts || status=1' '	doctor_report_version &&
+		doctor_report_theme &&
+		doctor_report_facts || status=1'
+}
+
+# Criterion 6. A version number is invented, which tells a reader that a
+# release exists for them to compare their machine against.
+m_the_version_is_invented() {
+	substitute "$DOCTOR" '	doctor_fact version "$version"' '	doctor_fact version "1.0.0"'
+}
+
+# Criterion 6. A machine facts file that cannot be read is passed over.
+m_broken_machine_facts_are_passed_over() {
+	substitute "$DOCTOR" '	if ! facts_load "$file"; then
+		doctor_problem "the machine facts cannot be read"' '	if false; then
+		doctor_problem "the machine facts cannot be read"'
+}
+
+#
+# Perturbed inputs. Nothing is deleted here. Every file still parses, every
+# command still succeeds, and the report still has the shape it had.
+#
+
+# Criterion 2. The pathspec becomes the whole checkout, so a change to a file
+# the project never prescribed is reported as a modified prescribed file.
+m_the_pathspec_is_the_whole_checkout() {
+	substitute "$DOCTOR" '	if ! git -C "$dir" status --porcelain -z -- . >"$report" 2>/dev/null; then' '	if ! git -C "$top" status --porcelain -z >"$report" 2>/dev/null; then'
+}
+
+# Criterion 4. The comparison reads the names of the files and not their bytes,
+# so a generated file somebody edited by hand reads as one the render produced.
+m_the_comparison_reads_names_and_not_bytes() {
+	substitute "$DOCTOR" '	cmp -s -- "$left" "$right"
+}' '	[ -e "$left" ] && [ -e "$right" ]
+}'
+}
+
+# Criterion 4. The knobs are left out of the render, so the third input of the
+# renderer moves and the comparison never notices.
+m_the_knobs_are_left_out_of_the_render() {
+	substitute "$DOCTOR" '	if ! render_tree "$XGHOST_TEMPLATE_DIR" "$theme_dir" "$facts_file" \
+		"$XGHOST_KNOBS_SCHEMA" "$knobs_file" "$work/tree"; then' '	if ! render_tree "$XGHOST_TEMPLATE_DIR" "$theme_dir" "$facts_file" \
+		"$XGHOST_KNOBS_SCHEMA" "" "$work/tree"; then'
+}
+
+# Criterion 4. A generated file that is not there is counted as one the render
+# does not produce. Both are differences and the report still ends non-zero, so
+# only an assertion that reads the words tells them apart.
+m_a_missing_output_file_is_called_extra() {
+	substitute "$DOCTOR" '			missing+=("$relative")
+			continue' '			extra+=("$relative")
+			continue'
+}
+
+# Criterion 6. The monitor summary becomes the count alone, which is a summary
+# that still reads like one.
+m_the_monitors_are_not_listed() {
+	substitute "$DOCTOR" '	if [[ $count =~ ^[0-9]+$ ]] && [ "$count" -le "$DOCTOR_MONITOR_LIMIT" ]; then' '	if false; then'
+}
+
+# Criterion 6. A machine fact the file never recorded is reported with the word
+# detection writes for a fact it read and could not determine. The two are
+# different states and this makes them one word.
+m_not_recorded_reads_as_unknown() {
+	substitute "$DOCTOR" "	printf 'not recorded'" "	printf 'unknown'"
+}
+
+# Criterion 5. The three faults of a link share one word, so a reader cannot
+# tell which of them their machine has.
+m_the_link_faults_share_one_word() {
+	substitute "$DOCTOR" '			doctor_problem "points elsewhere: $destination links to $target; the record says $source"' '			doctor_problem "broken: $destination links to $target; the record says $source"'
+}
+
+printf '\n'
+control "the doctor always ends well however many problems it found" \
+	"a doctor that found problems never ends 0" \
+	m_the_doctor_always_ends_well
+control "the doctor always ends well however many problems it found" \
+	"one thing wrong ends non-zero and is counted as one problem" \
+	m_the_doctor_always_ends_well
+control "no problem is counted, so the number at the end is always zero" \
+	"the number the report ends with is the number of problems it holds" \
+	m_no_problem_is_counted
+control "the first fault ends the run and hides every check after it" \
+	"five faults at once are all five reported" \
+	m_the_first_fault_ends_the_run
+control "the first fault ends the run and hides every check after it" \
+	"a check that cannot run at all does not hide the checks after it" \
+	m_the_first_fault_ends_the_run
+control "the first fault ends the run and hides every check after it" \
+	"every section of the report is present however much is broken" \
+	m_the_first_fault_ends_the_run
+control "the status of the checkout is never read" \
+	"a prescribed file modified in the checkout is reported by its path" \
+	m_the_prescribed_status_is_not_read
+control "the status of the checkout is never read" \
+	"a prescribed file edited through the link is reported, because the link reaches the checkout" \
+	m_the_prescribed_status_is_not_read
+control "a checkout git cannot read is reported as a checkout with nothing changed" \
+	"a checkout that is not a git working tree reports that it could not check, and never that nothing is modified" \
+	m_an_unreadable_checkout_reads_as_clean
+control "a package query that could not answer reads as nothing missing" \
+	"a query that cannot answer is reported as not checked, and never as nothing missing" \
+	m_a_failed_query_reads_as_nothing_missing
+control "the package query stops being injected and the package manager is asked directly" \
+	"the package query is injected, and the package manager of this machine is never called" \
+	m_the_package_query_is_not_injected
+control "the generated output is never compared against a fresh render" \
+	"a generated file edited by hand is reported as different, by path" \
+	m_the_output_is_never_compared
+control "the generated output is never compared against a fresh render" \
+	"a knob the user changed after the render makes the output stale" \
+	m_the_output_is_never_compared
+control "the wallpaper file is left out of the fresh tree" \
+	"output that matches a fresh render is reported as matching, with the file count" \
+	m_the_wallpaper_is_left_out_of_the_render
+control "a link that points somewhere else is accepted" \
+	"a link that points somewhere else is reported as pointing elsewhere, with both targets" \
+	m_a_link_that_points_elsewhere_is_accepted
+control "a link that is not there is passed over" \
+	"a link that was removed is reported as missing" \
+	m_a_missing_link_is_passed_over
+control "a link whose target is gone is accepted as one that is in place" \
+	"a link whose target is gone is reported as a link with no target" \
+	m_a_link_with_no_target_is_accepted
+control "the bridge to the generated output is dropped from the report" \
+	"a bridge that is in no link record is reported, and no prescribed entry stands behind it" \
+	m_the_bridge_is_not_checked
+control "a prescribed entry that was never linked is not reported" \
+	"a prescribed entry that was never linked is reported as not linked" \
+	m_an_unlinked_entry_is_not_reported
+control "the report is coloured whether or not anybody is at a terminal" \
+	"a report written to a pipe carries no escape sequence" \
+	m_the_report_is_always_coloured
+control "the report is coloured whether or not anybody is at a terminal" \
+	"a report written to a file carries no escape sequence" \
+	m_the_report_is_always_coloured
+control "the colour is decided by reading /dev/tty, which lies with no terminal" \
+	"a report written to a pipe carries no escape sequence" \
+	m_the_colour_is_decided_by_dev_tty
+control "the first line of the section ends it and hides the two below" \
+	"a version that cannot be read does not hide the theme and the machine facts beside it" \
+	m_the_first_fact_ends_the_section
+control "a version number is invented" \
+	"the version is the commit of this checkout, and no invented release number" \
+	m_the_version_is_invented
+control "a machine facts file that cannot be read is passed over" \
+	"machine facts that are not there are reported, and the file is named" \
+	m_broken_machine_facts_are_passed_over
+
+printf '\n'
+control "the pathspec becomes the whole checkout" \
+	"a change outside the prescribed directory is not a modified prescribed file, and the version says the checkout is dirty" \
+	m_the_pathspec_is_the_whole_checkout
+control "the comparison reads the names of the files and not their bytes" \
+	"a generated file edited by hand is reported as different, by path" \
+	m_the_comparison_reads_names_and_not_bytes
+control "the knobs are left out of the render" \
+	"a knob the user changed after the render makes the output stale" \
+	m_the_knobs_are_left_out_of_the_render
+control "a generated file that is not there is called one no render produces" \
+	"a generated file that was deleted is reported as missing, by path" \
+	m_a_missing_output_file_is_called_extra
+control "the monitor summary becomes the count alone" \
+	"the report summarises the machine facts it found" \
+	m_the_monitors_are_not_listed
+control "a fact the file never recorded is reported as one detection could not read" \
+	"a machine fact the file never recorded is told apart from one that is unknown" \
+	m_not_recorded_reads_as_unknown
+control "the three faults of a link share one word" \
+	"the three faults of a link are told apart in one report" \
+	m_the_link_faults_share_one_word
+
 printf '\n%s: %d controls held, %d did not\n' "$PROGRAM" "$PASSED" "$FAILED"
 if [ "$FAILED" -gt 0 ]; then
 	exit 1

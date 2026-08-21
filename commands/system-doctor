@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+#
+# Report whether this installation is healthy.
+#
+# The checks are in lib/doctor.sh, and docs/doctor.md records what each one
+# means, what "stale" is defined as, and what that definition cannot detect.
+#
+# The command is 'xghost system doctor' and not 'xghost doctor'. The dispatcher
+# routes <group> <verb>, and a hyphen-free file name has no group and no verb.
+# 'xghost system update' set that precedent in the same group, and
+# docs/updating.md records the decision and the two that were rejected.
+#
+# It reads. The one thing it writes is a temporary directory to render the
+# active theme into, and it removes that directory again.
+#
+# @xghost-meta
+# summary: Report whether this installation is healthy.
+# example: xghost system doctor
+# example: xghost system doctor >doctor.txt 2>&1
+# elevated: no
+# internal: no
+# @end-xghost-meta
+
+set -euo pipefail
+
+COMMAND_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+# shellcheck source=../lib/doctor.sh
+. "${COMMAND_PATH%/*}/../lib/doctor.sh"
+
+doctor_main "$@"
