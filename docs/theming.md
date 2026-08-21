@@ -339,7 +339,11 @@ mention is added to the output.
 The file may be a symbolic link, which is the natural shape for a theme whose
 upstream is a stow-managed dotfiles repository. The renderer reads through the
 link and writes a real file into the output. A link that points at nothing fails
-the render and is named. Following a link never carries a write out of the
+the render and is named. A link that points at a directory fails the render and
+is named as well: the output holds a copy of the file, so a theme ships a file
+here, or a link to one, and nothing else. A directory that is not a link is not
+a file the theme ships at all, and the template of that path is rendered as
+usual. Following a link never carries a write out of the
 output: the renderer resolves the directory it is about to write into and
 refuses any path that lands outside.
 

@@ -114,7 +114,11 @@ for set in $KNOB_SETS; do
 		[ -n "$theme" ] || continue
 		state=$WORK_DIR/state/$set/$theme
 		mkdir -p "$state"
-		XDG_STATE_HOME=$state "$XGHOST" theme set "$theme" >/dev/null ||
+		# XGHOST_RELOAD=no because 'theme set' ends in reload_all since issue
+		# #24, and this script is run by hand on a machine whose desktop is
+		# live. tests/setup_suite.bash covers 'bats tests'; it does not cover
+		# this script, which bats never loads.
+		XGHOST_RELOAD=no XDG_STATE_HOME=$state "$XGHOST" theme set "$theme" >/dev/null ||
 			die "cannot render the theme '$theme' with the '$set' knobs. tests/golden is unchanged."
 		mkdir -p "$STAGE_DIR/$set/$theme"
 		cp -R "$state/xghost/generated/." "$STAGE_DIR/$set/$theme/"
