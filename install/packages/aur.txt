@@ -3,22 +3,29 @@
 # The packages an xghost desktop needs that no official Arch repository carries.
 # The format is the format of base.txt beside this file.
 #
-# This file declares no package today, and that is a fact about this
-# installation rather than a gap in it: every package the two bundles need is in
-# core or extra. hyprshot is the one the bundle page and the dotfiles both call
-# an AUR package, and 'pacman -Si hyprshot' answers 'extra', so it is in
-# base.txt with the rest.
+# The file is a second manifest rather than a marked line in base.txt because
+# the repository a package comes from decides which tool installs it, and a
+# comment is text the parser drops. Text the parser drops must never be what
+# decides which program runs against a package name.
 #
-# The file and its packaging step stay, because the repository a package comes
-# from decides which tool installs it, and a later bundle will name one that
-# only the AUR carries: hyprshade, which issue #17 owns, has no official package
-# at all. Expressing that as a second manifest rather than as a marked line in
-# base.txt keeps the decision out of a comment. A comment is text the parser
-# drops, so a comment must never be what decides which program runs against a
-# package name.
+# The base installation still requires no AUR helper. A machine with no helper
+# gets every package of base.txt, which is a complete working desktop: the
+# terminal, the compositor, the bar, the launcher, the shell, and the GTK theme
+# and icon theme that config/gtk-3.0/settings.ini names. The packaging step
+# therefore names each package below that it did not install, says what it
+# serves, and lets the installation finish. xghost installs no AUR helper by
+# itself, because that would mean building a PKGBUILD nobody vetted on a
+# machine that asked for a desktop.
 #
-# The base installation therefore requires no AUR helper. When this file names a
-# package and no helper is installed, the packaging step names that package,
-# says what it serves, and lets the installation finish: xghost installs no AUR
-# helper by itself, because that would mean building a PKGBUILD nobody vetted on
-# a machine that asked for a desktop.
+# What is below has to be able to be missing. Nothing in this file may be
+# something the desktop needs to draw itself, because a machine with no helper
+# never gets it.
+
+# The screen shader, and the one program of this desktop no official repository
+# carries. 'pacman -Si hyprshade' finds nothing. docs/bundles/supporting.md.
+#
+# config/hyprshade/config.toml is the schedule it reads, and that file is
+# prescribed whether or not this package is installed: a schedule nothing reads
+# changes nothing, and prescribing it here is what makes the desktop identical
+# once a helper is on the machine.
+hyprshade

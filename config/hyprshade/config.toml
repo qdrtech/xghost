@@ -1,0 +1,25 @@
+# The hyprshade schedule of xghost.
+#
+# This file is prescribed configuration. The project owns it, and 'xghost
+# config link' symlinks the directory that holds it to ~/.config/hyprshade. Do
+# not edit it: an edit dirties the checkout and conflicts on the next pull. See
+# docs/adr/0001-prescribed-config-architecture.md.
+#
+# hyprshade reads three paths in order: $HYPRSHADE_CONFIG, then
+# $XDG_CONFIG_HOME/hypr/hyprshade.toml, then this file. The second one is
+# inside the directory this project links as config/hypr, and this project puts
+# no hyprshade.toml there, so this file is the one hyprshade reads.
+#
+# The shader is the one hyprshade itself ships, at
+# /usr/share/hyprshade/shaders/blue-light-filter.glsl. This project prescribes
+# no shader file of its own, so there is no name here that only this checkout
+# could satisfy.
+#
+# The schedule is applied by a systemd user timer, which xghost does not
+# install. docs/bundles/supporting.md records that gap and the two commands
+# that close it.
+
+[[shades]]
+name = "blue-light-filter"
+start_time = 20:30:00
+end_time = 06:00:00

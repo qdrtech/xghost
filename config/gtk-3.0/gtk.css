@@ -1,0 +1,147 @@
+/* The GTK 3 style sheet of xghost.
+ *
+ * This file is prescribed configuration. The project owns it, and 'xghost
+ * config link' symlinks the directory that holds it to ~/.config/gtk-3.0. Do
+ * not edit it: an edit dirties the checkout and conflicts on the next pull.
+ * See docs/adr/0001-prescribed-config-architecture.md.
+ *
+ * This file is where the active theme reaches GTK. settings.ini beside it
+ * names the widget theme, and GTK 3 resolves a named colour across every style
+ * provider, so a name this file defines outranks the same name in the theme.
+ *
+ * Which names those have to be was measured, because the obvious answer is
+ * wrong. The legacy 'theme_*' names are exported for applications to read.
+ * Parsed with GTK 3 and read back, stock Adwaita and Tokyonight-Dark carry
+ * zero rule-level references to any of them: the rules of both hold literal
+ * colours, so redefining one changes nothing either theme draws. adw-gtk3,
+ * which settings.ini names, is the libadwaita look ported to GTK 3 and draws
+ * with the libadwaita names, so those are the first block below and the legacy
+ * block after it is for the applications that read the old names.
+ * docs/bundles/supporting.md records the measurement and what is left of it
+ * unverified.
+ *
+ * This file defines no colour of its own. Every value on the right reaches the
+ * generated palette imported on the first line, so a theme switch changes
+ * every colour here and this file never changes at all. Two values are a CSS
+ * function over a palette name rather than a bare reference, and each one says
+ * below why it cannot be a bare reference.
+ *
+ * The import is relative, which is the form ADR 0002 chose. It was measured on
+ * this route rather than assumed: GTK resolves '..' against the path it was
+ * given, and it was given the path 'xghost config link' created, so '..' is
+ * the config directory of the user and 'xghost-generated' is the bridge there.
+ * A file planted at the resolved path inside the checkout is not read.
+ * docs/bundles/supporting.md records the measurement.
+ *
+ * An import that reaches nothing does NOT discard this file. GTK loads the
+ * user sheet with a NULL error pointer, and on that route the import fails,
+ * the load reports success, and every definition below is kept and can reach
+ * no value. A binding that passes a real error pointer raises instead and
+ * keeps nothing, which is a different result and not the one GTK takes. The
+ * page records both measurements and what a widget then draws.
+ */
+@import url("../xghost-generated/gtk/colors.css");
+
+/* --- the libadwaita names ---------------------------------------------------
+ *
+ * These are the names adw-gtk3 draws with. The palette of this project holds
+ * two dark surfaces, so the window takes the darker one and every raised
+ * surface takes the lighter one.
+ */
+
+/* The window, and the text on it. */
+@define-color window_bg_color @bg;
+@define-color window_fg_color @text;
+
+/* A list, a text entry, and every other content view. */
+@define-color view_bg_color @surface;
+@define-color view_fg_color @text;
+
+/* The raised surfaces: the header bar, the sidebar, a card, a popover and a
+ * dialogue. */
+@define-color headerbar_bg_color @surface;
+@define-color headerbar_fg_color @text;
+@define-color sidebar_bg_color @surface;
+@define-color sidebar_fg_color @text;
+@define-color card_bg_color @surface;
+@define-color card_fg_color @text;
+@define-color popover_bg_color @surface;
+@define-color popover_fg_color @text;
+@define-color dialog_bg_color @surface;
+@define-color dialog_fg_color @text;
+
+/* The accent. The foreground is the background of the desktop rather than its
+ * text colour: the text colour of both themes is light, and light on the
+ * accent is not readable. 'accent_color' is the accent as text, which is drawn
+ * on a window rather than on the accent. */
+@define-color accent_bg_color @accent;
+@define-color accent_fg_color @bg;
+@define-color accent_color @accent;
+
+/* The three status colours, as a filled surface. libadwaita reads the text
+ * form of the same three under the names 'warning_color', 'error_color' and
+ * 'success_color', which the legacy block below defines. */
+@define-color warning_bg_color @warn;
+@define-color warning_fg_color @bg;
+@define-color error_bg_color @error;
+@define-color error_fg_color @bg;
+@define-color success_bg_color @success;
+@define-color success_fg_color @bg;
+
+/* --- the legacy names -------------------------------------------------------
+ *
+ * GTK 3 themes export these for applications to read. No theme this project
+ * installs draws with them, so an application that reads them is the only
+ * consumer, and libadwaita exports the same set for the same reason.
+ */
+
+/* The widget surfaces. 'bg' is behind a widget, 'base' is behind a list or a
+ * text entry, and 'fg' and 'text' are what is drawn on each of the two. */
+@define-color theme_bg_color @bg;
+@define-color theme_base_color @surface;
+@define-color theme_fg_color @text;
+@define-color theme_text_color @text;
+
+/* The two names GTK 3 Adwaita exports for the background of a content view. */
+@define-color content_view_bg @surface;
+@define-color text_view_bg @surface;
+
+/* A selection. */
+@define-color theme_selected_bg_color @accent;
+@define-color theme_selected_fg_color @bg;
+
+/* A widget that cannot be used. The background is the content surface lifted
+ * towards the text colour, because a disabled entry that holds the content
+ * surface itself is the enabled entry exactly. The lift is a function rather
+ * than a palette name because the palette holds no third surface. */
+@define-color insensitive_bg_color mix(@surface, @text, 0.08);
+@define-color insensitive_base_color @surface;
+@define-color insensitive_fg_color @text_muted;
+
+/* The same surfaces and the same selection, for a window that does not hold
+ * the focus. They are the same values: this desktop draws no distinction
+ * between a focused window and an unfocused one, and leaving them out would
+ * leave every unfocused window in the colours of the stock theme. */
+@define-color theme_unfocused_bg_color @bg;
+@define-color theme_unfocused_base_color @surface;
+@define-color theme_unfocused_fg_color @text;
+@define-color theme_unfocused_text_color @text;
+@define-color theme_unfocused_selected_bg_color @accent;
+@define-color theme_unfocused_selected_fg_color @bg;
+@define-color unfocused_insensitive_color @text_muted;
+
+/* The line between two surfaces. The two surfaces of this palette are 1.10
+ * apart in contrast, so a border that holds either one of them is invisible on
+ * the other. libadwaita writes this border as
+ * 'color-mix(in srgb, currentColor 15%, transparent)', and GTK 3 has neither
+ * function in a colour definition, so this is the same fifteen percent of the
+ * text colour written the way GTK 3 takes it. It measures 1.42 and 1.52 on the
+ * two themes. */
+@define-color borders alpha(@text, 0.15);
+@define-color unfocused_borders alpha(@text, 0.15);
+
+/* The three status colours as text, which is also what libadwaita reads these
+ * three names for. */
+@define-color warning_color @warn;
+@define-color error_color @error;
+@define-color success_color @success;

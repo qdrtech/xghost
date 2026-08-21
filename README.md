@@ -79,4 +79,7 @@ what it is, and what an installation has never been observed doing.
   application that cannot reach the generated output by a relative path.
 - [The SwayNC bundle](docs/bundles/swaync.md) — the notification centre, and the
   one application that reports a broken style sheet and starts anyway.
+- [The supporting bundles](docs/bundles/supporting.md) — GTK, hyprshade and the
+  AUR helper, and the three configurations that sit behind the desktop rather
+  than on it.
 - [Architecture decision records](docs/adr/) — the decisions and their reasons.

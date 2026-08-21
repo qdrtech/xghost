@@ -630,10 +630,36 @@ post-install/10-probe.sh" ]
 	[[ $(cat "$STUB_DIR/log") == *"yay -S --needed -- fixture-aur-one"* ]]
 }
 
-@test "the shipped AUR manifest declares no package, so no helper is looked for" {
+# The shipped AUR manifest names hyprshade, and nothing else. The rule that
+# manifest states is what this test holds: the desktop draws itself without
+# every package in it, so a machine with no helper still finishes the
+# installation and is told exactly what it did not get.
+@test "the shipped AUR manifest names hyprshade, and no helper stops nothing" {
+	load_install_lib
+	run -0 install_read_manifest "$INSTALL_PACKAGES_DIR/aur.txt"
+	[ "$output" = hyprshade ]
+
+	missing_packages hyprshade
 	drop_aur_helper
+
+	run -0 "$INSTALL"
+	[[ $output == *"no AUR helper is installed, so these packages are not installed: hyprshade"* ]]
+	[[ $output == *"the installation is complete"* ]]
+}
+
+# The other branch of the same step. The shipped manifest named no package until
+# this bundle, and that branch is still the one a release that drops its last
+# AUR package would take, so it keeps a test of its own.
+@test "an AUR manifest with no package is reported and no helper is looked for" {
+	export XGHOST_PACKAGES_DIR="$BATS_TEST_TMPDIR/packages"
+	mkdir -p "$XGHOST_PACKAGES_DIR"
+	cp "$ROOT_DIR/install/packages/base.txt" "$XGHOST_PACKAGES_DIR/base.txt"
+	printf '# no package today\n' >"$XGHOST_PACKAGES_DIR/aur.txt"
+	drop_aur_helper
+
 	run -0 "$INSTALL"
 	[[ $output == *"the AUR manifest declares no package"* ]]
+	[[ $output == *"the installation is complete"* ]]
 }
 
 # The harness itself, which is what keeps this suite off the AUR.

@@ -1,3 +1,4 @@
-# An AUR manifest for the tests. The shipped one declares no package, so the
-# helper path needs a fixture that does.
+# An AUR manifest for the tests. The shipped one names a real package, and no
+# test may reach the AUR, so the helper path is driven from a name no helper
+# could ever build.
 fixture-aur-one

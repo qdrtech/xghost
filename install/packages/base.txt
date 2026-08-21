@@ -110,3 +110,26 @@ rofi
 # gtk4 or libpulse: both are hard dependencies of swaync itself, so declaring
 # either would say that this project chose it.
 swaync
+
+# The GTK theme, the icon theme and the cursor theme config/gtk-3.0/settings.ini
+# names. docs/bundles/supporting.md.
+#
+# All three are here rather than in aur.txt on purpose. A theme in aur.txt is
+# not installed on a machine with no AUR helper, the installation finishes and
+# says so, and GTK then falls back to the built-in Adwaita without a word. The
+# dotfiles this bundle comes from named Tokyonight-Dark and Tokyonight-Moon,
+# which one AUR package provides, and that is the failure this line avoids.
+#
+# 'default-cursors' is declared although wayland already depends on it, which
+# is against the rule about a package the tree carries anyway. The rule is
+# about a package nobody names. This project names the theme in settings.ini,
+# so this project chose it.
+adw-gtk-theme                 # adw-gtk3-dark, the widget theme
+papirus-icon-theme            # Papirus-Dark, the icon theme
+default-cursors               # the name 'default', redirected to Adwaita
+
+# The screen shader. Nothing is here for it: hyprshade is in aur.txt beside
+# this file, and the shader it applies is one the package itself ships.
+#
+# Nothing is here for yay either. This project prescribes the configuration of
+# an AUR helper and installs none, which install/packages/aur.txt records.
