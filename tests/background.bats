@@ -610,6 +610,37 @@ pixel() {
 	[ "$status" -eq 0 ]
 }
 
+# Issue #42 at the third of the three sites that ask what the theme ships.
+#
+# A symbolic link to a directory is what '-f' does not catch and '-L' does, so
+# the renderer read it as an image the theme ships and drew nothing over it.
+# Nothing of that directory is an image, so the wallpaper file named a path
+# that held no image and the render reported success. It is refused by name now.
+#
+# The theme is set once before the link is put there, so the assertion that the
+# previous output survived reads a real drawn image rather than an absence.
+# Against the unfixed renderer the second render succeeds and the image path
+# holds a directory, so png_size reads no PNG header and the last assertion
+# fails.
+@test "a link to a directory at the image path of a theme fails the render" {
+	use_own_inputs
+	make_facts 1280x720@60.00
+	"$XGHOST" theme set own >/dev/null
+	[ "$(png_size "$IMAGE")" = "1280 720" ]
+
+	mkdir -p "$XGHOST_THEMES_DIR/own/files/hypr" "$BATS_TEST_TMPDIR/upstream"
+	printf 'a stray file\n' >"$BATS_TEST_TMPDIR/upstream/stray.txt"
+	ln -s "$BATS_TEST_TMPDIR/upstream" "$XGHOST_THEMES_DIR/own/files/hypr/background.png"
+
+	run "$XGHOST" theme set own
+	[ "$status" -eq 1 ]
+	[[ $output == *"hypr/background.png: the theme ships a symbolic link here and it points at a directory"* ]]
+	[[ $output == *"The active theme is unchanged."* ]]
+
+	# The image of the render that succeeded is still the one on disk.
+	[ "$(png_size "$IMAGE")" = "1280 720" ]
+}
+
 # A theme may ship the image by hand, which is the one rule of precedence in
 # docs/theming.md: a hand-written file of the theme wins over what the project
 # generates at the same path.
