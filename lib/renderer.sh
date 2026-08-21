@@ -231,6 +231,11 @@ render_tree() {
 	# points at nothing is still a file the theme means to ship, so it counts
 	# here and render_collect has already named it as a problem.
 	#
+	# A file, or a link, and nothing else. The copy loop below reads the files
+	# of the theme, so a directory at that path puts nothing into the output,
+	# and passing the template over for it would leave the output holding no
+	# file at all at that path.
+	#
 	# A file inside a choice directory is a fragment rather than a template of
 	# its own, so it is written by the loop below this one, and only when it is
 	# the fragment the choice selected.
@@ -239,7 +244,7 @@ render_tree() {
 		if render_in_choice "$relative"; then
 			continue
 		fi
-		if [ -e "$overrides_dir/$relative" ] || [ -L "$overrides_dir/$relative" ]; then
+		if [ -f "$overrides_dir/$relative" ] || [ -L "$overrides_dir/$relative" ]; then
 			continue
 		fi
 		destination=$out_dir/$relative
@@ -251,12 +256,13 @@ render_tree() {
 
 	# The selected fragment of every structural choice. It is rendered like any
 	# other template, and it lands at the path the choice directory names, so a
-	# hand-written file of the theme still wins over it.
+	# hand-written file of the theme still wins over it. A file, or a link, and
+	# nothing else, for the reason the loop above records.
 	local index
 	for index in ${RENDER_CHOICE_SOURCES[@]+"${!RENDER_CHOICE_SOURCES[@]}"}; do
 		path=${RENDER_CHOICE_SOURCES[index]}
 		relative=${RENDER_CHOICE_TARGETS[index]}
-		if [ -e "$overrides_dir/$relative" ] || [ -L "$overrides_dir/$relative" ]; then
+		if [ -f "$overrides_dir/$relative" ] || [ -L "$overrides_dir/$relative" ]; then
 			continue
 		fi
 		destination=$out_dir/$relative
