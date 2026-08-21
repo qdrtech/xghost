@@ -696,6 +696,44 @@ a=hello' ]
 	[ "$output" = "generated #1a2b3c" ]
 }
 
+# Issue #42, at the first of the three sites that ask what the theme ships.
+#
+# A symbolic link to a directory is what '-f' does not catch and '-L' does, so
+# the renderer read it as a file the theme ships and passed the template over.
+# 'find -L' named neither the link nor a file at that path, so the copy loop
+# wrote nothing there either and the render reported success with the file
+# missing. The link here points at a directory that holds a file, which is the
+# worse face of it: those contents ARE walked, so the output held a DIRECTORY
+# at the path of a configuration file.
+#
+# A theme is set first, so the assertion that the previous output survived is
+# compared against a tree that really exists. Against the unfixed renderer this
+# render succeeds, the active theme becomes 'demo', and 'gtk/colors.css' is a
+# directory, so both assertions below fail.
+@test "a link to a directory at the path of a hand-written file fails the render" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	plain_palette | make_theme good
+	make_template gtk/colors.css <<-'EOF'
+		generated @BG@
+	EOF
+	"$XGHOST" theme set good
+
+	mkdir -p "$XGHOST_THEMES_DIR/demo/files/gtk" "$BATS_TEST_TMPDIR/upstream"
+	printf 'a stray file\n' >"$BATS_TEST_TMPDIR/upstream/stray.txt"
+	ln -s "$BATS_TEST_TMPDIR/upstream" "$XGHOST_THEMES_DIR/demo/files/gtk/colors.css"
+
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"gtk/colors.css: the theme ships a symbolic link here and it points at a directory"* ]]
+	[[ $output == *"The active theme is unchanged."* ]]
+
+	run "$XGHOST" theme current
+	[ "$output" = "good" ]
+	run cat "$GENERATED/gtk/colors.css"
+	[ "$output" = "generated #1a2b3c" ]
+}
+
 @test "a hand-written file whose link points at nothing is reported by name" {
 	use_own_inputs
 	plain_palette | make_theme demo
@@ -800,6 +838,33 @@ make_fragment() {
 	mkdir -p "$XGHOST_THEMES_DIR/demo/files/pick.conf"
 	run "$XGHOST" theme set demo
 	[ "$status" -eq 0 ]
+	run cat "$GENERATED/pick.conf"
+	[ "$output" = "the fallback" ]
+}
+
+# Issue #42 at the second site. 'pick.conf' is written by the loop that renders
+# the chosen fragment and by no other, because render_in_choice keeps the
+# fragment out of the template loop, so this names that site and nothing else.
+@test "a link to a directory at the path a choice names fails the render" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	plain_palette | make_theme good
+	make_fragment pick.conf.choice.FONT default <<-'EOF'
+		the fallback
+	EOF
+	"$XGHOST" theme set good
+
+	mkdir -p "$XGHOST_THEMES_DIR/demo/files" "$BATS_TEST_TMPDIR/upstream"
+	printf 'a stray file\n' >"$BATS_TEST_TMPDIR/upstream/stray.txt"
+	ln -s "$BATS_TEST_TMPDIR/upstream" "$XGHOST_THEMES_DIR/demo/files/pick.conf"
+
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"pick.conf: the theme ships a symbolic link here and it points at a directory"* ]]
+	[[ $output == *"The active theme is unchanged."* ]]
+
+	run "$XGHOST" theme current
+	[ "$output" = "good" ]
 	run cat "$GENERATED/pick.conf"
 	[ "$output" = "the fallback" ]
 }

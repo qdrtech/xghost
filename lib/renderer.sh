@@ -217,7 +217,7 @@ render_tree() {
 	fi
 
 	local overrides_dir=$theme_dir/files
-	local path relative destination
+	local path relative destination ships
 	local -a templates=() overrides=()
 
 	if render_collect "$template_dir" 'the template directory'; then
@@ -236,10 +236,10 @@ render_tree() {
 	# points at nothing is still a file the theme means to ship, so it counts
 	# here and render_collect has already named it as a problem.
 	#
-	# A file, or a link, and nothing else. The copy loop below reads the files
-	# of the theme, so a directory at that path puts nothing into the output,
-	# and passing the template over for it would leave the output holding no
-	# file at all at that path.
+	# What the theme ships at that path is one question with three answers, and
+	# render_theme_ships is where all three sites ask it. A file the theme
+	# ships wins. A directory is not a file the theme ships, so the template is
+	# what belongs there. Anything else is refused by name.
 	#
 	# A file inside a choice directory is a fragment rather than a template of
 	# its own, so it is written by the loop below this one, and only when it is
@@ -249,7 +249,11 @@ render_tree() {
 		if render_in_choice "$relative"; then
 			continue
 		fi
-		if [ -f "$overrides_dir/$relative" ] || [ -L "$overrides_dir/$relative" ]; then
+		ships=0
+		render_theme_ships "$overrides_dir/$relative" "$relative" || ships=$?
+		# 0: the theme ships the file. 2: it ships something that is not one,
+		# and render_theme_ships has named that. Neither renders the template.
+		if [ "$ships" -ne 1 ]; then
 			continue
 		fi
 		destination=$out_dir/$relative
@@ -261,13 +265,15 @@ render_tree() {
 
 	# The selected fragment of every structural choice. It is rendered like any
 	# other template, and it lands at the path the choice directory names, so a
-	# hand-written file of the theme still wins over it. A file, or a link, and
-	# nothing else, for the reason the loop above records.
+	# hand-written file of the theme still wins over it. The same one question,
+	# asked the same way, for the reason the loop above records.
 	local index
 	for index in ${RENDER_CHOICE_SOURCES[@]+"${!RENDER_CHOICE_SOURCES[@]}"}; do
 		path=${RENDER_CHOICE_SOURCES[index]}
 		relative=${RENDER_CHOICE_TARGETS[index]}
-		if [ -f "$overrides_dir/$relative" ] || [ -L "$overrides_dir/$relative" ]; then
+		ships=0
+		render_theme_ships "$overrides_dir/$relative" "$relative" || ships=$?
+		if [ "$ships" -ne 1 ]; then
 			continue
 		fi
 		destination=$out_dir/$relative
@@ -408,15 +414,25 @@ render_background() {
 	# A theme that ships the image by hand has already had it copied into the
 	# output, so the output holds a background and nothing is drawn over it.
 	#
-	# A file, or a link, and nothing else. The copy that ran before this reads
-	# the files of the theme, so a directory at that path put nothing into the
-	# output, and treating it as an image already shipped would leave the
-	# wallpaper file naming a path that holds none. A link that points at
-	# nothing is a problem render_collect has already reported by name.
-	if [ -f "$overrides_dir/$relative" ] || [ -L "$overrides_dir/$relative" ]; then
+	# The same one question the two loops of render_tree ask, asked the same
+	# way. The copy that ran before this reads the files of the theme, so a
+	# directory at that path put nothing into the output, and treating it as an
+	# image already shipped would leave the wallpaper file naming a path that
+	# holds none. A link that points at nothing is a problem render_collect has
+	# already reported by name.
+	local ships=0
+	render_theme_ships "$overrides_dir/$relative" "$relative" || ships=$?
+	case $ships in
+	0)
 		RENDER_BACKGROUND=$relative
 		return 0
-	fi
+		;;
+	2)
+		# Named already. Nothing is drawn over what the theme put there, and
+		# the render is failing on it.
+		return 1
+		;;
+	esac
 
 	background_render "$out_dir" RENDER_SCALARS || status=$?
 
@@ -695,6 +711,78 @@ render_in_choice() {
 
 	[ "$parent" != "$relative" ] || return 1
 	[ -n "${RENDER_CHOICE_DIRS[$parent]+set}" ]
+}
+
+# Say what the theme ships at one path of the output.
+#
+#   render_theme_ships PATH RELATIVE
+#
+# PATH is the path under the 'files' directory of the theme. RELATIVE is the
+# path the file takes in the output, and it is what a problem is named by.
+#
+# Three sites ask this one question, and each of them passes over what it would
+# otherwise have written when the answer is yes: the template loop, the loop
+# that writes the chosen fragment of each structural choice, and
+# render_background. They asked it in three copies of one predicate once, and
+# the copies drifted twice. Issue #36 corrected the copy on the image path and
+# issue #37 the other two, a slice apart, and each correction had to be made
+# again by hand at every site. It is one function now, so the next correction
+# reaches all three or none.
+#
+# Returns:
+#   0  the theme ships a file here, so the project writes nothing at this path.
+#   1  the theme ships nothing here, so the project writes its own file.
+#   2  the theme ships something here that is not a file. It is refused by name
+#      and the problem is in RENDER_ERRORS.
+#
+# A link that points at nothing answers 0. A theme that ships a link means the
+# file to be there, render_collect has already named the link as a problem, and
+# the render is failing on it already.
+#
+# A link that points at a directory is what this refuses, and it is what '-f'
+# does not catch. '-f' is false for such a link and '-L' is true, so the old
+# predicate read it as a file the theme ships and passed the template over.
+# 'find -L' then named neither the link nor any file at that path, so the copy
+# loop wrote nothing there either: the render reported success with the file
+# missing from the output. The contents of the directory ARE walked, so a link
+# to a directory that holds files is worse still, and leaves a DIRECTORY at the
+# path of a configuration file for the program that reads it to fail on.
+#
+# Neither answer is silent, which is what issue #42 asked for, and the answer is
+# to refuse. Every other malformed input of this module refuses: a link that
+# points at nothing, a choice inside a choice, a value a generated file cannot
+# carry. Rendering the template instead would be this project deciding that
+# something the theme author put there on purpose means nothing, and it would
+# need a second rule elsewhere to stop the contents of that directory reaching
+# the output. The switch is atomic, so the refusal costs the user the previous
+# theme whole rather than a desktop that does not render.
+#
+# A directory that is not a link answers 1, which is what issue #37 decided and
+# this does not reopen: nothing of such a directory reaches the output, so the
+# template is what belongs at that path.
+render_theme_ships() {
+	local path=$1 relative=$2
+	local points_at
+
+	if [ -f "$path" ]; then
+		return 0
+	fi
+	if [ ! -L "$path" ]; then
+		return 1
+	fi
+	if [ ! -e "$path" ]; then
+		return 0
+	fi
+
+	# The link resolves to something, and it is not a file. Name what it is,
+	# because a directory is the case a theme author reaches by accident and a
+	# reader who is told 'not a file' has to go and look.
+	points_at='something that is not a file'
+	if [ -d "$path" ]; then
+		points_at='a directory'
+	fi
+	RENDER_ERRORS+=("$relative: the theme ships a symbolic link here and it points at $points_at. A file a theme ships by hand is a file, or a link to one, because the output holds a copy of it. Point it at a file, or take it out of the 'files' directory of the theme.")
+	return 2
 }
 
 # Create the directory that holds one output file, and prove it is inside the

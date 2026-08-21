@@ -1768,6 +1768,104 @@ control "a failed reload is printed and not counted, so the update ends well" \
 	"a component that is running and failed to reload is reported, and the update ends non-zero" \
 	m_the_update_does_not_count_a_failed_reload
 
+#
+# Issue #42: the one predicate that says what a theme ships at a path.
+#
+# Deleted guards. Three sites ask that question and each of them passes over
+# what it would otherwise have written when the answer is yes, so the fault
+# this family carries is a fix that reaches two sites and not the third. Issue
+# #36 corrected one copy of the predicate and issue #37 the other two, a slice
+# apart. The first control here reverts the rule itself and requires the test
+# at EVERY site to fail, and the three after it cut one site at a time loose
+# from the shared function and require only that site's test to fail. Together
+# they are what says the three sites still answer alike.
+#
+
+RENDERER=lib/renderer.sh
+
+# The rule itself is gone: every symbolic link answers 'the theme ships a file
+# here', which is exactly what the old '[ -f ] || [ -L ]' predicate did. A link
+# to a directory suppresses the template again, at all three sites at once.
+m_a_link_to_a_directory_is_a_file_the_theme_ships() {
+	substitute "$RENDERER" '	if [ ! -e "$path" ]; then
+		return 0
+	fi' '	if true; then
+		return 0
+	fi'
+}
+
+# The template loop asks the old predicate of its own again instead of the
+# shared function. The other two sites are untouched.
+m_the_template_loop_keeps_its_own_predicate() {
+	substitute "$RENDERER" '		ships=0
+		render_theme_ships "$overrides_dir/$relative" "$relative" || ships=$?
+		# 0: the theme ships the file. 2: it ships something that is not one,
+		# and render_theme_ships has named that. Neither renders the template.
+		if [ "$ships" -ne 1 ]; then
+			continue
+		fi' '		if [ -f "$overrides_dir/$relative" ] || [ -L "$overrides_dir/$relative" ]; then
+			continue
+		fi'
+}
+
+# The same, for the loop that writes the chosen fragment of a structural
+# choice. The anchor carries the comment above the loop, because the call
+# itself is written the same way at both sites.
+m_the_choice_loop_keeps_its_own_predicate() {
+	substitute "$RENDERER" '		relative=${RENDER_CHOICE_TARGETS[index]}
+		ships=0
+		render_theme_ships "$overrides_dir/$relative" "$relative" || ships=$?
+		if [ "$ships" -ne 1 ]; then
+			continue
+		fi' '		relative=${RENDER_CHOICE_TARGETS[index]}
+		if [ -f "$overrides_dir/$relative" ] || [ -L "$overrides_dir/$relative" ]; then
+			continue
+		fi'
+}
+
+# The same, on the image path. This is the site issue #36 corrected first, and
+# the one a reader is least likely to look at when the report names a template.
+m_the_background_keeps_its_own_predicate() {
+	substitute "$RENDERER" '	local ships=0
+	render_theme_ships "$overrides_dir/$relative" "$relative" || ships=$?
+	case $ships in
+	0)
+		RENDER_BACKGROUND=$relative
+		return 0
+		;;
+	2)
+		# Named already. Nothing is drawn over what the theme put there, and
+		# the render is failing on it.
+		return 1
+		;;
+	esac' '	if [ -f "$overrides_dir/$relative" ] || [ -L "$overrides_dir/$relative" ]; then
+		RENDER_BACKGROUND=$relative
+		return 0
+	fi'
+}
+
+SUITE=tests/renderer.bats
+control "the rule is gone, so a link to a directory suppresses a template again" \
+	"a link to a directory at the path of a hand-written file fails the render" \
+	m_a_link_to_a_directory_is_a_file_the_theme_ships
+control "the rule is gone, and the path a choice names is the second site it reaches" \
+	"a link to a directory at the path a choice names fails the render" \
+	m_a_link_to_a_directory_is_a_file_the_theme_ships
+control "the template loop answers the question itself again" \
+	"a link to a directory at the path of a hand-written file fails the render" \
+	m_the_template_loop_keeps_its_own_predicate
+control "the loop that writes a chosen fragment answers the question itself again" \
+	"a link to a directory at the path a choice names fails the render" \
+	m_the_choice_loop_keeps_its_own_predicate
+
+SUITE=tests/background.bats
+control "the rule is gone, and the image path is the third site it reaches" \
+	"a link to a directory at the image path of a theme fails the render" \
+	m_a_link_to_a_directory_is_a_file_the_theme_ships
+control "the image path answers the question itself again" \
+	"a link to a directory at the image path of a theme fails the render" \
+	m_the_background_keeps_its_own_predicate
+
 printf '\n%s: %d controls held, %d did not\n' "$PROGRAM" "$PASSED" "$FAILED"
 if [ "$FAILED" -gt 0 ]; then
 	exit 1
