@@ -58,6 +58,8 @@ what it is, and what an installation has never been observed doing.
   a migration, and what the runner records.
 - [The doctor](docs/doctor.md) — what `xghost system doctor` checks, what
   "stale" is defined as, and what that definition cannot detect.
+- [Reloading](docs/reloading.md) — how a theme change reaches a running desktop,
+  which components take a signal, and which need none.
 - [Repository layout](docs/repository-layout.md) — what each directory holds.
 - [Adding a command](docs/adding-a-command.md) — the metadata contract of the
   dispatcher.

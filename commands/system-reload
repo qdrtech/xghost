@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+#
+# Tell the running components to read their configuration again.
+#
+# 'xghost theme set' and 'xghost settings set' do this themselves, so this
+# command is for the two cases they do not cover: a component that was not
+# running when the theme was set and has been started since, and a reload that
+# failed once and is worth trying again after the cause is fixed.
+#
+# The exit status of this command is the reload, so a component that failed
+# makes it 1. That is the difference from 'xghost theme set', whose exit status
+# is the theme switch. docs/reloading.md records the rule and the reason.
+#
+# @xghost-meta
+# summary: Tell the running components to read their configuration again.
+# example: xghost system reload
+# elevated: no
+# internal: no
+# @end-xghost-meta
+
+set -euo pipefail
+
+COMMAND_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+# shellcheck source=lib/reload.sh
+. "${COMMAND_PATH%/*}/../lib/reload.sh"
+
+XGHOST_PROGRAM=xghost
+
+printf 'reload the running components\n'
+
+if ! reload_all; then
+	printf '\n'
+	printf '%d of %d components did not reload; the lines above name each one.\n' \
+		"$RELOAD_PROBLEMS" "${#RELOAD_COMPONENTS[@]}" >&2
+	exit 1
+fi

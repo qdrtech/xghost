@@ -259,12 +259,13 @@ than a detail of the writer:
   anything is renamed, and a failure part way through is reported and dropped.
   The temporary file goes with it, and so does the one an interrupt leaves.
 
-What it does **not** do: it reloads nothing. A program that is already running
-keeps the configuration it started with, and shows the change when it next reads
-its configuration, which for most of them means a restart. The command says so
-rather than implying a desktop that changes on its own. Reloading every running
-component from one place is
-[issue #24](https://github.com/qdrtech/xghost/issues/24).
+What it does next: it reloads the running components, so a knob change is
+visible without a logout. The command prints one line per component, and a
+component that did not take the message is named rather than passed over.
+
+A program outside that set keeps the configuration it started with and shows the
+change when it next starts. [Reloading](reloading.md) records which components
+take a signal, which need none and why, and what each answer means.
 
 Two more cases the command reports rather than hides:
 

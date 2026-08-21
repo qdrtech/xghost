@@ -345,7 +345,7 @@ rest is here.
 | The `mpris` widget configuration is dropped                | It set `image-radius`, which is not a property of that widget and which `additionalProperties: false` rejects, and `image-size`, which the schema marks deprecated in favour of the CSS root variable `--mpris-album-art-icon-size`. `style.css` sets that variable now, so the size survives and the two dropped keys do not. |
 | The `backlight` widget is dropped                          | Its `device` key names an entry of `/sys/class/backlight`, which is a machine fact, and a file with no include cannot follow one. See "The two settings that do follow an input" above. |
 | `backdrop-filter` is dropped from both rules                | The dotfiles blurred behind the notification and the control centre. This desktop blurs nothing: `config/hypr/conf/decoration.conf` switches the compositor blur off and `config/hypr/conf/layerrule.conf` carries no rule for this surface, both on purpose. The property also needs GTK 4.20, which is newer than anything else this sheet asks for. The translucency stays; only the blur goes. |
-| `refresh.sh` is dropped                                    | It ran `pkill swaync; swaync`. Reloading every running component from one place is [issue #24](https://github.com/qdrtech/xghost/issues/24), and a reload built per bundle is one convention per bundle. |
+| `refresh.sh` is dropped                                    | It ran `pkill swaync; swaync`, which is a restart rather than a reload. Reloading every running component from one place is [Reloading](../reloading.md), and it sends `swaync-client -rs` to a daemon it has already asked to be sure is running. A reload built per bundle is one convention per bundle. |
 
 ## The packages this bundle needs
 
@@ -463,10 +463,13 @@ What that leaves unobserved:
   is taken from `swaync(1)`, from the path fragments `swaync/config.json` and
   `swaync/style.css` in the binary, and from the GLib functions that join them.
   The GTK4 half of the same journey was measured directly.
-- **A running centre is never restyled.** A theme switch and a knob change write
-  the new files and stop. `swaync-client -rs` reloads the style sheet, and
-  calling it belongs to [issue #24](https://github.com/qdrtech/xghost/issues/24),
-  which owns one reload for every styling component.
+- **A running centre has never been watched being restyled.** A theme switch and
+  a knob change now send `swaync-client -rs`, which reloads the style sheet, and
+  [Reloading](../reloading.md) owns the call. It sends `-rs` and not `-R`,
+  because `config.json` is prescribed here and no key of it follows a palette, a
+  knob or a machine fact. That page also records why the daemon is asked whether
+  it is running first: the `swaync` package ships an activatable D-Bus name, so a
+  client call with no daemon running would start one.
 
 A first session with this bundle is therefore the first test of it. Three
 failures are the ones to look for:
@@ -475,8 +478,9 @@ failures are the ones to look for:
   There is one `Gtk-WARNING` about it, written when the daemon started, so the
   log of the session names the file and the line. `xghost theme set` and a fresh
   `swaync` fix it.
-- **A notification in the old colours after a theme switch.** Expected today:
-  the daemon holds the style sheet it started with, and issue #24 owns the
-  reload.
+- **A notification in the old colours after a theme switch.** The reload was
+  sent and the daemon did not take it, or the daemon was not running when the
+  switch happened. `xghost system reload` sends it again and names what each
+  component answered.
 - **A button that does nothing.** The program it names is missing from the
   machine, or it is a program this project never declared.

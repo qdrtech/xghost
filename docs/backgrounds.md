@@ -360,6 +360,11 @@ project owned SVG text as well as the raster step.
   itself, and whether it resolves a relative one against the file it opened, as
   Hyprland does, was not established from the program. The bundle prescribes
   that form and it is followed.
-- **Reloading a running daemon is not done here.** A theme switch writes the
-  image and stops. That is
-  [issue #24](https://github.com/qdrtech/xghost/issues/24).
+- **Reloading a running daemon is not done at all.** A theme switch writes the
+  image and stops, so the wallpaper of a running session follows on the next
+  login. hyprpaper is the one component of this desktop that
+  [Reloading](reloading.md) could not carry: `hyprctl` 0.56.2 offers no
+  hyprpaper `reload` request, only `wallpaper [mon],[path],[fit_mode]`, and every
+  theme writes its image to the same stable path. That page and
+  [the Hyprland bundle](bundles/hyprland.md) record it, and it needs an issue of
+  its own.

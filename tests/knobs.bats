@@ -853,11 +853,29 @@ KNOB_ANIMATIONS=off" ]
 # A knob change writes the new configuration and stops there. It restarts
 # nothing and it signals nothing, so the command says so rather than implying a
 # desktop that changes on its own. Reloading a running component is issue #24.
-@test "settings set says that a running program keeps its configuration" {
+# The command used to end by saying that a running program keeps the
+# configuration it started with. That is no longer true: issue #24 gave the
+# render a reload, and lib/reload.sh owns it. What is asserted here is that the
+# command reaches that step at all, and that the switch which turns it off
+# reaches the command with it.
+#
+# tests/setup_suite.bash has the reload off for this suite, because nothing here
+# stubs a signalling program and the machine this project is developed on runs
+# every component the table names. tests/reload.bats is where the reload itself
+# is proved, against stubs.
+@test "settings set ends by reloading the running components" {
 	"$XGHOST" theme set tokyonight >/dev/null
 	run "$XGHOST" settings set KNOB_GAP_SIZE 20
 	[ "$status" -eq 0 ]
-	[[ $output == *"a program that is already running keeps the configuration it started with"* ]]
+	[[ $output == *"reload the running components"* ]]
+}
+
+@test "settings set reloads nothing when the reload is switched off, and says so" {
+	"$XGHOST" theme set tokyonight >/dev/null
+	run env XGHOST_RELOAD=no "$XGHOST" settings set KNOB_GAP_SIZE 20
+	[ "$status" -eq 0 ]
+	[[ $output == *"reload is off: XGHOST_RELOAD is 'no'"* ]]
+	[[ $output != *"waybar: reloaded"* ]]
 }
 
 # The value is stored whether or not there is something to render into, and the

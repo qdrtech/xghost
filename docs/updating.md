@@ -40,10 +40,12 @@ see.
 | packages   | Run the AUR helper, or `sudo pacman -Syu` on a machine with no helper.                   |
 | migrations | Run the migrations this machine has not applied.                                         |
 | render     | Render the active theme again, from the templates the pull brought in.                   |
-| restart    | Tell Hyprland, the bar and the notification centre to read their configuration again.    |
+| reload     | Tell the running components to read their configuration again. [Reloading](reloading.md) owns the set and the mechanism of each one. |
 
 The order is the contract. The packages come after the pull because a migration
-may need a package the pull declared. The render comes after the migrations
+may need a package the pull declared. The reload is last because it is what
+shows the render, and there is nothing to show until the render has moved into
+place. The render comes after the migrations
 because a migration may remove a stale generated file.
 
 **A failed pull stops the update.** Every step after it acts on the checkout the
@@ -71,7 +73,7 @@ of a state before the update against the state after it.
 | `packages`   | `pacman -Q` before against after, counted as installed, upgraded or downgraded, and removed. |
 | `migrations` | The migrations this run applied and the ones it skipped, by name.                     |
 | `generated`  | A fingerprint of the generated output before against after: every file name, every file content, and every link target. Each build lands in a directory of its own, so the path always differs and the content is what is read. |
-| `components` | What each component answered: reloaded, not running, or no command.                   |
+| `components` | What each component answered: `reloaded`, `not running`, `no command` or `failed`. [Reloading](reloading.md) records what each answer means and which two are problems. |
 
 ## The exit status
 
@@ -191,9 +193,9 @@ skip this migration and carry on, or stop the update? [skip/stop]
 from a timer and over a pipe as well as from a keyboard, and a question nobody
 can answer is not a choice. Stopping is the safe half of the two: it changes
 nothing more and the update is run again, while skipping would carry a failed
-system change past the render and the restart and end the run well.
+system change past the render and the reload and end the run well.
 
-A run that stopped at a migration does not render and restarts nothing, because
+A run that stopped at a migration does not render and reloads nothing, because
 the machine is part way through a change.
 
 ## An update that is interrupted

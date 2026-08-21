@@ -17,7 +17,7 @@ behaviour without reading the tree.
 | `migrations/`  | One script per migration, named `NNNN-name.sh` and restricted by policy to system side effects. [Updating](updating.md) records the format, the state the runner keeps, and how far the policy is enforced. |
 | `schema/`      | The schemas the project owns. `schema/knobs.conf` names every knob, the values it takes, and its default. |
 | `templates/`   | The templates the renderer reads to produce themed configuration.                 |
-| `tests/`       | The bats test suite, with its fixtures under `tests/fixtures/` and the helpers more than one suite needs in `tests/helpers.bash`. |
+| `tests/`       | The bats test suite, with its fixtures under `tests/fixtures/` and the helpers more than one suite needs in `tests/helpers.bash`. `tests/setup_suite.bash` runs once per run and holds what has to be true of every suite, which today is that no suite reloads a running desktop. [Reloading](reloading.md) records why that guard exists. |
 | `themes/`      | One directory per theme: its palette, and any file it ships by hand. The background is drawn from the palette rather than shipped: see [Backgrounds](backgrounds.md). |
 
 Two files sit at the top level beside those directories. `install.sh` is the

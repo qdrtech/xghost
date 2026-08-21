@@ -237,8 +237,11 @@ which is zero on an unthemed terminal.
 
 ## What this bundle does not do
 
-A running Ghostty keeps the colours and the font it started with. A theme switch
-and a knob change both write the new file and stop there. Picking the change up
-without a restart is
-[issue #24](https://github.com/qdrtech/xghost/issues/24), which covers every
-styling component with one reload function.
+A running Ghostty is sent `SIGUSR2`, which is the signal it reloads its
+configuration on, so a theme switch and a knob change both reach a terminal that
+is already open. That is [Reloading](../reloading.md), and the signal is read out
+of the Ghostty binary rather than out of anybody's memory.
+
+What has **not** been observed is the terminal redrawing. No window was signalled
+here, because every Ghostty on this machine is the session this bundle was
+written in. That page keeps the list of what is proved and what is reasoned.

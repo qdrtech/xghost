@@ -15,14 +15,21 @@
 #   3. packages  update the system packages.
 #   4. migrate   run the pending migrations. lib/migrate.sh owns that.
 #   5. render    render the active theme again from the new templates.
-#   6. restart   tell the running components to read their configuration again.
+#   6. reload    tell the running components to read their configuration again.
 #
 # The order is the contract. Packages come after the pull because a migration
 # may depend on a package the pull declared, and the render comes after the
-# migrations because a migration may remove a stale generated file.
+# migrations because a migration may remove a stale generated file. The reload
+# is last because it is what shows the render, and there is nothing to show
+# until the render has moved into place.
+#
+# The reload itself belongs to lib/reload.sh, which owns the set of components
+# and how each one is told. This file held that table until issue #24, and the
+# table said so; one reload now serves the update, 'xghost theme set' and
+# 'xghost settings set' rather than one mechanism per caller.
 #
 # Every effect that reaches outside this project is reached by name on the PATH:
-# 'git', the AUR helper, 'pacman', 'hyprctl', 'pkill' and 'swaync-client'. The
+# 'git', the AUR helper, 'pacman', and the programs lib/reload.sh names. The
 # tests put a stub of each first on the PATH, so no test of this project pulls a
 # repository, installs a package, or signals a component of the live session.
 # XGHOST_ROOT points the pull at the checkout, and the tests point it at a
@@ -54,16 +61,15 @@ XGHOST_UPDATE_LIB_DIR=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$XGHOST_UPDATE_LIB_DIR/migrate.sh"
 # shellcheck source=lib/linker.sh
 . "$XGHOST_UPDATE_LIB_DIR/linker.sh"
+# reload.sh owns the components and how each one is told to read its
+# configuration again. The update is one of its three callers.
+# shellcheck source=lib/reload.sh
+. "$XGHOST_UPDATE_LIB_DIR/reload.sh"
 
 # The AUR helpers this looks for, in the order it looks. It is the same list the
 # installer uses, and for the same reason: a machine that carries another helper
 # names it here.
 UPDATE_HELPERS=${XGHOST_UPDATE_HELPERS:-"yay paru"}
-
-# The components this tells to read their configuration again, and how each one
-# is told. The list is provisional: issue #24 collects one reload function that
-# covers every styling component, and this table is what it replaces.
-readonly UPDATE_COMPONENTS=(hyprland waybar swaync)
 
 # What each step of this run did, for the report at the end. Each one holds one
 # line of prose.
@@ -364,79 +370,26 @@ update_render() {
 	fi
 }
 
-# Tell one component to read its configuration again.
-#
-#   update_restart_one NAME
-#
-# It prints one word for the report: 'reloaded' when the component took the
-# message, 'not running' when there was nothing to tell, and 'no command' when
-# the program that tells it is not installed. Returns 0 in every one of those
-# cases: a component that is not running on this machine is not a failed update.
-update_restart_one() {
-	local name=$1
-
-	case $name in
-	hyprland)
-		if ! command -v hyprctl >/dev/null 2>&1; then
-			printf 'no command\n'
-			return 0
-		fi
-		# hyprctl answers only inside a session, and it fails outside one. An
-		# update run over ssh is in that position and is not a failure.
-		if hyprctl reload >/dev/null 2>&1; then
-			printf 'reloaded\n'
-		else
-			printf 'not running\n'
-		fi
-		;;
-	waybar)
-		if ! command -v pkill >/dev/null 2>&1; then
-			printf 'no command\n'
-			return 0
-		fi
-		# The bar reads SIGUSR2 as "read the configuration again". pkill ends
-		# with 1 when it matched no process, which is a bar that is not running.
-		if pkill -SIGUSR2 -x waybar >/dev/null 2>&1; then
-			printf 'reloaded\n'
-		else
-			printf 'not running\n'
-		fi
-		;;
-	swaync)
-		if ! command -v swaync-client >/dev/null 2>&1; then
-			printf 'no command\n'
-			return 0
-		fi
-		if swaync-client -rs >/dev/null 2>&1; then
-			printf 'reloaded\n'
-		else
-			printf 'not running\n'
-		fi
-		;;
-	*)
-		printf 'unknown\n'
-		;;
-	esac
-}
-
 # Tell every component to read its configuration again.
-update_restart() {
-	local name result
-	local -a parts=()
+#
+# lib/reload.sh holds the components, the order and the mechanism of each one.
+# This function is the update's frame around it: the heading, the report line,
+# and the status.
+#
+# It returns 1 when a component that is running could not be reloaded. That is a
+# change from the table this replaced, which returned 0 whatever happened: it
+# reported a compositor whose reload had been REFUSED as one that was not
+# running, so the one outcome worth acting on was the one it could not say. A
+# component that is genuinely not running is still not a failed update, and it
+# still returns 0.
+update_reload() {
+	local status=0
 
-	update_say "-- restart the components"
-	for name in "${UPDATE_COMPONENTS[@]}"; do
-		result=$(update_restart_one "$name")
-		update_say "   $name: $result"
-		parts+=("$name $result")
-	done
+	update_say "-- reload the running components"
+	reload_all || status=1
+	UPDATE_REPORT_COMPONENTS=$RELOAD_SUMMARY
 
-	local text
-	text=$(
-		IFS=', '
-		printf '%s\n' "${parts[*]}"
-	)
-	UPDATE_REPORT_COMPONENTS=$text
+	return "$status"
 }
 
 # Print what this update changed.
@@ -557,7 +510,7 @@ update_main() {
 
 	update_render || status=1
 
-	update_restart
+	update_reload || status=1
 
 	update_report
 

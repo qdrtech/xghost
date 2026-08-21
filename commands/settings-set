@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 #
-# Give one knob a value, and render the configuration again.
+# Give one knob a value, render the configuration again, and show it.
+#
+# The reload runs only after the render has moved into place. A machine with no
+# active theme has nothing to render and nothing to show, so it stores the value
+# and stops; a render that failed leaves the previous output whole, and telling
+# the desktop to re-read it would report a reload of a change that never
+# happened.
+#
+# The exit status of this command is the knob and the render. A component that
+# did not reload is named and does not make this command fail, for the reason
+# 'commands/theme-set' records.
 #
 # @xghost-meta
 # summary: Set one knob and render the configuration again.
@@ -17,6 +27,8 @@ set -euo pipefail
 COMMAND_PATH=$(readlink -f "${BASH_SOURCE[0]}")
 # shellcheck source=lib/theme.sh
 . "${COMMAND_PATH%/*}/../lib/theme.sh"
+# shellcheck source=lib/reload.sh
+. "${COMMAND_PATH%/*}/../lib/reload.sh"
 
 if [ $# -ne 2 ]; then
 	xghost_die 2 "'settings set' takes one knob and one value, and it was given $#. Run 'xghost settings list'."
@@ -95,4 +107,8 @@ if ! theme_set "$THEME_NAME"; then
 fi
 
 printf 'the generated output is rebuilt at %s\n' "$XGHOST_GENERATED_DIR"
-printf 'a program that is already running keeps the configuration it started with. Restart it to see the change.\n'
+
+printf 'reload the running components\n'
+if ! reload_all; then
+	xghost_warn "the knob is set and $RELOAD_PROBLEMS of ${#RELOAD_COMPONENTS[@]} components did not reload. The lines above name each one, and 'xghost system reload' runs the reload again."
+fi

@@ -319,9 +319,12 @@ directory the setting names, and not that a cursor is in it.
   ([issue #14](https://github.com/qdrtech/xghost/issues/14)) are the first GTK 4
   component of this desktop, and that bundle owns the decision.
 - **Reloading a running application.** A theme switch writes `gtk/colors.css`
-  and stops. A GTK application reads its style sheet at start up, so it shows
-  the new colours when it next starts. That is the general gap
-  [issue #24](https://github.com/qdrtech/xghost/issues/24) owns.
+  and a GTK application reads its style sheet at start up, so it shows the new
+  colours when it next starts. GTK offers no signal for it, and a
+  per-application route would be a per-application design.
+  [Reloading](../reloading.md) records this as one of the three cases with no
+  mechanism, and names the two GTK surfaces that are exempt because they carry a
+  reload of their own: the bar and the notification centre.
 
 ## hyprshade
 

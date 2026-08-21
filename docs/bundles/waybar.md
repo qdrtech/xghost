@@ -383,7 +383,11 @@ compositor. What that leaves unobserved:
   this bundle rests on. `tests/waybar.bats` proves the rule this project can
   prove — that no key is written twice — and not the behaviour of Waybar itself.
 - **A running bar is never restyled.** This one is measured rather than open.
-  `reload_style_on_change` was in the dotfiles and this bundle drops it. Waybar
+  `reload_style_on_change` was in the dotfiles and this bundle drops it, and
+  [Reloading](../reloading.md) is what replaced it: the bar is sent `SIGUSR2`
+  after a render, which reloads the configuration and the style sheet together.
+  That page records why it is `SIGUSR2` and not `SIGRTMIN+8`, which the
+  `custom/pacman` module of this bundle uses for something else entirely. Waybar
   builds the watch list of that setting from the imports of the style sheet, and
   it tests each import with `access(2)`, which resolves `..` physically, after
   following the symbolic link at `$XDG_CONFIG_HOME/waybar`. GTK resolves the
@@ -398,10 +402,10 @@ compositor. What that leaves unobserved:
   So the generated imports are dropped from the watch list and only `style.css`
   is watched, which is a prescribed file that no theme and no knob writes. The
   setting would watch the one file that never changes and miss the two that do.
-  A theme switch and a knob change therefore write the new files and stop, and
-  reloading every running component from one place is
-  [issue #24](https://github.com/qdrtech/xghost/issues/24). What was not
-  observed is Waybar itself doing this; the two paths above were.
+  A theme switch and a knob change therefore write the new files and send
+  `SIGUSR2`, which reloads the configuration and the style sheet together;
+  [Reloading](../reloading.md) owns the call. What was not observed is Waybar
+  itself doing either thing; the two paths above were.
 
 A first session with this bar is therefore the first test of it. Three failures
 are the ones to look for, and the first two are what this page is about:
