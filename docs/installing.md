@@ -144,11 +144,15 @@ something it reads. A file name does. A comment does not: a comment is text the
 parser drops, and text the parser drops must never decide which program runs
 against a package name.
 
-**The base installation requires no AUR helper.** `aur.txt` declares no package
-today. Both the bundle page and the dotfiles call `hyprshot` an AUR package, and
-`pacman -Si hyprshot` answers `extra`, so it is in `base.txt` with the rest. The
-file and its step stay because a later bundle will need them: `hyprshade`, which
-issue #17 owns, has no official package at all.
+**The base installation requires no AUR helper.** `aur.txt` names one package,
+`hyprshade`, and the desktop draws itself without it. Every package the desktop
+needs to draw itself is in `base.txt`, the GTK theme and the icon theme
+included, so a machine with no helper still gets a complete desktop. That is the
+rule `aur.txt` states for anything added to it later.
+
+Both the bundle page and the dotfiles call `hyprshot` an AUR package, and
+`pacman -Si hyprshot` answers `extra`, so it is in `base.txt` with the rest.
+`pacman -Si hyprshade` finds nothing at all, which is why that one is not.
 
 When `aur.txt` does name a package and no helper is installed, the packaging step
 names that package, says what it serves, and lets the installation finish. It

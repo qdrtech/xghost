@@ -1,0 +1,69 @@
+/* The GTK 3 style sheet of xghost.
+ *
+ * This file is prescribed configuration. The project owns it, and 'xghost
+ * config link' symlinks the directory that holds it to ~/.config/gtk-3.0. Do
+ * not edit it: an edit dirties the checkout and conflicts on the next pull.
+ * See docs/adr/0001-prescribed-config-architecture.md.
+ *
+ * This file is where the active theme reaches GTK. settings.ini beside it
+ * names the widget theme, and that theme draws with the colours below, because
+ * GTK 3 resolves a named colour across every style provider and the user sheet
+ * outranks the theme.
+ *
+ * This file defines no colour of its own. Every value on the right comes from
+ * the generated palette imported on the first line, so a theme switch changes
+ * every colour here and this file never changes at all.
+ *
+ * The import is relative, which is the form ADR 0002 chose. It was measured on
+ * this route rather than assumed: GTK resolves '..' against the path it was
+ * given, and it was given the path 'xghost config link' created, so '..' is
+ * the config directory of the user and 'xghost-generated' is the bridge there.
+ * A file planted at the resolved path inside the checkout is not read.
+ * docs/bundles/supporting.md records the measurement.
+ *
+ * An import that reaches nothing discards this whole file, and GTK says so on
+ * standard error. The desktop then draws in plain adw-gtk3-dark, which is a
+ * complete theme, so the failure is a change of colour and never an
+ * application that will not start. That is measured as well, and recorded on
+ * the same page.
+ */
+@import url("../xghost-generated/gtk/colors.css");
+
+/* The widget surfaces. 'bg' is behind a widget, 'base' is behind a list or a
+ * text entry, and 'fg' and 'text' are what is drawn on each of the two. */
+@define-color theme_bg_color @bg;
+@define-color theme_base_color @surface;
+@define-color theme_fg_color @text;
+@define-color theme_text_color @text;
+
+/* A selection. The foreground is the background of the desktop rather than its
+ * text colour: the text colour of both themes is light, and light on the
+ * accent is not readable. */
+@define-color theme_selected_bg_color @accent;
+@define-color theme_selected_fg_color @bg;
+
+/* A widget that cannot be used. */
+@define-color insensitive_bg_color @surface;
+@define-color insensitive_base_color @surface;
+@define-color insensitive_fg_color @text_muted;
+
+/* The same four surfaces and the same selection, for a window that does not
+ * hold the focus. They are the same values: this desktop draws no distinction
+ * between a focused window and an unfocused one, and leaving them out would
+ * leave every unfocused window in the colours of the stock theme. */
+@define-color theme_unfocused_bg_color @bg;
+@define-color theme_unfocused_base_color @surface;
+@define-color theme_unfocused_fg_color @text;
+@define-color theme_unfocused_text_color @text;
+@define-color theme_unfocused_selected_bg_color @accent;
+@define-color theme_unfocused_selected_fg_color @bg;
+@define-color unfocused_insensitive_color @text_muted;
+
+/* The line between two surfaces. */
+@define-color borders @surface;
+@define-color unfocused_borders @surface;
+
+/* The three status colours GTK names. */
+@define-color warning_color @warn;
+@define-color error_color @error;
+@define-color success_color @success;

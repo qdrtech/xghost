@@ -77,4 +77,7 @@ what it is, and what an installation has never been observed doing.
   first bundle whose entry point sits outside the config directory.
 - [The Rofi bundle](docs/bundles/rofi.md) — the launcher, and the one
   application that cannot reach the generated output by a relative path.
+- [The supporting bundles](docs/bundles/supporting.md) — GTK, hyprshade and the
+  AUR helper, and the three configurations that sit behind the desktop rather
+  than on it.
 - [Architecture decision records](docs/adr/) — the decisions and their reasons.

@@ -1,14 +1,14 @@
 # Packaging: the packages the AUR carries.
 #
-# aur.txt declares no package today, so this step reports that and passes over.
-# It is here because the repository a package comes from decides which tool
-# installs it, and a later bundle will name a package only the AUR carries.
+# aur.txt names hyprshade, which no official repository carries. The step is a
+# second one because the repository a package comes from decides which tool
+# installs it.
 #
 # The base installation does not require an AUR helper. A machine with no helper
 # gets every package of base.txt, which is the terminal, the compositor, the
-# font and the theme, so it gets a complete working desktop. This step therefore
-# names each AUR package it did not install rather than stopping the
-# installation for it.
+# bar, the launcher, the shell, the font and the GTK theme, so it gets a
+# complete working desktop. This step therefore names each AUR package it did
+# not install rather than stopping the installation for it.
 #
 # xghost installs no AUR helper by itself. That would mean building a PKGBUILD
 # nobody vetted, on a machine that asked for a desktop.
