@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+#
+# Update the project, the system packages and this machine.
+#
+# The steps and their order are in lib/update.sh, and docs/updating.md records
+# what each one does and what the report at the end compares.
+#
+# The command is 'xghost system update' and not 'xghost update'. The dispatcher
+# routes <group> <verb>, and a hyphen-free file name has no group and no verb.
+# docs/updating.md records the decision and the two that were rejected.
+#
+# @xghost-meta
+# summary: Update the project, the system packages and this machine.
+# arg: [--on-failure MODE]  What a failed migration does: ask, skip or stop.
+# example: xghost system update
+# example: xghost system update --on-failure stop
+# elevated: no
+# internal: no
+# @end-xghost-meta
+
+set -euo pipefail
+
+COMMAND_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+# shellcheck source=../lib/update.sh
+. "${COMMAND_PATH%/*}/../lib/update.sh"
+
+update_main "$@"

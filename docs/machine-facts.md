@@ -47,8 +47,8 @@ Two rules pull against each other, and ADR 0001 states both:
 The resolution is an order of precedence, and the file states it in its own
 header, so a reader of the file never has to find this page:
 
-1. Your edit survives every xghost update. An update writes to the checkout,
-   and the checkout is not where this file is.
+1. Your edit survives every `xghost system update`. An update writes to the
+   checkout, and the checkout is not where this file is.
 2. Your edit does **not** survive the next `xghost machine detect`. That run
    writes the whole file again from what it reads on the machine.
 3. Before it replaces the file, that run copies the file to

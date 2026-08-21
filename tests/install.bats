@@ -777,6 +777,60 @@ post-install/10-probe.sh" ]
 	[ "$output" = "$first" ]
 }
 
+#
+# The migrations a fresh installation replays, which is none of them.
+#
+
+# Point the installer at the fixture migrations, and at a log the fixtures
+# write every invocation to. The migration directory of the checkout holds none,
+# so an installation of the checkout alone could not tell "marked nothing" from
+# "there was nothing to mark".
+use_fixture_migrations() {
+	export XGHOST_MIGRATIONS_DIR="$BATS_TEST_DIRNAME/fixtures/migrations/pair"
+	export MIGRATION_LOG="$BATS_TEST_TMPDIR/migration.log"
+	export MIGRATION_PACKAGES="$BATS_TEST_TMPDIR/packages"
+	: >"$MIGRATION_LOG"
+	: >"$MIGRATION_PACKAGES"
+	MIGRATION_STATE="$XDG_STATE_HOME/xghost/migrations"
+}
+
+@test "a first installation marks every migration applied and runs none of them" {
+	use_fixture_migrations
+
+	run -0 "$INSTALL"
+	[[ $output == *"marked 2 migrations applied"* ]]
+
+	# A user who installs today replays nothing that was written last month.
+	[ "$(wc -l <"$MIGRATION_LOG")" -eq 0 ]
+	[ "$(wc -l <"$MIGRATION_STATE/applied")" -eq 2 ]
+	[ ! -s "$MIGRATION_PACKAGES" ]
+}
+
+@test "an installation over a machine that has migration state marks nothing" {
+	use_fixture_migrations
+
+	# A machine installed before the second migration was written.
+	mkdir -p "$MIGRATION_STATE"
+	printf '0001-record-a-package.sh\t2026-01-01T00:00:00Z\n' \
+		>"$MIGRATION_STATE/applied"
+
+	run -0 "$INSTALL"
+	[[ $output == *"not a first one"* ]]
+
+	# The migration that machine has not run is still pending. Marking it here
+	# would take the fix away from that machine in silence.
+	[ "$(wc -l <"$MIGRATION_STATE/applied")" -eq 1 ]
+	[ "$(wc -l <"$MIGRATION_LOG")" -eq 0 ]
+}
+
+@test "a dry run marks no migration and creates no state" {
+	use_fixture_migrations
+
+	run -0 "$INSTALL" --dry-run
+	[[ $output == *"would: record every migration as applied"* ]]
+	[ ! -e "$MIGRATION_STATE" ]
+}
+
 @test "an installation that stopped part way through is resumed by running it again" {
 	# The first run stops in the packaging group, with the config group and the
 	# post-install group untouched.
