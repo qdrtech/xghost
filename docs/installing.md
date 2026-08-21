@@ -374,23 +374,21 @@ Add the line the summary prints to the file your login shell reads, such as
 line fails at every login, the monitors are never read, and the session keeps
 the layout Hyprland works out itself. Everything else is already in place.
 
-## What a first installation does not give you yet
+## What a first installation gives you
 
-The prescribed configuration names two programs that no manifest declares, and
-it names them on purpose: each one is a bundle of its own, and the manifest
-takes its line when that bundle lands. A first installation therefore has one
-visible gap, and one more thing that is simply not there yet.
+This section listed the programs the prescribed configuration named and no
+manifest declared. The list is empty: the launcher arrived with
+[issue #13](https://github.com/qdrtech/xghost/issues/13) and the notification
+centre with [issue #14](https://github.com/qdrtech/xghost/issues/14), and each
+one added its line to `install/packages/base.txt` as it landed.
 
-| What is missing              | What you see                                                     | Issue |
-| ---------------------------- | ---------------------------------------------------------------- | ----- |
-| The launcher, `rofi`         | <kbd>Super</kbd>+<kbd>Space</kbd> does nothing. `$menu` names `rofi`, and the binding fails the same way. | [#13](https://github.com/qdrtech/xghost/issues/13) |
-| The notifications, `swaync`  | No notification is shown, and the bell of the bar opens nothing. Nothing prescribes a daemon yet, so nothing else fails either. | [#14](https://github.com/qdrtech/xghost/issues/14) |
+So the desktop comes up, the terminal is themed, the bar is styled, the launcher
+draws in the palette of the theme, the notifications do too, and every
+keybinding names a program the installation installed.
 
-Nothing else in the session depends on those, so the desktop comes up, the
-terminal is themed, the bar is styled, and every keybinding that names an
-installed program works. Install `rofi` by hand to have it before its bundle
-lands. xghost prescribes no configuration for it yet, so it runs with its own
-default.
+`tests/install.bats` keeps the list empty rather than this paragraph: it reads
+the package table of every page under `docs/bundles/` and fails when a package
+one of them lists is declared by no manifest.
 
 ## What an installation has never been observed doing
 
