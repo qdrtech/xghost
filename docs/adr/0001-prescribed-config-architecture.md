@@ -187,8 +187,13 @@ What becomes harder:
   expected output.
 - The linker is covered by unit tests for idempotency and for refusal to
   clobber an existing regular file.
+- The migration runner refuses a migration that has not declared its effects, or
+  that declares one outside the five above, and the test suite reads the text of
+  every shipped migration for the names of the config directory of the user.
+  Neither is a sandbox: a migration that builds the same path out of two
+  variables passes both. `docs/updating.md` states how far each one reaches.
 - A reviewer checks every proposed migration against the side-effects-only rule
-  above.
+  above, and remains what stands behind the rule.
 
 ## More information
 

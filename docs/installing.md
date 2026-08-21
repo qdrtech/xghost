@@ -178,6 +178,7 @@ the order of their names.
 | `config`       | `30-theme.sh`                   | `xghost theme set`.                                               |
 | `config`       | `40-shell.sh`                   | Write `~/.zshenv`, so zsh reads the prescribed shell configuration. |
 | `post-install` | `10-command-path.sh`            | Link `bin/xghost` into your bin directory.                        |
+| `post-install` | `15-migrations.sh`              | Record every migration as applied, because a first installation replays none. [Updating](updating.md) records why. |
 | `post-install` | `20-summary.sh`                 | Prove that a theme is active, then report the end state.          |
 
 Preflight changes nothing at all. Every refusal above happens before the first

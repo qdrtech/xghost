@@ -902,6 +902,246 @@ control "the recorded result of a failed import is asserted the other way round"
 	"a palette that is not there leaves every definition kept and reaching nothing" \
 	m_flip_the_null_error_assertion
 
+#
+# The migration runner and the update path. Deleted guards and perturbed
+# inputs, marked one by one.
+#
+# The fault this bundle is most exposed to is a runner that quietly does
+# nothing. A naive test asks whether the update ended well, and an update that
+# ran no migration, compared nothing and told no component anything ends well
+# every time. So the controls below take the work out one piece at a time and
+# require the test that reads that piece to fail.
+#
+
+SUITE=tests/migrations.bats
+MIGRATE=lib/migrate.sh
+UPDATE=lib/update.sh
+
+# A deleted guard: nothing is read from the record, so every migration is
+# pending at every run.
+m_pending_reads_no_record() {
+	substitute "$MIGRATE" '		if ! migrate_is_applied "$id"; then
+			printf '"'"'%s\n'"'"' "$id"
+		fi' '		printf '"'"'%s\n'"'"' "$id"'
+}
+
+# A perturbed input: the fixture migration loses the test that keeps its side
+# effect to one, so it is no longer safe to run twice. Nothing is deleted from
+# this project and every command still succeeds; the migration simply appends a
+# second time. It is what the test of an interrupted update exists to catch.
+m_a_migration_is_not_safe_to_run_twice() {
+	substitute tests/fixtures/migrations/pair/0001-record-a-package.sh \
+		'if ! grep -qxF '"'"'the-bar-package'"'"' "$MIGRATION_PACKAGES" 2>/dev/null; then
+	printf '"'"'the-bar-package\n'"'"' >>"$MIGRATION_PACKAGES"
+fi' \
+		'printf '"'"'the-bar-package\n'"'"' >>"$MIGRATION_PACKAGES"'
+}
+
+# A perturbed input: the state lands in the config directory of the user, which
+# is the one place ADR 0001 says it must never be.
+m_state_moves_into_the_config_directory() {
+	substitute "$MIGRATE" 'MIGRATE_STATE_DIR=$XGHOST_STATE_DIR/migrations' \
+		'MIGRATE_STATE_DIR=${XDG_CONFIG_HOME:-$HOME/.config}/xghost/migrations'
+}
+
+# A deleted guard: the metadata is read and the refusal is gone, so a migration
+# that never said what it does runs all the same.
+m_no_refusal_of_bad_metadata() {
+	substitute "$MIGRATE" '		if ! migrate_parse "$path"; then
+			migrate_report_refusal "$id"' '		if false; then
+			migrate_report_refusal "$id"'
+}
+
+# A perturbed input: the list of permitted effects gains the one thing the
+# policy exists to forbid. Every file still parses and the runner still runs.
+m_the_policy_permits_editing_a_config_file() {
+	substitute "$MIGRATE" '	remove-generated-file
+)' '	remove-generated-file
+	edit-config-file
+)'
+}
+
+# A deleted guard: a second installation is read as a first one, so a machine
+# that is behind has its pending migrations marked applied and never runs them.
+m_every_installation_is_a_first_one() {
+	substitute "$MIGRATE" '	if [ -d "$MIGRATE_STATE_DIR" ]; then
+		migrate_say "the migration state is already recorded' '	if false; then
+		migrate_say "the migration state is already recorded'
+}
+
+# A perturbed input: the mode nobody named falls through to skipping instead of
+# stopping, so a failure carries the update past it.
+m_the_default_failure_mode_skips() {
+	substitute "$MIGRATE" '		*)
+			MIGRATE_STOPPED_AT=$id
+			MIGRATE_PROBLEM="the migration $id failed and the update stopped at it"
+			return 1
+			;;
+		esac' '		*) ;;
+		esac'
+}
+
+# A perturbed input: a skipped migration is recorded as applied, so it is never
+# offered again.
+m_a_skipped_migration_is_recorded_as_applied() {
+	substitute "$MIGRATE" '		if ! migrate_record_skipped "$id" "$reason"; then' \
+		'		if ! migrate_record_applied "$id"; then'
+}
+
+# A deleted guard: the run ends well over a migration it skipped.
+m_a_skipped_migration_ends_well() {
+	substitute "$MIGRATE" '	if [ "${#MIGRATE_SKIPPED_NOW[@]}" -gt 0 ]; then
+		MIGRATE_PROBLEM="${#MIGRATE_SKIPPED_NOW[@]} migrations were skipped"
+		return 1
+	fi' '	:'
+}
+
+control "the pending list is built without reading the record" \
+	"a migration that has already run is not run again" \
+	m_pending_reads_no_record
+control "the fixture migration stops being safe to run twice" \
+	"a migration interrupted between its side effect and its state write runs again and changes nothing more" \
+	m_a_migration_is_not_safe_to_run_twice
+control "the migration state moves into the config directory of the user" \
+	"the migration state lives beside the generated output and not in the config directory" \
+	m_state_moves_into_the_config_directory
+control "the refusal of a migration with no metadata block is gone" \
+	"a migration with no metadata block is refused and does not run" \
+	m_no_refusal_of_bad_metadata
+control "the policy gains the effect it exists to forbid" \
+	"a migration that declares an effect outside the policy is refused and does not run" \
+	m_the_policy_permits_editing_a_config_file
+control "every installation is read as a first one" \
+	"an installation that is not the first one marks nothing" \
+	m_every_installation_is_a_first_one
+control "the failure mode nobody named skips instead of stopping" \
+	"the run stops at a failed migration and the migrations after it do not run" \
+	m_the_default_failure_mode_skips
+control "a skipped migration is recorded as applied" \
+	"a skipped migration is pending again on the next run" \
+	m_a_skipped_migration_is_recorded_as_applied
+control "a run that skipped a migration ends well" \
+	"a run that skipped a migration ends non-zero, so a caller cannot read it as a clean update" \
+	m_a_skipped_migration_ends_well
+
+SUITE=tests/update.bats
+
+# A deleted guard: a failed pull no longer stops the update, so the packages,
+# the migrations and the components are all reached with the old checkout.
+m_a_failed_pull_does_not_stop_the_update() {
+	substitute "$UPDATE" '	if ! update_pull; then
+		UPDATE_REPORT_PROJECT=${UPDATE_REPORT_PROJECT:-"not updated: the pull failed"}
+		update_report
+		return 1
+	fi' '	update_pull || status=1'
+}
+
+# A perturbed input: the pull is no longer fast forward only, so work made on
+# the machine is merged rather than reported.
+m_the_pull_is_not_fast_forward_only() {
+	substitute "$UPDATE" 'if ! git -C "$XGHOST_ROOT" pull --ff-only; then' \
+		'if ! { git -C "$XGHOST_ROOT" fetch --quiet && git -C "$XGHOST_ROOT" merge -X ours --no-edit "@{u}"; }; then'
+}
+
+# A perturbed input: the report of the packages stops being a comparison and
+# becomes a word. This is the shape a report that proves nothing takes.
+m_the_package_report_is_a_word() {
+	substitute "$UPDATE" '	after=$(update_package_list) || after=
+	UPDATE_REPORT_PACKAGES=$(update_package_difference "$before" "$after")' \
+		'	UPDATE_REPORT_PACKAGES="updated"'
+}
+
+# A perturbed input: the render report stops comparing the output and always
+# says it changed.
+m_the_render_report_is_a_word() {
+	substitute "$UPDATE" '	if [ "$before" = "$after" ]; then
+		UPDATE_REPORT_GENERATED="rendered '"'"'$name'"'"'; the output is unchanged"
+	else
+		UPDATE_REPORT_GENERATED="rendered '"'"'$name'"'"'; the output changed"
+	fi' '	UPDATE_REPORT_GENERATED="rendered '"'"'$name'"'"'; the output changed"'
+}
+
+# A deleted guard: no component is told anything, and the update still ends
+# well.
+m_no_component_is_told_anything() {
+	substitute "$UPDATE" '	update_restart
+
+	update_report' '	update_report'
+}
+
+# A perturbed input: the bar is sent the signal that makes one module run again
+# rather than the one that makes it read its configuration again. Every command
+# still succeeds.
+m_the_bar_is_sent_the_wrong_signal() {
+	substitute "$UPDATE" 'if pkill -SIGUSR2 -x waybar >/dev/null 2>&1; then' \
+		'if pkill -SIGRTMIN+8 -x waybar >/dev/null 2>&1; then'
+}
+
+# A perturbed input: the update writes a byte into the machine facts of the
+# user. It is the one thing ADR 0001 says an update never does, and every
+# command still succeeds.
+m_the_update_writes_the_machine_facts() {
+	substitute "$UPDATE" '	before=$(update_fingerprint "$XGHOST_GENERATED_DIR")' \
+		'	printf '"'"'\n'"'"' >>"$(facts_path)"
+	before=$(update_fingerprint "$XGHOST_GENERATED_DIR")'
+}
+
+# A deleted guard: a generated output that is broken is read as a machine that
+# has never set a theme, so the update passes over it and ends well.
+m_a_broken_output_reads_as_no_theme() {
+	substitute "$UPDATE" '		case $THEME_PROBLEM in
+		"no theme is active"*) return 0 ;;
+		esac' '		return 0'
+}
+
+# A deleted guard: the update ends well however many steps reported a problem.
+m_the_update_always_ends_well() {
+	substitute "$UPDATE" '	if [ "$status" -ne 0 ]; then
+		update_say ""
+		update_warn "the update finished and at least one step reported a problem; the report above names it"
+		return 1
+	fi' '	:'
+}
+
+printf '\n'
+control "a failed pull no longer stops the update" \
+	"a pull that cannot fast forward stops the update before anything else runs" \
+	m_a_failed_pull_does_not_stop_the_update
+control "the pull merges instead of refusing to fast forward" \
+	"a pull that cannot fast forward stops the update before anything else runs" \
+	m_the_pull_is_not_fast_forward_only
+control "the package report stops comparing and becomes a word" \
+	"a package database that did not change is reported as unchanged" \
+	m_the_package_report_is_a_word
+control "the package report stops comparing and becomes a word" \
+	"the update runs the AUR helper and reports what the package database gained" \
+	m_the_package_report_is_a_word
+control "the render report stops comparing and always says it changed" \
+	"the update renders the active theme again and says whether the output changed" \
+	m_the_render_report_is_a_word
+control "no component is told to read its configuration again" \
+	"the update tells every component to read its configuration again" \
+	m_no_component_is_told_anything
+control "the bar is sent the signal of a module rather than of the configuration" \
+	"the update tells every component to read its configuration again" \
+	m_the_bar_is_sent_the_wrong_signal
+control "the update writes a byte into the machine facts of the user" \
+	"an update leaves the machine facts and the knobs unchanged, byte for byte" \
+	m_the_update_writes_the_machine_facts
+control "a broken generated output is read as a machine with no theme" \
+	"a generated output that is broken is reported and the update ends non-zero" \
+	m_a_broken_output_reads_as_no_theme
+control "the update ends well however many steps reported a problem" \
+	"'--on-failure skip' carries on past the failure and the update still ends non-zero" \
+	m_the_update_always_ends_well
+
+SUITE=tests/install.bats
+
+# A deleted guard: a second installation is read as a first one. The control is
+# repeated here because the installer is the caller the criterion names.
+control "every installation is read as a first one, from the installer" \
+	"an installation over a machine that has migration state marks nothing" \
+	m_every_installation_is_a_first_one
 # The two below record what Lua and the kernel do: a 'dofile' of a file that is
 # not there raises and stops the chunk that called it, and a '..' is applied
 # after a symbolic link is followed. No change to this project can make either

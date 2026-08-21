@@ -14,7 +14,7 @@ behaviour without reading the tree.
 | `docs/`        | The documentation, with the architecture decision records under `docs/adr/` and one page per bundle under `docs/bundles/`. |
 | `install/`     | The installer: its steps and its package manifests. See below.                    |
 | `lib/`         | The shared shell modules the commands and the installer source, and `background.py`, the one program of this repository that is not shell. [Backgrounds](backgrounds.md) records why it exists. |
-| `migrations/`  | One script per migration, restricted by policy to system side effects.            |
+| `migrations/`  | One script per migration, named `NNNN-name.sh` and restricted by policy to system side effects. [Updating](updating.md) records the format, the state the runner keeps, and how far the policy is enforced. |
 | `schema/`      | The schemas the project owns. `schema/knobs.conf` names every knob, the values it takes, and its default. |
 | `templates/`   | The templates the renderer reads to produce themed configuration.                 |
 | `tests/`       | The bats test suite, with its fixtures under `tests/fixtures/` and the helpers more than one suite needs in `tests/helpers.bash`. |

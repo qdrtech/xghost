@@ -54,6 +54,8 @@ what it is, and what an installation has never been observed doing.
 
 - [Installing](docs/installing.md) — the package manifests and the installer
   steps.
+- [Updating](docs/updating.md) — what `xghost system update` does, how to write
+  a migration, and what the runner records.
 - [Repository layout](docs/repository-layout.md) — what each directory holds.
 - [Adding a command](docs/adding-a-command.md) — the metadata contract of the
   dispatcher.
