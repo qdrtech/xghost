@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 #
-# Render one theme and move the result into place.
+# Render one theme, move the result into place, and show it.
+#
+# The reload runs only after the move has succeeded, and never when it has not.
+# A render that failed leaves the previous theme in place, whole, so telling the
+# desktop to read its configuration again would show the theme it is already
+# showing and report a reload of a change that never happened.
+#
+# The exit status of this command is the theme switch. A component that did not
+# reload is named on standard error and in the lines above it, and it does not
+# make this command fail: the theme IS set, the generated output IS in place,
+# and every program started after this point reads it. 'xghost system reload'
+# is the command whose exit status is the reload. docs/reloading.md records the
+# rule and the reason.
 #
 # @xghost-meta
 # summary: Set the active theme.
@@ -15,6 +27,8 @@ set -euo pipefail
 COMMAND_PATH=$(readlink -f "${BASH_SOURCE[0]}")
 # shellcheck source=lib/theme.sh
 . "${COMMAND_PATH%/*}/../lib/theme.sh"
+# shellcheck source=lib/reload.sh
+. "${COMMAND_PATH%/*}/../lib/reload.sh"
 
 if [ $# -eq 0 ]; then
 	xghost_die 2 "'theme set' needs a theme name. Run 'xghost theme list' for the names."
@@ -29,3 +43,8 @@ fi
 
 printf "the active theme is now '%s'\n" "$1"
 printf 'the generated output is at %s\n' "$XGHOST_GENERATED_DIR"
+
+printf 'reload the running components\n'
+if ! reload_all; then
+	xghost_warn "the theme is set and $RELOAD_PROBLEMS of ${#RELOAD_COMPONENTS[@]} components did not reload. The lines above name each one, and 'xghost system reload' runs the reload again."
+fi

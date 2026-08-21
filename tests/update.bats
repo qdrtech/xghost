@@ -11,9 +11,16 @@
 #                  stub pacman answers 'pacman -Q' from a file the test writes,
 #                  so the report of what changed is read from a database the
 #                  test controls.
-#   the components A stub hyprctl, pkill and swaync-client, first on the PATH.
-#                  Hyprland and the bar are the live session of whoever runs
-#                  this suite, and no test may reload or signal either one.
+#   the components A stub pgrep, pkill, hyprctl and swaync-client, first on the
+#                  PATH. Hyprland, the bar, the notification centre and the
+#                  terminal are the live session of whoever runs this suite, and
+#                  no test may reload or signal any of them. The stub pgrep is
+#                  what says which of them is running, so the answer is a fact
+#                  of the test rather than of the machine.
+#
+# tests/setup_suite.bash switches the reload off for every suite of this
+# project. This is one of the two files that switch it back on, and it does that
+# in the same setup() that installs the stubs.
 #   the migrations Fixture migrations under tests/fixtures/migrations/. None of
 #                  them touches anything outside the temporary directory.
 #
@@ -107,6 +114,13 @@ setup() {
 	: >"$MIGRATION_PACKAGES"
 
 	stub_programs
+
+	# The whole suite has the reload off, and this is a suite of the step that
+	# reloads. The line is here, after stub_programs, because the order is the
+	# safety: the switch is only ever on with the stubs already first on the
+	# PATH.
+	export XGHOST_RELOAD=yes
+
 	assert_stubs_are_first
 }
 
@@ -156,6 +170,28 @@ stub_programs() {
 		exit "${YAY_STATUS:-0}"
 	STUB
 
+	# The processes this machine is running, one name per line, as the stub
+	# pgrep reads them. Every component of the reload table is running unless a
+	# test rewrites this file.
+	printf 'Hyprland\nwaybar\nswaync\nghostty\n' >"$STUB_DIR/running"
+
+	# The probe lib/reload.sh asks before it signals anything. It answers from
+	# the file above, with the exit statuses the real pgrep uses: 0 for a match
+	# and 1 for none.
+	cat >"$STUB_DIR/pgrep" <<-'STUB'
+		#!/usr/bin/env bash
+		set -uo pipefail
+		printf 'pgrep %s\n' "$*" >>"$STUB_DIR/log"
+		# PGREP_STATUS is for the one test that runs on a PATH holding almost
+		# nothing, where 'grep' is not reachable. Without it that stub would
+		# fail to run and the test would prove the branch for a probe that
+		# broke rather than the branch it is aimed at.
+		if [ -n "${PGREP_STATUS:-}" ]; then
+			exit "$PGREP_STATUS"
+		fi
+		grep -qxF -- "${!#}" "$STUB_DIR/running"
+	STUB
+
 	cat >"$STUB_DIR/hyprctl" <<-'STUB'
 		#!/usr/bin/env bash
 		set -uo pipefail
@@ -178,20 +214,26 @@ stub_programs() {
 	STUB
 
 	chmod +x "$STUB_DIR/pacman" "$STUB_DIR/sudo" "$STUB_DIR/yay" \
-		"$STUB_DIR/hyprctl" "$STUB_DIR/pkill" "$STUB_DIR/swaync-client"
+		"$STUB_DIR/hyprctl" "$STUB_DIR/pgrep" "$STUB_DIR/pkill" \
+		"$STUB_DIR/swaync-client"
 	PATH="$STUB_DIR:$PATH"
 	export PATH
 }
 
 # Fail the test here rather than in the live session.
 #
-# 'hyprctl reload' and 'pkill -SIGUSR2 -x waybar' both reach the session of
-# whoever runs this suite. A PATH that does not resolve to the stub is the one
-# fault that turns a test of this file into a change to that session, so it is
-# checked before any test body runs.
+# 'hyprctl reload' and 'pkill -SIGUSR2 waybar' both reach the session of whoever
+# runs this suite. A PATH that does not resolve to the stub is the one fault that
+# turns a test of this file into a change to that session, so it is checked
+# before any test body runs.
+#
+# 'pgrep' is on the list for a different reason. It signals nothing, so the real
+# one is harmless; but it is what decides whether anything is signalled at all,
+# and a real pgrep on the machine this desktop runs on answers yes for every
+# component. A test that reached it would be a test whose stubs then ran.
 assert_stubs_are_first() {
 	local name
-	for name in pacman sudo yay hyprctl pkill swaync-client; do
+	for name in pacman sudo yay hyprctl pgrep pkill swaync-client; do
 		[ "$(command -v "$name")" = "$STUB_DIR/$name" ] || {
 			printf 'the stub %s is not first on the PATH; refusing to run\n' "$name" >&2
 			return 1
@@ -520,47 +562,113 @@ update() {
 	update
 
 	run -0 grep -qxF 'hyprctl reload' "$STUB_DIR/log"
-	run -0 grep -qxF 'pkill -SIGUSR2 -x waybar' "$STUB_DIR/log"
+	run -0 grep -qxF "pkill -SIGUSR2 -x -u $EUID waybar" "$STUB_DIR/log"
 	run -0 grep -qxF 'swaync-client -rs' "$STUB_DIR/log"
+	run -0 grep -qxF "pkill -SIGUSR2 -x -u $EUID ghostty" "$STUB_DIR/log"
 }
 
-@test "a component that is not running is reported as not running and is not a failure" {
-	export PKILL_STATUS=1
-	export HYPRCTL_STATUS=1
+@test "the reload runs after the render, because it is what shows the render" {
+	update
+
+	# The order is the contract of this file. A reload before the render tells
+	# the desktop to read the output of the previous one.
+	run -0 grep -n 'hyprctl reload' "$STUB_DIR/log"
+	local reload=${output%%:*}
+	[[ $output == *"hyprctl reload"* ]]
+
+	# The AUR helper is the last thing the update runs before the migrations and
+	# the render, so the reload has to come after it.
+	run -0 grep -n '^yay ' "$STUB_DIR/log"
+	[ "${output%%:*}" -lt "$reload" ]
+}
+
+@test "a component that is not running is skipped, and the update still ends well" {
+	# The stub probe answers from this file, so this is the machine saying the
+	# bar and the notification centre are not running.
+	printf 'Hyprland\nghostty\n' >"$STUB_DIR/running"
 
 	update
 
 	[ "$status" -eq 0 ]
-	[[ $output == *"hyprland not running"* ]]
-	[[ $output == *"waybar not running"* ]]
-	[[ $output == *"swaync reloaded"* ]]
+	[[ $output == *"waybar: not running"* ]]
+	[[ $output == *"swaync: not running"* ]]
+	[[ $output == *"hyprland: reloaded"* ]]
+
+	# Neither was signalled. 'swaync-client' is the one that matters: it reaches
+	# an activatable D-Bus name, so a call with no daemon running starts one.
+	run -1 grep -q 'swaync-client' "$STUB_DIR/log"
+	run -1 grep -q 'pkill -SIGUSR2 -x -u '"$EUID"' waybar' "$STUB_DIR/log"
+}
+
+@test "a component that is running and failed to reload is reported, and the update ends non-zero" {
+	export HYPRCTL_STATUS=1
+
+	update
+
+	# This is the case the table this replaced could not express. It ran
+	# 'hyprctl reload', read any non-zero status as "not running", and ended
+	# well. A compositor that is there and refused the reload is the one outcome
+	# worth acting on, and it was the one outcome that could not be reported.
+	[ "$status" -eq 1 ]
+	[[ $output == *"hyprland: failed"* ]]
+	[[ $output != *"hyprland: not running"* ]]
+}
+
+@test "one component that failed does not stop the components after it" {
+	export HYPRCTL_STATUS=1
+
+	update
+
+	# The compositor is first in the table and it failed, and all three
+	# components after it were still reloaded.
+	run -0 grep -qxF "pkill -SIGUSR2 -x -u $EUID waybar" "$STUB_DIR/log"
+	run -0 grep -qxF 'swaync-client -rs' "$STUB_DIR/log"
+	run -0 grep -qxF "pkill -SIGUSR2 -x -u $EUID ghostty" "$STUB_DIR/log"
 }
 
 @test "a component whose program is not installed is reported as such" {
-	# This one asks the function rather than running an update, and it asks it
-	# with a PATH that reaches none of the component programs.
+	# This one asks the module rather than running an update, and it asks it
+	# with a PATH that reaches none of the programs that signal a component.
 	#
 	# The reason is a safety rule. Removing a stub does not make a program
 	# absent: it reveals the real one, and hyprctl, pkill and swaync-client all
 	# reach the live session of whoever runs this suite. A PATH built from
 	# nothing is the only way to ask this question that cannot reach a running
 	# component. The modules resolve their own directory when they are sourced,
-	# and that needs 'dirname', so 'dirname' is the one program this PATH holds.
+	# and that needs 'dirname', so 'dirname' and the shell itself are what this
+	# PATH holds, with a stub probe that answers without reading anything.
 	local safe="$BATS_TEST_TMPDIR/safe-path"
 	local shell name
 	mkdir -p "$safe"
-	ln -s "$(command -v dirname)" "$safe/dirname"
 	shell=$(command -v bash)
+	ln -s "$(command -v dirname)" "$safe/dirname"
+	ln -s "$STUB_DIR/pgrep" "$safe/pgrep"
+	ln -s "$shell" "$safe/bash"
 
 	# The assertion that makes the rest of this test safe to run.
-	for name in swaync-client hyprctl pkill waybar; do
+	for name in swaync-client hyprctl pkill waybar swaync ghostty Hyprland; do
 		run -1 env PATH="$safe" "$shell" -c "command -v $name"
 	done
 
-	for name in swaync hyprland waybar; do
-		run -0 env PATH="$safe" "$shell" -c ". '$CHECKOUT/lib/update.sh'; update_restart_one $name"
+	for name in hyprland waybar swaync ghostty; do
+		run -1 env PATH="$safe" STUB_DIR="$STUB_DIR" PGREP_STATUS=0 \
+			XGHOST_RELOAD=yes "$shell" -c '
+				. "'"$CHECKOUT"'/lib/reload.sh"
+				reload_one '"$name"'
+				status=$?
+				printf "%s\n" "$RELOAD_RESULT"
+				exit "$status"
+			'
 		[ "$output" = "no command" ]
 	done
+}
+
+@test "the update reports what every component answered" {
+	printf 'Hyprland\nwaybar\n' >"$STUB_DIR/running"
+
+	update
+
+	[[ $output == *"components:  hyprland reloaded,waybar reloaded,swaync not running,ghostty not running"* ]]
 }
 
 # --- the report ---------------------------------------------------------------

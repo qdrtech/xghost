@@ -1064,7 +1064,7 @@ m_the_render_report_is_a_word() {
 # A deleted guard: no component is told anything, and the update still ends
 # well.
 m_no_component_is_told_anything() {
-	substitute "$UPDATE" '	update_restart
+	substitute "$UPDATE" '	update_reload || status=1
 
 	update_report' '	update_report'
 }
@@ -1072,9 +1072,14 @@ m_no_component_is_told_anything() {
 # A perturbed input: the bar is sent the signal that makes one module run again
 # rather than the one that makes it read its configuration again. Every command
 # still succeeds.
+#
+# The signal moved to lib/reload.sh with the table it belongs to, and this
+# mutation followed it. The test it has to break is still a test of the update,
+# because the update is what has to carry the signal all the way out to the bar.
 m_the_bar_is_sent_the_wrong_signal() {
-	substitute "$UPDATE" 'if pkill -SIGUSR2 -x waybar >/dev/null 2>&1; then' \
-		'if pkill -SIGRTMIN+8 -x waybar >/dev/null 2>&1; then'
+	substitute lib/reload.sh \
+		'	"waybar|waybar|pkill|pkill -SIGUSR2 -x -u $EUID waybar"' \
+		'	"waybar|waybar|pkill|pkill -SIGRTMIN+8 -x -u $EUID waybar"'
 }
 
 # A perturbed input: the update writes a byte into the machine facts of the
@@ -1566,6 +1571,202 @@ control "a refused value is reported and the render succeeds all the same" \
 control "the rule is widened to an ordinary character of a value" \
 	"a value that holds an ampersand, a hash and a comma still renders" \
 	m_the_rule_reaches_an_ordinary_character
+
+#
+# The reload. Deleted guards, except where a case says it is a perturbed input.
+#
+
+SUITE=tests/reload.bats
+RELOAD=lib/reload.sh
+THEME_SET=commands/theme-set
+UPDATE=lib/update.sh
+
+#
+# The probe is the whole design: ask whether it is running, then tell it. Every
+# guard that rests on the probe has a control here, because the failures they
+# stop are silent ones and one of them starts a daemon nobody started.
+#
+
+# The probe is gone, so the signal is sent to whatever is or is not there.
+m_no_probe() {
+	substitute "$RELOAD" '	reload_is_running "$process" || status=$?
+	case $status in
+	1)
+		RELOAD_RESULT="not running"
+		return 0
+		;;' '	status=0
+	case $status in
+	1)
+		RELOAD_RESULT="not running"
+		return 0
+		;;'
+}
+
+# The second probe is gone, so a component that went away between the probe and
+# the signal is reported as one that refused.
+m_no_second_probe() {
+	substitute "$RELOAD" '	if ! reload_is_running "$process"; then
+		RELOAD_RESULT="not running"
+		return 0
+	fi' '	if false; then
+		RELOAD_RESULT="not running"
+		return 0
+	fi'
+}
+
+# A perturbed input, and the one this project keeps meeting. The exact status of
+# the probe is replaced by a plain test of success, which reads "matched
+# nothing" and "could not ask" as the same answer. Nothing fails to parse and no
+# command stops working; only the test that asks the second question notices.
+m_probe_status_is_a_boolean() {
+	substitute "$RELOAD" '	"$RELOAD_PROBE" -x -u "$EUID" -- "$process" >/dev/null 2>&1 || status=$?
+	case $status in
+	0) return 0 ;;
+	1) return 1 ;;
+	esac
+	return 2' '	if "$RELOAD_PROBE" -x -u "$EUID" -- "$process" >/dev/null 2>&1; then
+		return 0
+	fi
+	return 1'
+}
+
+# The check on the row is gone. An empty process field then reaches pgrep, which
+# with no pattern at all matches every process of the user.
+m_no_row_check() {
+	substitute "$RELOAD" '	if ! reload_check_row "$name" "$process" "$program" "$command"; then
+		RELOAD_RESULT=malformed
+		return 1
+	fi' '	if false; then
+		RELOAD_RESULT=malformed
+		return 1
+	fi'
+}
+
+# A perturbed input: the row tests for one program and runs another. Both names
+# are real programs, the row still has four fields, and every other component is
+# unaffected.
+m_the_row_tests_a_different_program() {
+	substitute "$RELOAD" \
+		'	"waybar|waybar|pkill|pkill -SIGUSR2 -x -u $EUID waybar"' \
+		'	"waybar|waybar|killall|pkill -SIGUSR2 -x -u $EUID waybar"'
+}
+
+# The switch is gone, so the suite of a machine that runs this desktop reloads
+# that desktop.
+m_no_switch() {
+	substitute "$RELOAD" '	if ! reload_enabled; then
+		reload_say "   reload is off: $RELOAD_DETAIL"
+		RELOAD_SUMMARY="not reloaded: $RELOAD_DETAIL"
+		return 0
+	fi' '	if false; then
+		reload_say "   reload is off: $RELOAD_DETAIL"
+		RELOAD_SUMMARY="not reloaded: $RELOAD_DETAIL"
+		return 0
+	fi'
+}
+
+# The backstop behind the switch is gone. reload_all still refuses, so every
+# path through the command is unchanged; only a caller that reaches reload_one
+# directly gets past it, and that is the door the backstop exists for.
+m_no_switch_backstop() {
+	substitute "$RELOAD" '	if ! reload_enabled; then
+		RELOAD_RESULT=off
+		return 0
+	fi' '	if false; then
+		RELOAD_RESULT=off
+		return 0
+	fi'
+}
+
+# The components are no longer independent: the run stops at the first one that
+# failed, and every component after it is never reached.
+m_first_failure_stops_the_run() {
+	substitute "$RELOAD" '			RELOAD_PROBLEMS=$((RELOAD_PROBLEMS + 1))
+			reload_say "   $name: $RELOAD_RESULT"
+			reload_warn "$name: $RELOAD_DETAIL"' '			RELOAD_PROBLEMS=$((RELOAD_PROBLEMS + 1))
+			reload_say "   $name: $RELOAD_RESULT"
+			reload_warn "$name: $RELOAD_DETAIL"
+			break'
+}
+
+# A perturbed input. The bar is sent SIGRTMIN+8 instead of SIGUSR2. Both are
+# signals the bar accepts, both are spelled correctly, and the command still
+# succeeds. They do not mean the same thing: SIGUSR2 reloads the bar, and
+# SIGRTMIN+8 re-runs the one module whose 'signal' key is 8, which in
+# config/waybar/config runs 'checkupdates' over the network.
+m_the_bar_gets_the_module_signal() {
+	substitute "$RELOAD" \
+		'	"waybar|waybar|pkill|pkill -SIGUSR2 -x -u $EUID waybar"' \
+		'	"waybar|waybar|pkill|pkill -SIGRTMIN+8 -x -u $EUID waybar"'
+}
+
+# A perturbed input. The compositor is no longer first. Every component is still
+# reloaded and every command still succeeds; only the order changed.
+m_the_compositor_is_not_first() {
+	substitute "$RELOAD" \
+		'	"hyprland|Hyprland|hyprctl|hyprctl reload"
+	"waybar|waybar|pkill|pkill -SIGUSR2 -x -u $EUID waybar"' \
+		'	"waybar|waybar|pkill|pkill -SIGUSR2 -x -u $EUID waybar"
+	"hyprland|Hyprland|hyprctl|hyprctl reload"'
+}
+
+# The reload no longer waits for the render to succeed, so a failed switch tells
+# the desktop to read the output of the previous one and reports a reload of a
+# change that never happened.
+m_theme_set_reloads_after_a_failed_render() {
+	substitute "$THEME_SET" 'if ! theme_set "$1"; then
+	xghost_die 1 "$THEME_PROBLEM"
+fi' 'if ! theme_set "$1"; then
+	reload_all || true
+	xghost_die 1 "$THEME_PROBLEM"
+fi'
+}
+
+# The update no longer counts a failed reload, so a component that refused is
+# printed in the report and the run still ends well.
+m_the_update_does_not_count_a_failed_reload() {
+	substitute "$UPDATE" '	update_reload || status=1' '	update_reload || true'
+}
+
+printf '\n'
+control "the probe is gone, so a component that is not running is signalled" \
+	"a component that is not running is never signalled" \
+	m_no_probe
+control "the second probe is gone, so a component that went away reads as one that refused" \
+	"a component that goes away between the probe and the signal is 'not running'" \
+	m_no_second_probe
+control "the exact status of the probe is replaced by a plain test of success" \
+	"a probe that cannot answer is a problem, and is not read as 'not running'" \
+	m_probe_status_is_a_boolean
+control "the row is never checked, so an empty field reaches pgrep" \
+	"a row with an empty process field is refused rather than run" \
+	m_no_row_check
+control "a row of the shipped table tests for one program and runs another" \
+	"every row of the shipped table runs the program it tests for" \
+	m_the_row_tests_a_different_program
+control "the switch that keeps the suite off a live desktop is gone" \
+	"XGHOST_RELOAD=no stops the reload, and says so where the components would be" \
+	m_no_switch
+control "the backstop behind the switch is gone" \
+	"the switch is tested in reload_one as well, so a direct caller cannot slip past it" \
+	m_no_switch_backstop
+control "the first component that failed stops the run" \
+	"one failure does not stop the rest" \
+	m_first_failure_stops_the_run
+control "the bar is sent the module signal instead of the reload signal" \
+	"a running component is reloaded, and the signal names the process" \
+	m_the_bar_gets_the_module_signal
+control "the compositor is no longer reloaded first" \
+	"every component is reloaded, and the compositor is first" \
+	m_the_compositor_is_not_first
+control "a failed render still reloads" \
+	"'xghost theme set' reloads nothing when the render failed" \
+	m_theme_set_reloads_after_a_failed_render
+
+SUITE=tests/update.bats
+control "a failed reload is printed and not counted, so the update ends well" \
+	"a component that is running and failed to reload is reported, and the update ends non-zero" \
+	m_the_update_does_not_count_a_failed_reload
 
 printf '\n%s: %d controls held, %d did not\n' "$PROGRAM" "$PASSED" "$FAILED"
 if [ "$FAILED" -gt 0 ]; then

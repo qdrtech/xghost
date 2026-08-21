@@ -367,11 +367,12 @@ points at survives a switch.
 
 ## What the renderer does not do yet
 
-- **Reloading a running component.** A switch writes the new configuration and
-  stops there. It sends no signal and restarts nothing, so a running application
-  shows the new theme when it next reads its configuration. A knob change is the
-  same: `xghost settings set` renders and stops. Reloading every component from
-  one place is [issue #24](https://github.com/qdrtech/xghost/issues/24).
+- **Restarting a running component.** A switch writes the new configuration and
+  then tells the running components to read it again. It restarts nothing, and
+  it signals nothing that has no reload of its own, so an application outside
+  that set shows the new theme when it next starts. A knob change is the same.
+  [Reloading](reloading.md) records which components take a signal, which need
+  none and why, and what a component that did not take one is reported as.
 
 ## The golden-file tests
 
