@@ -1,13 +1,91 @@
 # Installing
 
-One command installs the desktop:
+## The one command
+
+On a fresh Arch Linux machine, one command installs the whole desktop. Run it as
+the user who will use the desktop:
+
+```
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/qdrtech/xghost/main/boot.sh)"
+```
+
+`boot.sh` does three things, and nothing else:
+
+1. It installs `git`, when this machine has none. That is the one package it
+   installs and the one command it runs as root.
+2. It clones the repository to the install location, `~/.local/share/xghost`.
+3. It hands off to `install.sh` in that clone, which is what installs the
+   desktop.
+
+Everything else is a step under `install/steps/`, where it is grouped,
+idempotent and tested. A bootstrap that grows is a second installer that nobody
+runs the tests against.
+
+### Read it before you run it
+
+You do not have to pipe a script you have not seen into a shell. The bootstrap
+is under a hundred lines, and close to half of them are comments, so reading it
+first is realistic:
+
+```
+curl -fsSLO https://raw.githubusercontent.com/qdrtech/xghost/main/boot.sh
+less boot.sh
+sh boot.sh
+```
+
+Both forms run the same file, and the bootstrap hands its own arguments to the
+installer: `sh boot.sh --dry-run` reports every change and makes none.
+
+Two choices in that command are deliberate. It is `sh` rather than `bash`,
+because the bootstrap runs before anything has been installed and uses nothing
+beyond POSIX shell. And it is `sh -c "$(curl ...)"` rather than `curl ... | sh`,
+because a piped script *is* the standard input of the shell reading it: handing
+the text to `sh -c` leaves the standard input of the installation attached to
+your terminal, so every prompt pacman and `sudo` make still reaches you.
+
+### Running it again is safe
+
+An install location that already holds a checkout is left exactly as it is. The
+bootstrap pulls nothing, resets nothing and removes nothing. It reports the
+checkout and hands off, and the steps of the installer are all idempotent, so a
+second run reaches the same end state. Updating the checkout is one command, and
+the bootstrap prints it:
+
+```
+git -C ~/.local/share/xghost pull
+```
+
+A run that was killed part way through is the case that causes real trouble. git
+removes the directory of a clone it interrupts itself, so a directory is left
+behind only when the machine lost power or a process took a `SIGKILL`. The
+bootstrap then finds a path it cannot clone into, names that path, says what to
+do about it, and stops. It deletes nothing: a script fetched over the network must not remove
+a directory it did not create. Look at the path, move it aside, then run the
+bootstrap again.
+
+### The paths, and how to override each one
+
+| Path                    | Variable             | Default                                 |
+| ----------------------- | -------------------- | --------------------------------------- |
+| The repository to clone | `XGHOST_REPO`        | `https://github.com/qdrtech/xghost.git` |
+| The install location    | `XGHOST_INSTALL_DIR` | `$XDG_DATA_HOME/xghost`, and `$HOME/.local/share/xghost` when that is not set |
+
+The bootstrap clones the default branch of that repository. This project ships
+no tag, so a bootstrap that named one would clone a release that does not exist.
+The clone is a full one rather than a shallow one, because no image is committed
+to this repository and it is therefore the size of its text: what the depth
+would save is not worth handing the user a checkout they cannot branch from.
+
+## From a checkout
+
+The installer itself is one command, run from a checkout you already have:
 
 ```
 ./install.sh
 ```
 
-Run it as the user who will use the desktop, from the checkout. It installs the
-packages the manifests declare, links the prescribed configuration into your
+Run it as the user who will use the desktop. It installs the packages the
+manifests declare, links the prescribed configuration into your
 config directory, reads your machine, renders the theme, and puts the `xghost`
 command in reach.
 
@@ -94,6 +172,7 @@ the order of their names.
 | `config`       | `10-link.sh`                    | `xghost config link --backup`.                                    |
 | `config`       | `20-detect.sh`                  | `xghost machine detect`.                                          |
 | `config`       | `30-theme.sh`                   | `xghost theme set`.                                               |
+| `config`       | `40-shell.sh`                   | Write `~/.zshenv`, so zsh reads the prescribed shell configuration. |
 | `post-install` | `10-command-path.sh`            | Link `bin/xghost` into your bin directory.                        |
 | `post-install` | `20-summary.sh`                 | Prove that a theme is active, then report the end state.          |
 
@@ -158,8 +237,19 @@ render again inside the first session:
 install.sh   config/10-link.sh    the prescribed configuration and the bridge
              config/20-detect.sh  every fact except the monitors
              config/30-theme.sh   the generated output, complete
+             config/40-shell.sh   the ZDOTDIR line that zsh reads first
 first login  xghost machine refresh   the monitors, then the render again
 ```
+
+`config/40-shell.sh` is last of the four because it is the only step that
+writes into the home directory rather than into the config directory, and
+because it changes nothing at all on a machine whose home directory already
+holds a `~/.zshenv` or any startup file of zsh. It never fails the installation:
+six of its seven cases are a report, and a home directory that will not take the
+write is one of the six. zsh is a login shell rather than a part of the session,
+so the rest of the desktop is in place either way and a report is the whole of
+what a stop would buy. [The shell bundle](bundles/shell.md) records every case
+it meets and how to undo the one file it writes.
 
 The third step works because `unknown` is a value the bundle prescribes a
 fragment for. The `default` monitor fragment names no output, so Hyprland takes

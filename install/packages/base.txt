@@ -86,6 +86,13 @@ xdg-utils
 # The maintainer read that vetting and approved this line on 2026-08-14.
 python
 
+# The shell, the prompt and the multiplexer. docs/bundles/shell.md.
+zsh
+starship
+tmux
+zsh-syntax-highlighting       # the highlighter the prescribed zshrc sources
+zsh-autosuggestions           # the suggestions the prescribed zshrc sources
+
 # The launcher. docs/bundles/rofi.md.
 #
 # 'rofi' provides and replaces 'rofi-wayland', so the compositor of this desktop

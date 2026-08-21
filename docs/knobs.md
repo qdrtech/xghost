@@ -181,6 +181,17 @@ A test in `tests/hyprland.bats` pins the family in `hyprlock.conf` to the
 default of `KNOB_FONT`, so the lock screen cannot drift onto a family this
 desktop no longer ships.
 
+### The shell has no font to set
+
+`KNOB_FONT` reaches neither zsh nor tmux, and that is a fact about those two
+programs rather than a gap. Neither one has a font: both draw in the font of the
+terminal, and the terminal takes that font from this knob already.
+
+The knob still decides whether the prompt draws. Every symbol of the starship
+prompt is a glyph of the Nerd Font private use area, so both families of this
+knob carry it and a machine without either one draws empty boxes.
+[The shell bundle](bundles/shell.md) records it.
+
 ## The two kinds of knob
 
 The renderer has two substitution mechanisms, and a knob drives either one. It
