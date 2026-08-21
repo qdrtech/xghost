@@ -102,8 +102,9 @@ The rules:
   renderer drops. Quote a value that starts or ends with a space.
 - The white space at both ends of a name and of a value is dropped.
 - A value is text. The renderer never expands a variable and never runs a
-  command in it. `&` and a backslash are ordinary characters of the value, and
-  they reach the output exactly as the theme author wrote them.
+  command in it. `&` is an ordinary character of the value, and it reaches the
+  output exactly as the theme author wrote it.
+- A value holds none of the six characters below. See "What a value may hold".
 - A value that itself holds `@NAME@` reaches the output as that text. The
   renderer reads a template once and never reads back what it wrote, so a value
   is never substituted a second time.
@@ -117,6 +118,48 @@ Which names a palette must declare is decided by the templates, not by the
 renderer. A template that names a value the palette does not declare fails the
 render and reports the file and the name. Read `templates/` for the names the
 project uses today.
+
+## What a value may hold
+
+A value reaches a file that another program reads as code. Neovim loads
+`nvim/colors.lua` as a Lua chunk and a shell sources `shell/colors.sh`, and in
+both of them the value sits inside a string literal. In `hypr/knobs.conf` the
+same kind of value sits inside no literal at all.
+
+The renderer substitutes by name in one pass. It reads no syntax around a
+placeholder, so it cannot know which of those a value is landing in, and it
+holds no table of output languages. The rule is therefore the value rather than
+the file: **a value has to be inert wherever it lands.**
+
+Six characters are not, so a value may hold none of them:
+
+| Character           | Why a value may not hold it                                                    |
+| ------------------- | ------------------------------------------------------------------------------ |
+| `"`                 | It closes a literal in Lua, in JSON, in TOML, in CSS and in a shell.           |
+| `'`                 | It closes one in a shell, in Lua and in CSS.                                   |
+| `` ` ``             | It runs a command in a shell.                                                  |
+| `\`                 | It escapes the character after it, the closing quotation mark included.        |
+| `$`                 | It expands a variable or runs a command in a shell, and names a variable in a Hyprland file. |
+| A control character | It ends the line, so the rest of the value becomes a directive of its own.     |
+
+The rule belongs to the renderer, so it holds for every template and for all
+three sources of a value: the theme palette, the [machine facts](machine-facts.md)
+and the [knobs](knobs.md). A value that holds one of the six stops the whole
+render. The report names the theme, the template, the value and the character:
+
+```
+xghost: tokyonight: nvim/colors.lua: the value of 'BG' holds a quotation mark:
+'#1a1b26"'. A value reaches a file another program reads as code, so it holds no
+quotation mark, no apostrophe, no backtick, no backslash, no dollar sign and no
+control character. Correct it in the theme palette, the machine facts or the
+knobs.
+```
+
+The renderer never mends such a value. A value it escaped would be a value the
+theme author did not write, and a file another program reads as code is not the
+place to guess. The previous generated output is left exactly as it was, because
+the renderer builds a whole tree and `lib/theme.sh` moves it into place only
+once the render is complete.
 
 ## The three forms of a scalar
 

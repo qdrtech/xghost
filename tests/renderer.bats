@@ -273,39 +273,234 @@ accent=10, 132, 255" ]
 	[ "$output" = 'font=Gill Sans & Co' ]
 }
 
-@test "a value that holds a backslash reaches the output unchanged" {
+# --- a value a generated file cannot carry ----------------------------------
+#
+# The renderer writes a value into a file another program reads as code, and it
+# cannot know where in that file the value lands. So the rule is the value: six
+# characters are refused, whatever the template and whichever of the three
+# sources declared the value. Each one has a test below, and the failure is the
+# whole render.
+
+@test "a value that holds a quotation mark fails the render" {
+	use_own_inputs
+	make_theme demo <<-'EOF'
+		BG=#1a2b3c", os.execute("touch /tmp/evidence
+	EOF
+	make_template plain.conf <<-'EOF'
+		bg=@BG@
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"plain.conf: the value of 'BG' holds a quotation mark"* ]]
+	[ ! -e "$GENERATED/plain.conf" ]
+}
+
+@test "a value that holds an apostrophe fails the render" {
+	use_own_inputs
+	make_theme demo <<-'EOF'
+		BG=#1a2b3c'; touch /tmp/evidence; :'
+	EOF
+	make_template plain.conf <<-'EOF'
+		bg=@BG@
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"plain.conf: the value of 'BG' holds an apostrophe"* ]]
+	[ ! -e "$GENERATED/plain.conf" ]
+}
+
+@test "a value that holds a backtick fails the render" {
+	use_own_inputs
+	make_theme demo <<-'EOF'
+		BG=`touch /tmp/evidence`
+	EOF
+	make_template plain.conf <<-'EOF'
+		bg=@BG@
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"plain.conf: the value of 'BG' holds a backtick"* ]]
+	[ ! -e "$GENERATED/plain.conf" ]
+}
+
+# A backslash reached the output unchanged until issue #48. It escapes the
+# character after it, so a value of one backslash turns the closing quotation
+# mark of 'templates/nvim/colors.lua' into an ordinary character and the string
+# runs on into the next line of the file.
+@test "a value that holds a backslash fails the render" {
 	use_own_inputs
 	make_theme demo <<-'EOF'
 		ONE=a\b
 		TWO=a\\b
-		THREE=a\&b
 	EOF
 	make_template slash.conf <<-'EOF'
 		one=@ONE@
 		two=@TWO@
-		three=@THREE@
 	EOF
-	"$XGHOST" theme set demo
-	run cat "$GENERATED/slash.conf"
-	[ "$output" = 'one=a\b
-two=a\\b
-three=a\&b' ]
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"slash.conf: the value of 'ONE' holds a backslash: 'a\\b'"* ]]
+	[[ $output == *"slash.conf: the value of 'TWO' holds a backslash: 'a\\\\b'"* ]]
+	[ ! -e "$GENERATED/slash.conf" ]
 }
 
-@test "a value that ends in a backslash reaches the output unchanged" {
+@test "a value that ends in a backslash fails the render" {
 	use_own_inputs
 	make_theme demo <<-'EOF'
 		ONE=trailing\
-		TWO=trailing\\
 	EOF
 	make_template trailing.conf <<-'EOF'
 		one=@ONE@
-		two=@TWO@
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"trailing.conf: the value of 'ONE' holds a backslash"* ]]
+	[ ! -e "$GENERATED/trailing.conf" ]
+}
+
+@test "a value that holds a dollar sign fails the render" {
+	use_own_inputs
+	make_theme demo <<-'EOF'
+		BG=$(touch /tmp/evidence)
+	EOF
+	make_template plain.conf <<-'EOF'
+		bg=@BG@
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"plain.conf: the value of 'BG' holds a dollar sign"* ]]
+	[ ! -e "$GENERATED/plain.conf" ]
+}
+
+# The palette reader drops the white space at both ends of a value, so a tab
+# reaches the table only from the middle of one. It ends no line here, and it
+# is refused all the same: 'templates/hypr/knobs.conf' puts a value on a line
+# of its own with no literal around it at all.
+@test "a value that holds a control character fails the render" {
+	use_own_inputs
+	printf 'FONT=Inter\tDisplay\n' | make_theme demo
+	make_template font.conf <<-'EOF'
+		font=@FONT@
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"font.conf: the value of 'FONT' holds a control character"* ]]
+	[ ! -e "$GENERATED/font.conf" ]
+}
+
+# The rule is the renderer's, so it reaches every source of a value and not the
+# theme palette alone. A machine fact is the source a user edits by hand.
+@test "a machine fact that holds a quotation mark fails the render" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	cat >"$XGHOST_MACHINE_FACTS" <<-'EOF'
+		MACHINE_FACTS_VERSION=1
+		MACHINE_MONITOR_1_NAME=DP-1", os.execute("touch /tmp/evidence
+	EOF
+	make_template monitor.conf <<-'EOF'
+		name=@MACHINE_MONITOR_1_NAME@
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
+	[[ $output == *"monitor.conf: the value of 'MACHINE_MONITOR_1_NAME' holds a quotation mark"* ]]
+	[ ! -e "$GENERATED/monitor.conf" ]
+}
+
+# Criterion 3 of issue #48: the report names the theme, the value and the
+# template, so the reader knows which of the three inputs to correct without
+# rendering again.
+@test "the report of a refused value names the theme, the value and the template" {
+	use_own_inputs
+	make_theme sunken <<-'EOF'
+		BG=#1a2b3c"
+	EOF
+	make_template deep/plain.conf <<-'EOF'
+		bg=@BG@
+	EOF
+	run "$XGHOST" theme set sunken
+	[ "$status" -eq 1 ]
+	[[ $output == *"sunken: deep/plain.conf: the value of 'BG' holds a quotation mark: '#1a2b3c\"'."* ]]
+	[[ $output == *"the render of theme 'sunken' failed. The active theme is unchanged."* ]]
+}
+
+# A value that carries no character of the six still reaches the output as the
+# text it is. Without this the rule above could be widened to every value and
+# every test here would still pass.
+@test "a value that holds an ampersand, a hash and a comma still renders" {
+	use_own_inputs
+	make_theme demo <<-'EOF'
+		FONT=Gill Sans & Co
+		BG=#1a2b3c
+		LIST=26, 43, 60
+	EOF
+	make_template mixed.conf <<-'EOF'
+		font=@FONT@
+		bg=@BG@
+		list=@LIST@
 	EOF
 	"$XGHOST" theme set demo
-	run cat "$GENERATED/trailing.conf"
-	[ "$output" = 'one=trailing\
-two=trailing\\' ]
+	run cat "$GENERATED/mixed.conf"
+	[ "$output" = 'font=Gill Sans & Co
+bg=#1a2b3c
+list=26, 43, 60' ]
+}
+
+# Criterion 5 of issue #48. Both files are executed rather than parsed as data:
+# Neovim loads the first as a Lua chunk and a shell sources the second. The
+# theme here is a shipped palette with one colour perturbed, and the render
+# runs against the shipped templates, so this test names the real files.
+@test "a value that would close a literal is refused in the two executed templates" {
+	unset XGHOST_TEMPLATE_DIR
+	export XGHOST_THEMES_DIR="$BATS_TEST_TMPDIR/themes"
+	mkdir -p "$XGHOST_THEMES_DIR"
+	cp -R "$ROOT_DIR/themes/tokyonight" "$XGHOST_THEMES_DIR/broken"
+	sed -i 's/^BG=.*/BG=#1A1B26", os.execute("touch \/tmp\/evidence/' \
+		"$XGHOST_THEMES_DIR/broken/palette.conf"
+
+	run "$XGHOST" theme set broken
+	[ "$status" -eq 1 ]
+	[[ $output == *"nvim/colors.lua: the value of 'BG' holds a quotation mark"* ]]
+	[[ $output == *"shell/colors.sh: the value of 'BG' holds a quotation mark"* ]]
+	[ ! -e "$GENERATED/nvim/colors.lua" ]
+	[ ! -e "$GENERATED/shell/colors.sh" ]
+}
+
+# Criterion 3 of issue #48, and the part of it that goes wrong quietly. The
+# renderer builds a whole tree and lib/theme.sh moves it into place, so a
+# refused value has to leave the tree that is already there untouched, byte for
+# byte. This renders the shipped templates, so it compares a whole desktop
+# rather than one file.
+#
+# The value that is perturbed is a machine fact rather than a palette colour.
+# A colour that carries a quotation mark stops matching '#rrggbb', so it loses
+# its two derived forms and the render would fail on a missing '@BG_HEX@'
+# whatever this rule did. A monitor name carries no derived form, so the
+# quotation mark is the one and only reason this render is refused.
+@test "a refused value leaves the previous generated output byte for byte" {
+	unset XGHOST_TEMPLATE_DIR
+
+	"$XGHOST" theme set tokyonight
+	local before="$BATS_TEST_TMPDIR/before"
+	cp -RL "$GENERATED" "$before"
+
+	sed -i 's/^MACHINE_MONITOR_1_NAME=.*/MACHINE_MONITOR_1_NAME=DP-1", os.execute("touch \/tmp\/evidence/' \
+		"$XGHOST_MACHINE_FACTS"
+
+	run "$XGHOST" theme set macos-dark
+	[ "$status" -eq 1 ]
+	[[ $output == *"the value of 'MACHINE_MONITOR_1_NAME' holds a quotation mark"* ]]
+
+	# The theme did not change, the tree did not change, and no build was left
+	# behind for the next switch to trip over.
+	run "$XGHOST" theme current
+	[ "$output" = "tokyonight" ]
+	run diff -r "$before" "$GENERATED"
+	[ "$status" -eq 0 ]
+	[ "$(build_count)" -eq 1 ]
+
+	# The text that would have closed a literal is nowhere in the output.
+	run grep -rF 'os.execute' "$GENERATED"
+	[ "$status" -ne 0 ]
 }
 
 @test "a value that holds a placeholder is not substituted again" {
@@ -947,6 +1142,10 @@ make_fragment() {
 	[ "$output" = "#1a2b3c|Inter Display" ]
 }
 
+# The palette is a data file. lib/palette.sh reads it line by line and never
+# sources it, so a value can never run a command however it was written. Since
+# issue #48 such a value is refused before it reaches a file as well, so the
+# proof is two assertions rather than one: nothing ran, and nothing was written.
 @test "the renderer never runs the text of a palette" {
 	use_own_inputs
 	local evidence="$BATS_TEST_TMPDIR/evidence"
@@ -956,10 +1155,11 @@ make_fragment() {
 	make_template value.conf <<-'EOF'
 		bg=@BG@
 	EOF
-	"$XGHOST" theme set demo
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 1 ]
 	[ ! -e "$evidence" ]
-	run cat "$GENERATED/value.conf"
-	[ "$output" = "bg=\$(touch \"$evidence\")" ]
+	[ ! -e "$GENERATED/value.conf" ]
+	[[ $output == *"value.conf: the value of 'BG' holds a quotation mark"* ]]
 }
 
 # --- the renderer is a pure function ----------------------------------------

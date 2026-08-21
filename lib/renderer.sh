@@ -74,6 +74,11 @@ declare -A RENDER_UNKNOWN_FACTS=()
 RENDER_CONTENT=
 RENDER_MISSING=()
 RENDER_UNKNOWN=()
+RENDER_UNSAFE=()
+
+# Set by render_unsafe_reason: the character of a value that a generated file
+# cannot carry, named in words.
+RENDER_UNSAFE_REASON=
 
 # Set by render_tree: the relative path of the background image of this render,
 # or empty when it holds none, and the reason it holds none.
@@ -738,6 +743,58 @@ render_set_mode() {
 	fi
 }
 
+# Name the character of one value that a generated file cannot carry.
+#
+#   render_unsafe_reason VALUE
+#
+# The renderer writes a value into a file another program reads as code, and it
+# cannot know where in that file the value lands. 'templates/nvim/colors.lua'
+# puts one inside a Lua string literal, 'templates/shell/colors.sh' inside a
+# shell literal, 'templates/waybar/knobs.css' inside a CSS one, and
+# 'templates/hypr/knobs.conf' inside no literal at all. One substitution pass
+# serves all four, so the renderer holds no table of output languages and reads
+# no syntax around a placeholder. It would have to parse every language it
+# writes to escape correctly, and a template it could not parse would have to
+# fail instead.
+#
+# So the rule is the value rather than the file: a value has to be inert
+# wherever it lands. These six characters are the ones that are not, and each
+# one is refused for a reason a generated file of this project already carries:
+#
+#   "  closes a literal in Lua, in JSON, in TOML, in CSS and in a shell.
+#   '  closes one in a shell, in Lua and in CSS.
+#   `  runs a command in a shell.
+#   \  escapes the character after it, the closing quotation mark included.
+#   $  expands a variable or runs a command in a shell, and names a variable in
+#      a Hyprland file.
+#   a control character ends the line, so the rest of the value becomes a
+#   directive of its own.
+#
+# The rule is the renderer's and it reaches every template, so a bundle adds no
+# check of its own and a new template inherits it. docs/theming.md states it for
+# the theme author.
+#
+# Sets RENDER_UNSAFE_REASON to the character in words. Returns 0 when the value
+# holds one, which is the failing case, and 1 when the value is safe.
+render_unsafe_reason() {
+	local value=$1
+
+	RENDER_UNSAFE_REASON=
+
+	case $value in
+	*'"'*) RENDER_UNSAFE_REASON='a quotation mark' ;;
+	*"'"*) RENDER_UNSAFE_REASON='an apostrophe' ;;
+	*'`'*) RENDER_UNSAFE_REASON='a backtick' ;;
+	*'\'*) RENDER_UNSAFE_REASON='a backslash' ;;
+	*'$'*) RENDER_UNSAFE_REASON='a dollar sign' ;;
+	esac
+	if [ -z "$RENDER_UNSAFE_REASON" ] && [[ $value == *[[:cntrl:]]* ]]; then
+		RENDER_UNSAFE_REASON='a control character'
+	fi
+
+	[ -n "$RENDER_UNSAFE_REASON" ]
+}
+
 # Substitute every known value into one string, in a single pass.
 #
 #   render_substitute TEXT
@@ -754,25 +811,33 @@ render_set_mode() {
 # refused for the reason RENDER_UNKNOWN_FACTS records, and it is listed the same
 # way: once, in the order it first appears.
 #
+# RENDER_UNSAFE holds the name of every placeholder whose value holds a
+# character a generated file cannot carry. render_unsafe_reason names those
+# characters and records why. The value is never written and never altered: the
+# placeholder stays in the string, the name is listed once in the order it first
+# appears, and the whole render fails. A value the renderer changed to make it
+# fit would be a value the theme author did not write, and a file another
+# program reads as code is not the place to guess.
+#
 # The pass reads the text once and never reads back what it wrote, so a value
 # is copied through as the text it is. Two consequences follow, and both are
 # the documented promise that a value is text:
 #
-#   - A value that holds '&' or a backslash reaches the output unchanged. The
-#     '${var//pattern/replacement}' operator would read both of them, because
-#     since bash 5.2 it treats '&' in the replacement as the matched text and
-#     reads backslash escapes.
+#   - A value that holds '&' reaches the output unchanged. The
+#     '${var//pattern/replacement}' operator would read it, because since bash
+#     5.2 it treats '&' in the replacement as the matched text.
 #   - A value that holds a placeholder reaches the output as that placeholder.
 #     It is never substituted again, so the result does not depend on the order
 #     an associative array happens to walk its keys.
 render_substitute() {
 	local rest=$1
 	local out= match prefix name
-	local -A seen=() seen_unknown=()
+	local -A seen=() seen_unknown=() seen_unsafe=()
 
 	RENDER_CONTENT=
 	RENDER_MISSING=()
 	RENDER_UNKNOWN=()
+	RENDER_UNSAFE=()
 
 	while [[ $rest =~ $RENDER_PLACEHOLDER_PATTERN ]]; do
 		match=${BASH_REMATCH[0]}
@@ -792,6 +857,14 @@ render_substitute() {
 			continue
 		fi
 		if [ -n "${RENDER_SCALARS[$name]+set}" ]; then
+			if render_unsafe_reason "${RENDER_SCALARS[$name]}"; then
+				out=$out$prefix$match
+				if [ -z "${seen_unsafe[$name]+set}" ]; then
+					seen_unsafe[$name]=1
+					RENDER_UNSAFE+=("$name")
+				fi
+				continue
+			fi
 			out=$out$prefix${RENDER_SCALARS[$name]}
 			continue
 		fi
@@ -805,7 +878,9 @@ render_substitute() {
 
 	RENDER_CONTENT=$out$rest
 
-	[ "${#RENDER_MISSING[@]}" -eq 0 ] && [ "${#RENDER_UNKNOWN[@]}" -eq 0 ]
+	[ "${#RENDER_MISSING[@]}" -eq 0 ] &&
+		[ "${#RENDER_UNKNOWN[@]}" -eq 0 ] &&
+		[ "${#RENDER_UNSAFE[@]}" -eq 0 ]
 }
 
 # Substitute every known value into one template file and write the result.
@@ -814,7 +889,9 @@ render_substitute() {
 # value is a problem: the renderer reports it and writes no file, rather than
 # leaving the name in the output for a user to find later. A placeholder whose
 # machine fact is 'unknown' is the same problem, because that word is what
-# lib/facts.sh writes for a fact nobody could read.
+# lib/facts.sh writes for a fact nobody could read. A placeholder whose value
+# holds a character a generated file cannot carry is the third, and
+# render_unsafe_reason names those characters.
 #
 # A template is a text file. One that holds a NUL byte is refused by name,
 # because reading it into a string would drop that byte and write a file that
@@ -853,6 +930,15 @@ render_file() {
 		done
 		for name in ${RENDER_UNKNOWN[@]+"${RENDER_UNKNOWN[@]}"}; do
 			RENDER_ERRORS+=("$relative: '$name' is '$FACTS_UNKNOWN' in the machine facts, which means detection could not read it. Correct that value by hand, or run 'xghost machine detect' again.")
+		done
+		# Every name here holds a value that already failed the check, so the
+		# call names the character again rather than deciding anything. The
+		# '|| true' is for the caller that runs with errexit set: a safe value
+		# is unreachable, and an unreachable case is not a reason to end the
+		# shell of somebody who asked for a theme.
+		for name in ${RENDER_UNSAFE[@]+"${RENDER_UNSAFE[@]}"}; do
+			render_unsafe_reason "${RENDER_SCALARS[$name]}" || true
+			RENDER_ERRORS+=("$relative: the value of '$name' holds $RENDER_UNSAFE_REASON: '${RENDER_SCALARS[$name]}'. A value reaches a file another program reads as code, so it holds no quotation mark, no apostrophe, no backtick, no backslash, no dollar sign and no control character. Correct it in the theme palette, the machine facts or the knobs.")
 		done
 		return 1
 	fi
