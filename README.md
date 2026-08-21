@@ -84,4 +84,7 @@ what it is, and what an installation has never been observed doing.
 - [The supporting bundles](docs/bundles/supporting.md) — GTK, hyprshade and the
   AUR helper, and the three configurations that sit behind the desktop rather
   than on it.
+- [The Neovim bundle](docs/bundles/neovim.md) — the editor, the one
+  configuration this project imported from a repository of its own, and the one
+  written in a programming language.
 - [Architecture decision records](docs/adr/) — the decisions and their reasons.

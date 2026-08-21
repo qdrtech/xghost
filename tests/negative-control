@@ -633,6 +633,232 @@ control "the pywal block of the dotfiles comes back into the zshrc" \
 	m_the_pywal_block_comes_back
 
 #
+# The Neovim bundle. Perturbed inputs, except where the last section says
+# otherwise.
+#
+
+SUITE=tests/nvim.bats
+NVIM_LOADER=config/nvim/lua/config/xghost.lua
+NVIM_INIT=config/nvim/init.lua
+NVIM_TEMPLATE=templates/nvim/colors.lua
+
+#
+# The path to the bridge. This bundle is the one that may not write a '..', and
+# a careless commit would put the form of every other bundle back.
+#
+
+m_the_loader_writes_the_relative_include_of_every_other_bundle() {
+	substitute "$NVIM_LOADER" \
+		'M.RELATIVE_PATH = "xghost-generated/nvim/colors.lua"' \
+		'M.RELATIVE_PATH = "../xghost-generated/nvim/colors.lua"'
+	substitute "$NVIM_LOADER" \
+		'	local parent = vim.fn.fnamemodify(vim.fn.stdpath("config"), ":h")' \
+		'	local parent = vim.fn.stdpath("config")'
+}
+
+m_the_loader_names_the_state_directory() {
+	substitute "$NVIM_LOADER" \
+		'	local parent = vim.fn.fnamemodify(vim.fn.stdpath("config"), ":h")
+	return parent .. "/" .. M.RELATIVE_PATH' \
+		'	local parent = vim.fn.expand("~/.local/state/xghost/generated")
+	return parent .. "/nvim/colors.lua"'
+}
+
+#
+# The loader. 'loadfile' is what keeps a missing palette from stopping
+# init.lua, and the report is what keeps it from being silent.
+#
+
+m_the_loader_uses_dofile() {
+	substitute "$NVIM_LOADER" \
+		'	local chunk, message = loadfile(path)
+	if not chunk then
+		return nil, message
+	end
+
+	local ok, palette = pcall(chunk)
+	if not ok then
+		return nil, tostring(palette)
+	end' \
+		'	local palette = dofile(path)'
+}
+
+m_the_loss_is_never_reported() {
+	substitute "$NVIM_LOADER" \
+		'	local line = "xghost: " .. problem
+	vim.schedule(function()
+		vim.api.nvim_echo({ { line, "WarningMsg" } }, true, {})
+	end)' \
+		'	local _ = problem'
+}
+
+m_the_report_leaves_the_message_history() {
+	substitute "$NVIM_LOADER" \
+		'		vim.api.nvim_echo({ { line, "WarningMsg" } }, true, {})' \
+		'		io.stderr:write(line .. "\n")'
+}
+
+m_the_report_goes_back_through_vim_notify() {
+	substitute "$NVIM_LOADER" \
+		'		vim.api.nvim_echo({ { line, "WarningMsg" } }, true, {})' \
+		'		vim.notify(line, vim.log.levels.WARN)'
+}
+
+m_a_value_that_is_not_a_colour_is_applied() {
+	substitute "$NVIM_LOADER" \
+		'		if type(palette[name]) ~= "string" or not palette[name]:match("^#%x%x%x%x%x%x$") then' \
+		'		if type(palette[name]) ~= "string" then'
+}
+
+m_a_palette_that_is_not_a_table_is_accepted() {
+	substitute "$NVIM_LOADER" \
+		'	if type(palette) ~= "table" then
+		return nil, path .. ": the generated palette is a " .. type(palette) .. ", not a table"
+	end' \
+		'	if false then
+		return nil, path
+	end'
+}
+
+#
+# The colourscheme. The autocommand is the whole of why the palette wins.
+#
+
+m_the_palette_is_applied_once() {
+	substitute "$NVIM_LOADER" \
+		'	vim.api.nvim_create_autocmd("ColorScheme", {' \
+		'	local unreached = function() end
+	unreached(function() end)
+	if false then
+		vim.api.nvim_create_autocmd("ColorScheme", {'
+	substitute "$NVIM_LOADER" \
+		'	})
+
+	return true
+end
+
+return M' \
+		'	})
+	end
+
+	return true
+end
+
+return M'
+}
+
+m_the_autocommand_group_is_never_cleared() {
+	substitute "$NVIM_LOADER" \
+		'		group = vim.api.nvim_create_augroup(GROUP, { clear = true }),' \
+		'		group = vim.api.nvim_create_augroup(GROUP, { clear = false }),'
+}
+
+m_the_loader_paints_a_colour_of_its_own() {
+	substitute "$NVIM_LOADER" \
+		'		Normal = { fg = c.text, bg = c.bg },' \
+		'		Normal = { fg = c.text, bg = "#123456" },'
+}
+
+#
+# init.lua, and the template.
+#
+
+m_init_lua_never_loads_the_bridge() {
+	substitute "$NVIM_INIT" 'require("config.xghost").setup()' '-- require("config.xghost").setup()'
+}
+
+m_init_lua_loads_the_bridge_before_the_plugins() {
+	substitute "$NVIM_INIT" \
+		'require("config.lazy")' \
+		'require("config.xghost").setup()
+require("config.lazy")'
+	substitute "$NVIM_INIT" \
+		'require("config.xghost").setup()
+require("config.lazy")
+require("config.opts")
+require("config.keybindings")
+
+-- The colours of the active xghost theme, applied over whichever
+-- colourscheme the plugins above loaded. See
+-- lua/config/xghost.lua and docs/bundles/neovim.md.
+require("config.xghost").setup()' \
+		'require("config.xghost").setup()
+require("config.lazy")
+require("config.opts")
+require("config.keybindings")'
+}
+
+m_the_template_pins_one_colour() {
+	substitute "$NVIM_TEMPLATE" '	bg = "@BG@",' '	bg = "#1A1B26",'
+}
+
+m_the_template_reads_a_knob() {
+	substitute "$NVIM_TEMPLATE" '	bg = "@BG@",' '	bg = "@BG@",
+	gap = "@KNOB_GAP_SIZE@",'
+}
+
+printf '\n'
+control "the prescribed Lua writes the relative include of every other bundle" \
+	"the prescribed Lua writes no '..' path" \
+	m_the_loader_writes_the_relative_include_of_every_other_bundle
+control "the prescribed Lua writes the relative include of every other bundle" \
+	"the path the prescribed Lua computes is the bridge, and the palette is there" \
+	m_the_loader_writes_the_relative_include_of_every_other_bundle
+control "the prescribed Lua names the state directory in full" \
+	"the prescribed Lua names no path under the state directory" \
+	m_the_loader_names_the_state_directory
+control "the loader raises on a missing palette instead of reporting it" \
+	"a missing palette leaves the rest of init.lua running" \
+	m_the_loader_uses_dofile
+control "the loss of the palette is never reported" \
+	"a missing palette is reported on standard error" \
+	m_the_loss_is_never_reported
+control "the report is written straight to standard error" \
+	"a missing palette is kept in the message history" \
+	m_the_report_leaves_the_message_history
+control "the report goes back through vim.notify" \
+	"the prescribed Lua reports through nvim_echo and not through vim.notify" \
+	m_the_report_goes_back_through_vim_notify
+control "a value that is not a colour is applied" \
+	"a generated palette whose colour is not '#rrggbb' is named and nothing is applied" \
+	m_a_value_that_is_not_a_colour_is_applied
+control "a palette that is not a table is accepted" \
+	"a generated palette that is not a table is reported and the editor runs on" \
+	m_a_palette_that_is_not_a_table_is_accepted
+control "the palette is applied once instead of after every colourscheme" \
+	"a colourscheme loaded after the palette does not win" \
+	m_the_palette_is_applied_once
+control "the autocommand group is never cleared" \
+	"loading the prescribed Lua twice leaves one autocommand" \
+	m_the_autocommand_group_is_never_cleared
+control "the prescribed Lua paints a colour of its own" \
+	"the prescribed Lua names no colour of its own" \
+	m_the_loader_paints_a_colour_of_its_own
+control "the prescribed Lua paints a colour of its own" \
+	"the palette is applied over the colourscheme that loaded before it" \
+	m_the_loader_paints_a_colour_of_its_own
+control "init.lua never loads the theme bridge" \
+	"init.lua loads the theme bridge after the plugins" \
+	m_init_lua_never_loads_the_bridge
+control "init.lua loads the theme bridge before the plugin manager" \
+	"init.lua loads the theme bridge after the plugins" \
+	m_init_lua_loads_the_bridge_before_the_plugins
+control "the template pins one colour instead of naming the palette" \
+	"the rendered palette holds the colours the theme declares" \
+	m_the_template_pins_one_colour
+control "the template pins one colour instead of naming the palette" \
+	"the template holds no colour of its own" \
+	m_the_template_pins_one_colour
+control "a knob reaches the Neovim palette" \
+	"no knob reaches the Neovim bundle" \
+	m_the_template_reads_a_knob
+
+# The section above changed SUITE, and the weaker controls below belong to the
+# supporting bundles. Put it back, or a mutation written for one suite would be
+# applied to another and report that the anchor is not there.
+SUITE=tests/supporting.bats
+
+#
 # The supporting bundles: the weaker controls.
 #
 # The two tests below record what GTK does: how it resolves a relative import
@@ -646,6 +872,21 @@ control "the pywal block of the dotfiles comes back into the zshrc" \
 
 m_flip_the_gtk_resolution_assertion() {
 	substitute "$SUITE" '	[[ $output != *DECOY* ]]' '	[[ $output == *DECOY* ]]'
+}
+
+m_flip_the_dofile_assertion() {
+	substitute tests/nvim.bats '	[ ! -f "$out" ]
+}
+
+@test "'"'"'require'"'"' of a missing palette would stop the rest of init.lua" {' \
+		'	[ -f "$out" ]
+}
+
+@test "'"'"'require'"'"' of a missing palette would stop the rest of init.lua" {'
+}
+
+m_flip_the_dotdot_assertion() {
+	substitute tests/nvim.bats '	[ "${lines[0]}" = "dotdot=false" ]' '	[ "${lines[0]}" = "dotdot=true" ]'
 }
 
 m_flip_the_null_error_assertion() {
@@ -901,6 +1142,17 @@ SUITE=tests/install.bats
 control "every installation is read as a first one, from the installer" \
 	"an installation over a machine that has migration state marks nothing" \
 	m_every_installation_is_a_first_one
+# The two below record what Lua and the kernel do: a 'dofile' of a file that is
+# not there raises and stops the chunk that called it, and a '..' is applied
+# after a symbolic link is followed. No change to this project can make either
+# behave differently, so the controls mutate the assertion.
+SUITE=tests/nvim.bats
+control "the recorded behaviour of 'dofile' is asserted the other way round" \
+	"'dofile' of a missing palette would stop the rest of init.lua" \
+	m_flip_the_dofile_assertion
+control "the recorded resolution of '..' is asserted the other way round" \
+	"a '..' path from the config directory reaches the checkout and not the bridge" \
+	m_flip_the_dotdot_assertion
 
 printf '\n%s: %d controls held, %d did not\n' "$PROGRAM" "$PASSED" "$FAILED"
 if [ "$FAILED" -gt 0 ]; then
