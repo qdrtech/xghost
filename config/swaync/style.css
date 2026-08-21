@@ -20,6 +20,13 @@
  * config link' creates. Both of its ends follow the environment.
  * docs/adr/0002-the-bridge-to-the-generated-output.md records it.
  *
+ * This sheet blurs nothing, and it names no property newer than the ':root'
+ * below. The dotfiles set 'backdrop-filter' on the notification and on the
+ * control centre. conf/decoration.conf switches the blur of this compositor
+ * off and conf/layerrule.conf carries no rule for this surface, so nothing
+ * around these windows blurs either, and the property needs GTK 4.20, which is
+ * newer than every other thing this file asks for. It is gone.
+ *
  * GTK4 differs from GTK3 in what it does when such a path reaches nothing.
  * Waybar exits 1 and there is no bar. SwayNC starts, draws in the packaged
  * colours, and GTK writes one Gtk-WARNING to the standard error of the daemon
@@ -58,7 +65,6 @@
 
 .notification {
   background: alpha(@surface, 0.8);
-  backdrop-filter: blur(25px);
   border: 1px solid @surface_alt;
   border-radius: 10px;
   padding: 12px 16px;
@@ -126,7 +132,6 @@
 
 .control-center {
   background: alpha(@surface, 0.75);
-  backdrop-filter: blur(30px);
   border: 1px solid @surface_alt;
   border-radius: 12px;
   padding: 16px;

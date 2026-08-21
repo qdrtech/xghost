@@ -213,6 +213,41 @@ gtk4_css_default() {
 	python3 "$script" "$sheet"
 }
 
+# Count the diagnostics GTK wrote about an '@import' it could not follow.
+#
+#   count_import_failures TEXT
+#
+# GTK reports an unknown property and an unknown pseudo-class exactly the way it
+# reports a failed import, and which of those a sheet produces moves with the
+# GTK version: the Ubuntu runner of .github/workflows/ci.yml rejects a
+# construct this machine parses clean. So a test about the bridge has to count
+# the import failures and read nothing else, or it fails on a machine for a
+# reason it never set out to measure.
+#
+# 'Failed to import' is the text of that diagnostic and of no other. The test
+# below named "no parser diagnostic this bundle has not accounted for" is what
+# watches everything this function drops.
+count_import_failures() {
+	printf '%s' "$1" | grep -c 'Failed to import' || true
+}
+
+# Print every parser diagnostic about a style sheet in TEXT that is not about a
+# failed import, one per line.
+#
+# 'Theme parser error' is the prefix of GTK's own default handler and 'ERROR '
+# is the prefix gtk4_css above prints, so the two probes are both covered. A
+# warning GTK raises about something other than a sheet, such as a display it
+# could not open, matches neither and is not this bundle's to answer.
+other_parser_errors() {
+	printf '%s' "$1" | grep -E 'Theme parser error|^ERROR ' | grep -v 'Failed to import' || true
+}
+
+# The number of '@import' lines the prescribed style sheet holds. Before the
+# first render every one of them reaches nothing, so every one is reported.
+import_count() {
+	grep -c '^@import' "$STYLE_FILE"
+}
+
 # Print the value the schema declares as the default of one knob.
 schema_default() {
 	local knob=$1
@@ -666,7 +701,13 @@ schema_problems() {
 
 		run gtk4_css "$XDG_CONFIG_HOME/swaync/style.css"
 		[ "$status" -eq 0 ]
-		[[ $output != *ERROR* ]]
+
+		# The claim is that the import resolved, so only the import failures
+		# are read. An older GTK rejects a construct this one accepts, and a
+		# diagnostic about a property is a different claim with a test of its
+		# own below. What proves the import here is the palette, asserted
+		# next: a provider that followed nothing cannot hold it.
+		[ "$(count_import_failures "$output")" -eq 0 ]
 
 		# The palette of this theme, as GTK holds it after the import. GTK
 		# prints a colour in its own decimal form, so the expected text is
@@ -925,15 +966,19 @@ schema_problems() {
 
 	require_gtk4
 
+	local imports
+	imports=$(import_count)
+	[ "$imports" -gt 0 ]
+
 	# The positive control comes first, because the assertion this test is named
-	# for is about text on standard error. An empty standard error holds just as
-	# well for a probe that parsed nothing at all, so a render is done first and
-	# the palette in the provider is what proves the file reached GTK.
+	# for is about a diagnostic. Its absence holds just as well for a probe that
+	# parsed nothing at all, so a render is done first and the palette in the
+	# provider is what proves the file reached GTK.
 	"$XGHOST" theme set tokyonight >/dev/null
 	run --separate-stderr gtk4_css_default "$XDG_CONFIG_HOME/swaync/style.css"
 	[ "$status" -eq 0 ]
 	[[ $output == *"@define-color bg"* ]]
-	[[ $stderr != *"Gtk-WARNING"* ]]
+	[ "$(count_import_failures "$stderr")" -eq 0 ]
 
 	# And now the state an early session is in. The generated tree is removed, so
 	# both imports reach nothing again.
@@ -948,10 +993,22 @@ schema_problems() {
 	[ "$status" -eq 0 ]
 	[[ $output == *"font-size"* ]]
 
-	# GTK reports it, and the report names the file, a line and a column range.
-	[[ $stderr == *"Gtk-WARNING"* ]]
-	[[ $stderr == *"Failed to import"* ]]
-	[[ $stderr =~ style\.css:[0-9]+:[0-9]+-[0-9]+ ]]
+	# One diagnostic for each import that reached nothing, and no more. The count
+	# is what is read, not the presence of a warning: a GTK that reported one of
+	# the two fails here as loudly as one that reported neither, and a diagnostic
+	# about anything else in the sheet is not counted at all.
+	[ "$(count_import_failures "$stderr")" -eq "$imports" ]
+
+	# And each of them names the file, a line and a column range.
+	local failure
+	while IFS= read -r failure; do
+		[ -n "$failure" ] || continue
+		[[ $failure =~ style\.css:[0-9]+:[0-9]+-[0-9]+ ]] || {
+			printf 'an import failure was reported with no place in the file: %s\n' \
+				"$failure" >&2
+			return 1
+		}
+	done < <(printf '%s' "$stderr" | grep 'Failed to import')
 
 	# And the palette is simply absent, so every rule that names a colour draws
 	# with nothing.
@@ -973,20 +1030,103 @@ schema_problems() {
 	require_gtk4
 
 	local sheet="$XDG_CONFIG_HOME/swaync/style.css"
+	local imports
+	imports=$(import_count)
+	[ "$imports" -gt 0 ]
 
-	# No handler: GTK's default one prints, on standard error.
+	# No handler: GTK's default one prints, on standard error, once per import.
 	run --separate-stderr gtk4_css_default "$sheet"
 	[ "$status" -eq 0 ]
-	[[ $stderr == *"Gtk-WARNING"* ]]
-	[[ $stderr == *"Failed to import"* ]]
+	[ "$(count_import_failures "$stderr")" -eq "$imports" ]
 
-	# A handler: the same failure arrives on the signal, and standard error
-	# carries no Gtk-WARNING at all.
+	# A handler: the same failures arrive on the signal instead, and standard
+	# error carries none of them. The count is the same on both sides, so this
+	# measures a report that moved rather than one that merely appeared
+	# somewhere, and a diagnostic about anything else in the sheet is counted on
+	# neither side.
 	run --separate-stderr gtk4_css "$sheet"
 	[ "$status" -eq 0 ]
-	[[ $output == *"ERROR"* ]]
-	[[ $output == *"Failed to import"* ]]
-	[[ $stderr != *"Gtk-WARNING"* ]]
+	[ "$(count_import_failures "$output")" -eq "$imports" ]
+	[ "$(count_import_failures "$stderr")" -eq 0 ]
+}
+
+# Everything the two counters above deliberately drop, watched here.
+#
+# Those tests read the import failures and nothing else, because a diagnostic
+# about a property moves with the GTK version and would fail them for a reason
+# they never set out to measure. That leaves the rest of what GTK says
+# unwatched, and unwatched is how a property no GTK knows reaches a release.
+#
+# So, with both imports resolved: every diagnostic GTK produces about this sheet
+# has to fall inside the ':root' block, and there may be nothing else anywhere.
+#
+# ':root' is the one construct here that an older GTK rejects, and avoiding it
+# would buy nothing. The packaged style sheet of swaync 0.12.6 is built on it
+# and reads 'var(--...)' 77 times, so a GTK that cannot parse ':root' cannot
+# draw the packaged notification centre either, themed or not. Every other
+# construct in this sheet is older than that, which is why 'backdrop-filter'
+# is gone: it needs GTK 4.20, and this desktop blurs nothing anyway.
+#
+# The allowance is that block, and the block holds one declaration, which this
+# test asserts before it allows anything. So nothing can be hidden inside it.
+@test "the style sheet produces no parser diagnostic this bundle has not accounted for" {
+	require_gtk4
+
+	export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config"
+	export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
+	mkdir -p "$XDG_CONFIG_HOME" "$XDG_STATE_HOME"
+
+	run link_prescribed
+	[ "$status" -eq 0 ]
+	"$XGHOST" theme set tokyonight >/dev/null
+
+	# The ':root' block of the prescribed sheet, and the lines it covers.
+	local first last
+	first=$(grep -n '^:root[[:space:]]*{' "$STYLE_FILE" | head -1 | cut -d: -f1)
+	[ -n "$first" ]
+	last=$(awk -v start="$first" 'NR > start && /^}/ { print NR; exit }' "$STYLE_FILE")
+	[ -n "$last" ]
+
+	# It holds one declaration. Without this, an unknown property written inside
+	# the block would be waved through by the loop below.
+	local declarations
+	declarations=$(sed -n "$((first + 1)),$((last - 1))p" "$STYLE_FILE" | grep -c ':')
+	[ "$declarations" -eq 1 ]
+
+	run --separate-stderr gtk4_css_default "$XDG_CONFIG_HOME/swaync/style.css"
+	[ "$status" -eq 0 ]
+
+	# The imports resolved, so nothing reported here is about them, and the
+	# palette proves the file was read rather than skipped.
+	[ "$(count_import_failures "$stderr")" -eq 0 ]
+	[[ $output == *"@define-color bg"* ]]
+
+	local line place
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		place=${line#*style.css:}
+		place=${place%%:*}
+		[[ $place =~ ^[0-9]+$ ]] || {
+			printf 'GTK reports something about this sheet with no line in it: %s\n' \
+				"$line" >&2
+			return 1
+		}
+		{ [ "$place" -ge "$first" ] && [ "$place" -le "$last" ]; } || {
+			printf 'GTK rejects line %s of the style sheet, which is outside the :root block this bundle accounts for: %s\n' \
+				"$place" "$line" >&2
+			return 1
+		}
+	done < <(other_parser_errors "$stderr")
+
+	# The positive control, and it is for the detector rather than for the sheet.
+	# An empty list of diagnostics holds just as well for a filter that matches
+	# nothing GTK writes, so the same probe is handed a property no GTK knows and
+	# has to report it.
+	local bad="$BATS_TEST_TMPDIR/unknown-property.css"
+	printf '.notification { xghost-nonesuch: 1px; }\n' >"$bad"
+	run --separate-stderr gtk4_css_default "$bad"
+	[ "$status" -eq 0 ]
+	[ -n "$(other_parser_errors "$stderr")" ]
 }
 
 # The fact that puts SwayNC in the default case: it connects nothing.

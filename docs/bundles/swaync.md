@@ -221,6 +221,33 @@ starts too early is a notification centre in the packaged colours with one
 warning line in a log nobody reads during a login, and the difference from a
 themed one is a shade of grey.
 
+### What GTK version the style sheet needs
+
+GTK reports an unknown property and an unknown selector exactly the way it
+reports a failed import, so what a sheet says about itself depends on the GTK
+reading it. This one is written to the oldest GTK that can theme the
+notification centre at all.
+
+The sheet uses one construct an older GTK4 rejects: `:root`, which arrived in
+GTK 4.16. That boundary is not this bundle's to avoid. The packaged style sheet
+of swaync 0.12.6 is itself built on `:root` and reads `var(--…)` 77 times, so a
+GTK too old to parse `:root` leaves the notification centre unthemed before this
+project touches it.
+
+Everything else in the sheet is older than that. `backdrop-filter` was the
+exception, and it is gone. It needs GTK 4.20, and it bought nothing here: this
+desktop blurs nothing at all. `config/hypr/conf/decoration.conf` sets
+`blur { enabled = false }` and `config/hypr/conf/layerrule.conf` carries no rule
+for this surface, both with the reason written out, so a blur in this file would
+have contradicted a decision the project had already made twice.
+
+The runner of `.github/workflows/ci.yml` is Ubuntu, and its GTK4 is older than
+4.16. That is a second reading rather than a problem. It is a GTK that rejects
+anything newer than itself, so reading its diagnostics catches a construct this
+machine would have accepted without a word. `tests/swaync.bats` accounts for the
+`:root` block by name and fails on a diagnostic about anything else, which is
+what catches `backdrop-filter` if it ever comes back.
+
 ## The rule of this bundle: the importing file wins
 
 A rule of the importing file wins over a rule of the same weight in the file it
@@ -317,6 +344,7 @@ rest is here.
 | `notification-body-image-width` is `200`                   | The dotfiles wrote `180`. The schema sets a minimum of `200` on that key, so the value was out of range. |
 | The `mpris` widget configuration is dropped                | It set `image-radius`, which is not a property of that widget and which `additionalProperties: false` rejects, and `image-size`, which the schema marks deprecated in favour of the CSS root variable `--mpris-album-art-icon-size`. `style.css` sets that variable now, so the size survives and the two dropped keys do not. |
 | The `backlight` widget is dropped                          | Its `device` key names an entry of `/sys/class/backlight`, which is a machine fact, and a file with no include cannot follow one. See "The two settings that do follow an input" above. |
+| `backdrop-filter` is dropped from both rules                | The dotfiles blurred behind the notification and the control centre. This desktop blurs nothing: `config/hypr/conf/decoration.conf` switches the compositor blur off and `config/hypr/conf/layerrule.conf` carries no rule for this surface, both on purpose. The property also needs GTK 4.20, which is newer than anything else this sheet asks for. The translucency stays; only the blur goes. |
 | `refresh.sh` is dropped                                    | It ran `pkill swaync; swaync`. Reloading every running component from one place is [issue #24](https://github.com/qdrtech/xghost/issues/24), and a reload built per bundle is one convention per bundle. |
 
 ## The packages this bundle needs
@@ -370,6 +398,21 @@ needed it first: `wireplumber` for `wpctl`, `ghostty` for the terminal,
   default of `KNOB_BAR_POSITION` out of the schema, and fails when the two name
   the same edge. It is the one semantic dependency of this file that has a test
   of its own.
+- The tests that measure the bridge count the diagnostics that say
+  `Failed to import` and read no other. A diagnostic about a property or a
+  selector is a different claim and moves with the GTK version, so counting
+  every warning would fail those tests on a runner for something they never set
+  out to measure. The **count** is what is read, not the presence of a warning:
+  two imports reach nothing, so two failures are required, and a GTK that
+  reported one of the two fails as loudly as one that reported neither. The
+  handler test reads the same count on both sides, so it measures a report that
+  moved rather than one that merely appeared somewhere.
+- Everything those counters drop is watched by a test of its own. With both
+  imports resolved, every diagnostic GTK produces about the sheet has to fall
+  inside the `:root` block, which holds one declaration and is asserted to hold
+  one, and anything else anywhere fails. That test carries a control for its own
+  detector: it feeds the same probe a property no GTK knows and requires it to
+  be reported, so an empty list can never pass for a clean parse.
 - `tests/golden.bats` compares the rendered colours and font family of every
   theme with the committed output under
   `tests/golden/<knob set>/<theme>/swaync/`, and `tests/swaync.bats` reads those
