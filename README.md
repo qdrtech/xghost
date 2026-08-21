@@ -77,4 +77,6 @@ what it is, and what an installation has never been observed doing.
   first bundle whose entry point sits outside the config directory.
 - [The Rofi bundle](docs/bundles/rofi.md) — the launcher, and the one
   application that cannot reach the generated output by a relative path.
+- [The SwayNC bundle](docs/bundles/swaync.md) — the notification centre, and the
+  one application that reports a broken style sheet and starts anyway.
 - [Architecture decision records](docs/adr/) — the decisions and their reasons.

@@ -46,6 +46,45 @@ jobs:
       - name: Report the bats version
         run: bats --version
 
+      # The GTK4 bindings for Python. tests/swaync.bats parses the style sheet
+      # of the notification centre with a real Gtk.CssProvider, and that
+      # measurement is the evidence base of the SwayNC bundle: it is what says
+      # the relative '@import' resolves through the bridge, and what says GTK
+      # reports a broken one exactly once. Without these packages both tests
+      # skip, and a skip and a pass read the same in a summary line.
+      #
+      # 'gir1.2-gtk-4.0' carries the typelib that 'gi.require_version("Gtk",
+      # "4.0")' loads; 'python3-gi' carries the binding itself. Neither is a
+      # dependency of xghost, so no manifest of the project declares them: a
+      # GTK4 is on every machine this desktop installs on, because the swaync
+      # package depends on it, and the Python binding is a thing only this
+      # suite needs.
+      #
+      # 'python3-jsonschema' is for the check that reads the prescribed
+      # configuration against the schema the swaync package ships. That schema
+      # is not on this runner, so the check still skips here; the package is
+      # installed so the skip has one cause rather than two.
+      - name: Install the GTK4 bindings for Python
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes \
+            python3-gi gir1.2-gtk-4.0 python3-jsonschema
+
+      - name: Report that the GTK4 bindings are there
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import gi
+          gi.require_version("Gtk", "4.0")
+          from gi.repository import Gtk
+          print("GTK %d.%d.%d" % (
+              Gtk.get_major_version(),
+              Gtk.get_minor_version(),
+              Gtk.get_micro_version(),
+          ))
+          PY
+
       # The fixture directory holds command files today, so this step proves
       # the lint pass against real content.
       - name: Lint the fixture command metadata
@@ -65,5 +104,10 @@ jobs:
             exit "$status"
           fi
 
+      # XGHOST_REQUIRE_GTK4 turns the GTK4 skip into a failure. This runner
+      # installed the bindings above, so a skip here means the install step
+      # stopped working and the measurement quietly stopped running.
       - name: Run the test suite
+        env:
+          XGHOST_REQUIRE_GTK4: "1"
         run: bats --print-output-on-failure tests

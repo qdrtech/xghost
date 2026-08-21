@@ -74,8 +74,9 @@
     }
   },
 
-  // The bell. It opens the notification centre of swaync, which arrives with
-  // issue #14. Until then the click reaches no program.
+  // The bell. It opens the notification centre of swaync, which
+  // docs/bundles/swaync.md records. That bundle declares the package, so the
+  // click reaches a daemon this desktop installs and configures.
   "custom/notification": {
     "tooltip": false,
     "format": "",
