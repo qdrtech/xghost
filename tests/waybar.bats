@@ -475,7 +475,9 @@ expanded_include() {
 		"$GENERATED/waybar/knobs.css"
 	[ "$status" -eq 0 ]
 
-	# One family reaches the bar, and it is written in one file.
+	# One family reaches the bar, and it is written in the generated file of
+	# each bundle that draws in it. No prescribed file of the project holds one.
+	# The SwayNC bundle is the second, and docs/bundles/swaync.md records it.
 	#
 	# The pattern is not anchored to the start of a line. A rule written on one
 	# line, 'window#waybar { font-family: "Comic Sans"; }', holds the property
@@ -485,7 +487,7 @@ expanded_include() {
 	# the bar and change nothing anyone can see.
 	local guard='(^|[{;[:space:]])font-family[[:space:]]*:'
 	run bash -c "cd '$ROOT_DIR' && grep -rlE '$guard' config templates | LC_ALL=C sort | paste -sd, -"
-	[ "$output" = "templates/waybar/knobs.css" ]
+	[ "$output" = "templates/swaync/knobs.css,templates/waybar/knobs.css" ]
 
 	# And the guard fires on that evasion. It is written into a copy: no test of
 	# this project writes into the checkout.
@@ -495,7 +497,7 @@ expanded_include() {
 	printf 'window#waybar { font-family: "Comic Sans"; }\n' \
 		>>"$copy/config/waybar/style.css"
 	run bash -c "cd '$copy' && grep -rlE '$guard' config templates | LC_ALL=C sort | paste -sd, -"
-	[ "$output" = "config/waybar/style.css,templates/waybar/knobs.css" ]
+	[ "$output" = "config/waybar/style.css,templates/swaync/knobs.css,templates/waybar/knobs.css" ]
 }
 
 # --- what the bundle names ---------------------------------------------------

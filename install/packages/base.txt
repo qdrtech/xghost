@@ -29,8 +29,8 @@
 #
 # What is not here:
 #
-#   - A package a later bundle owns. The notifications (swaync, issue #14)
-#     arrive with their own bundle, and it adds its line here then.
+#   - A package a later bundle owns. Each bundle adds its own line here when it
+#     lands.
 #   - A package of the Arch 'base' group, such as util-linux for 'flock' and
 #     systemd for 'localectl'. Every Arch installation already has those, and
 #     declaring them would say that this project chose them.
@@ -100,6 +100,16 @@ zsh-autosuggestions           # the suggestions the prescribed zshrc sources
 # dependency of rofi itself and 'adwaita-icon-theme' is one of gtk3, which the
 # bar already needs, so declaring either would say that this project chose it.
 rofi
+
+# The notification centre. docs/bundles/swaync.md.
+#
+# Every program its buttons run is already above: wireplumber for 'wpctl',
+# ghostty for the terminal the network button opens, networkmanager for the
+# 'nmtui' inside it, blueman for 'blueman-manager', and hyprlock. 'swaync-client'
+# is in this package, and the bell of the bar runs it. No package is added for
+# gtk4 or libpulse: both are hard dependencies of swaync itself, so declaring
+# either would say that this project chose it.
+swaync
 
 # The GTK theme, the icon theme and the cursor theme config/gtk-3.0/settings.ini
 # names. docs/bundles/supporting.md.

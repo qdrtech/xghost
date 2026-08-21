@@ -324,9 +324,9 @@ of this bar draws a glyph of the Nerd Font private use area, so a machine
 without one of those families shows a row of empty boxes rather than a bar.
 
 One more program is named by this bundle and belongs to another one:
-`swaync-client` is the click of the bell, and the notification centre comes with
-[issue #14](https://github.com/qdrtech/xghost/issues/14). Until it lands the
-bell draws and the click reaches no program.
+`swaync-client` is the click of the bell, and it comes with the `swaync` package
+that [the SwayNC bundle](swaync.md) declares. That bundle also starts the daemon
+with the session, so the bell opens a notification centre this desktop styled.
 
 `sudo` is not in the table. The packaging step of the installer already needs
 it, and `install/steps/preflight/20-privileges.sh` refuses an installation

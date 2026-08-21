@@ -109,7 +109,7 @@ machine.
 | Waybar, GTK3   | CSS `@import`            | no                          | **no**       | fatal, Waybar exits 1               |
 | Rofi 2.0.0     | `@import` and `@theme`   | no                          | yes          | **silent**; a missing `@theme` target leaves no theme at all, a missing `@import` merges nothing. A relative path is resolved twice; see below. |
 | SwayNC 0.12.6  | `config.json`            | **no include mechanism**    | —            | an unknown key is dropped in silence |
-| SwayNC, GTK4   | CSS `@import`            | no                          | **no**       | **silent**                          |
+| SwayNC, GTK4   | CSS `@import`            | no                          | **no**       | loud once: one `Gtk-WARNING` on standard error, and the daemon runs on |
 | bash and zsh   | `source`                 | yes, and `${XDG_STATE_HOME:-…}` | yes      | loud                                |
 
 The shell is the only entry that can express the XDG default inline. Every
@@ -224,21 +224,32 @@ well.
 
 ### Which applications fail in silence
 
-Ghostty, Rofi, and the SwayNC GTK4 stylesheet report nothing when an include
-misses. A missing `@import` target is dropped by Rofi and the launcher keeps the
-theme it has; a missing `@theme` target leaves it with **no theme at all**,
-because `@theme` discards the default before it reads the file it names. SwayNC
-drops an unknown key from
+Ghostty and Rofi report nothing when an include misses. A missing `@import`
+target is dropped by Rofi and the launcher keeps the theme it has; a missing
+`@theme` target leaves it with **no theme at all**, because `@theme` discards
+the default before it reads the file it names. SwayNC drops an unknown key from
 `config.json` without a word. In each case the application starts, it looks
 wrong, and no log line says why.
 
-Hyprland, the shell, and the Waybar `include` array are loud: each reports a
-source that it could not read. `Config::resolveConfigIncludes` calls
+Hyprland, the shell, the Waybar `include` array and the SwayNC GTK4 stylesheet
+are loud: each reports a source that it could not read. `Config::resolveConfigIncludes` calls
 `spdlog::warn("Unable to find resource file: {}", …)`, and that line prints on a
 default run: `src/main.cpp` sets a log level only when `-l` is passed, so the
 logger holds the default level of spdlog, which is `info`. The Waybar GTK3
 stylesheet is louder still, because an `@import` that misses is fatal and Waybar
 exits 1.
+
+The GTK4 stylesheet reports through the **default** `parsing-error` handler,
+which runs only when a caller has connected none of its own. Measured on
+GTK 4.22.4: `Gtk.CssProvider.load_from_path` returns normally, and GTK writes
+one line to standard error naming the file, the line and the column range —
+`Gtk-WARNING **: Theme parser error: style.css:1:1-49: Failed to import: …`.
+Connecting a handler **suppresses** that line and delivers the error on the
+signal instead, so a probe that connects one measures a case the daemon never
+takes. SwayNC 0.12.6 connects none: `strings -a /usr/bin/swaync` holds no
+`parsing-error` at all, while `nm -D --undefined-only` names five CSS symbols.
+The report is therefore one line, at startup, and the daemon runs on with the
+packaged colours.
 
 A bundle author therefore cannot treat "it started" as evidence that the
 include was found. The Ghostty bundle asserts on `ghostty +show-config`, which
@@ -305,8 +316,13 @@ What becomes harder:
 - A prescribed file has to sit one directory below the config directory, so
   that `..` reaches it. A bundle that nests a prescribed file deeper has to
   count its own `..` segments.
-- The whole SwayNC configuration file is generated output, so a change to any
-  SwayNC setting is a change to a template rather than to a prescribed file.
+- The SwayNC configuration file is prescribed, not generated. It has no include
+  to reach a rendered fragment through, and the only route to a generated copy
+  is `swaync -c <path>` written into a compositor line that expands
+  `$XDG_STATE_HOME` to nothing when the variable is unset. So a SwayNC setting
+  that has to follow a theme, a knob or a machine fact is a setting this project
+  pins or drops, and records. [The SwayNC bundle](../bundles/swaync.md) names
+  the two it has.
 - A Waybar include path is executed, so it stays a project-owned constant.
 
 ## Confirmation

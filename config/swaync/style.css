@@ -1,0 +1,156 @@
+/* The SwayNC style sheet of xghost.
+ *
+ * Prescribed configuration. The project owns it, and 'xghost config link'
+ * symlinks the directory that holds it to ~/.config/swaync. Do not edit it: an
+ * edit dirties the checkout and conflicts on the next pull. See
+ * docs/adr/0001-prescribed-config-architecture.md.
+ *
+ * The two imports below are the generated half of the styling, and they come
+ * first for two reasons. A colour has to be defined before a rule names it, and
+ * a rule of this file wins over a rule of the same weight above it. The second
+ * reason is the rule of this bundle: a property the generated files set must
+ * not be set here, or the generated value would be overruled and the theme, or
+ * the knob, would change nothing.
+ *
+ * So this file names no colour of its own beyond the black of a shadow, and no
+ * font family at all. Every colour it names is defined by colors.css.
+ *
+ * GTK expands neither an environment variable nor '~' in an '@import', so the
+ * path is relative to this file and travels through the bridge that 'xghost
+ * config link' creates. Both of its ends follow the environment.
+ * docs/adr/0002-the-bridge-to-the-generated-output.md records it.
+ *
+ * This sheet blurs nothing, and it names no property newer than the ':root'
+ * below. The dotfiles set 'backdrop-filter' on the notification and on the
+ * control centre. conf/decoration.conf switches the blur of this compositor
+ * off and conf/layerrule.conf carries no rule for this surface, so nothing
+ * around these windows blurs either, and the property needs GTK 4.20, which is
+ * newer than every other thing this file asks for. It is gone.
+ *
+ * GTK4 differs from GTK3 in what it does when such a path reaches nothing.
+ * Waybar exits 1 and there is no bar. SwayNC starts, draws in the packaged
+ * colours, and GTK writes one Gtk-WARNING to the standard error of the daemon
+ * naming this file, the line and the column range. It is reported once, at
+ * startup, against a daemon that then runs on. The render therefore has to
+ * precede the first session, and docs/bundles/swaync.md records the order that
+ * makes it so.
+ */
+
+@import "../xghost-generated/swaync/colors.css";
+@import "../xghost-generated/swaync/knobs.css";
+
+/* ==========================================================================
+ * ROOT VARIABLES
+ * ======================================================================== */
+
+/* The album art of the mpris widget. The 'image-size' key of config.json is
+ * deprecated in favour of this variable, which the packaged style sheet defines
+ * in ':root' and reads as '-gtk-icon-size'. The packaged sheet is loaded first,
+ * so this rule wins at the same specificity. */
+:root {
+  --mpris-album-art-icon-size: 80px;
+}
+
+/* ==========================================================================
+ * GLOBAL
+ * ======================================================================== */
+
+* {
+  font-size: 13px;
+}
+
+/* ==========================================================================
+ * NOTIFICATION
+ * ======================================================================== */
+
+.notification {
+  background: alpha(@surface, 0.8);
+  border: 1px solid @surface_alt;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.notification-default-action {
+  background: transparent;
+}
+
+.notification-default-action:hover {
+  background: alpha(@text, 0.05);
+}
+
+/* ==========================================================================
+ * NOTIFICATION TITLE AND BODY
+ * ======================================================================== */
+
+.summary {
+  font-size: 15px;
+  font-weight: 600;
+  color: @text;
+  margin-bottom: 4px;
+}
+
+.body {
+  font-size: 13px;
+  color: @text_muted;
+  line-height: 1.5;
+}
+
+/* ==========================================================================
+ * URGENCY LEVELS
+ * ======================================================================== */
+
+.notification.low {
+  border-left: 3px solid @text_muted;
+}
+
+.notification.normal {
+  border-left: 3px solid @accent;
+}
+
+.notification.critical {
+  border-left: 3px solid @error;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* ==========================================================================
+ * CONTROL CENTER
+ * ======================================================================== */
+
+.control-center {
+  background: alpha(@surface, 0.75);
+  border: 1px solid @surface_alt;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.control-center-list {
+  background: transparent;
+}
+
+/* ==========================================================================
+ * CLOSE BUTTON
+ * ======================================================================== */
+
+.close-button {
+  background: transparent;
+  border-radius: 50%;
+  padding: 4px;
+}
+
+.close-button:hover {
+  background: alpha(@text, 0.1);
+}
