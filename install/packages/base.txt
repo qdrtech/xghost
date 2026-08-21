@@ -128,6 +128,16 @@ adw-gtk-theme                 # adw-gtk3-dark, the widget theme
 papirus-icon-theme            # Papirus-Dark, the icon theme
 default-cursors               # the name 'default', redirected to Adwaita
 
+# The editor. docs/bundles/neovim.md.
+#
+# 'ripgrep' is what the Telescope live grep of config/nvim/lua/config/keybindings.lua
+# runs. Without it '<leader>fg' opens a window that finds nothing and says
+# nothing, which is the failure this project does not ship. Nothing is here for
+# the plugins: lazy.nvim installs what config/nvim/lazy-lock.json pins, from
+# GitHub over HTTPS, and no package manager is involved.
+neovim
+ripgrep
+
 # The screen shader. Nothing is here for it: hyprshade is in aur.txt beside
 # this file, and the shader it applies is one the package itself ships.
 #

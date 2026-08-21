@@ -24,8 +24,15 @@ jobs:
     steps:
       # actions/checkout 4.2.2, pinned to the commit that carries the v4.2.2
       # tag. A tag moves; a commit does not.
+      # 'fetch-depth: 0' rather than the default shallow clone. The Neovim
+      # configuration was imported with 'git subtree add' and its history, and
+      # tests/nvim.bats proves that history is here by asking whether the
+      # commit the import was taken from is an ancestor of HEAD. A shallow
+      # checkout holds no such commit, and that test would skip.
       - name: Check out the repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
 
       # bats-core 1.14.0, pinned to the commit that carries the v1.14.0 tag.
       # The same version is packaged as 'bats' in the Arch 'extra' repository.
@@ -96,6 +103,21 @@ jobs:
           sudo apt-get install --no-install-recommends -y python3-gi gir1.2-gtk-3.0
           python3 -c 'import gi; gi.require_version("Gtk", "3.0"); from gi.repository import Gtk; print(Gtk.get_major_version(), Gtk.get_minor_version())'
 
+      # Neovim. tests/nvim.bats measures what the editor does with the
+      # generated palette: which path reaches the bridge, what a missing
+      # palette does to the rest of init.lua, and which colour each highlight
+      # group holds after a colourscheme has loaded. None of that can be read
+      # out of a file, and without this step every one of those tests skips.
+      #
+      # The suite never starts the prescribed init.lua, so no plugin is cloned
+      # here and this step installs the editor alone.
+      - name: Install Neovim
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes neovim
+          nvim --version | head -1
+
       # The fixture directory holds command files today, so this step proves
       # the lint pass against real content.
       - name: Lint the fixture command metadata
@@ -118,9 +140,11 @@ jobs:
       # XGHOST_REQUIRE_GTK4 turns the GTK4 skip into a failure. This runner
       # installed the bindings above, so a skip here means the install step
       # stopped working and the measurement quietly stopped running.
+      # XGHOST_REQUIRE_NVIM does the same for the Neovim bundle.
       - name: Run the test suite
         env:
           XGHOST_REQUIRE_GTK4: "1"
+          XGHOST_REQUIRE_NVIM: "1"
         run: |
           set -euo pipefail
           bats --print-output-on-failure tests | tee "$RUNNER_TEMP/tap.txt"
