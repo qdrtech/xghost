@@ -1768,6 +1768,63 @@ control "a failed reload is printed and not counted, so the update ends well" \
 	"a component that is running and failed to reload is reported, and the update ends non-zero" \
 	m_the_update_does_not_count_a_failed_reload
 
+#
+# The backlight of the machine. One deleted guard, one deleted report, one
+# perturbed reading.
+#
+
+SUITE=tests/machine.bats
+DETECT=lib/detect.sh
+
+# A directory that is not there is read as an empty one, so a machine nobody
+# could read is recorded as a machine with no backlight.
+m_a_missing_directory_reads_as_empty() {
+	substitute "$DETECT" \
+		'	if [ ! -d "$dir" ]; then' \
+		'	if false; then'
+}
+
+# The count is kept from the previous run and the blocks it names are not, so
+# the file holds a count of two and no block to go with it.
+m_the_kept_count_names_no_block() {
+	substitute "$DETECT" \
+		'		detect_previous_blocks "$count" MACHINE_BACKLIGHT NAME TYPE' \
+		'		:'
+}
+
+# The glob of an empty directory is counted as an entry, so a machine with no
+# backlight is recorded as a machine with one whose name is a '*'.
+m_the_unmatched_glob_is_counted() {
+	substitute "$DETECT" \
+		'		[ -e "$path" ] || continue' \
+		'		:'
+}
+
+# A type that cannot be read is recorded as 'raw' rather than as 'unknown'. The
+# file still parses, every key is there, and one value is a guess.
+m_an_unread_type_is_guessed() {
+	substitute "$DETECT" \
+		'	DETECT_FIELD=$FACTS_UNKNOWN
+
+	# The standard error is redirected before the file is opened' \
+		'	DETECT_FIELD=raw
+
+	# The standard error is redirected before the file is opened'
+}
+
+control "a backlight directory that is not there is read as an empty one" \
+	"a backlight directory that is not there records unknown rather than zero" \
+	m_a_missing_directory_reads_as_empty
+control "a kept backlight count names blocks the file does not hold" \
+	"a run that read no backlight keeps the count and the blocks of the last one" \
+	m_the_kept_count_names_no_block
+control "the unmatched glob of an empty directory is counted as a backlight" \
+	"a machine with no backlight records a count of zero and no block" \
+	m_the_unmatched_glob_is_counted
+control "a backlight type that cannot be read is guessed at" \
+	"a backlight whose kind cannot be read is still a backlight, and says so" \
+	m_an_unread_type_is_guessed
+
 printf '\n%s: %d controls held, %d did not\n' "$PROGRAM" "$PASSED" "$FAILED"
 if [ "$FAILED" -gt 0 ]; then
 	exit 1

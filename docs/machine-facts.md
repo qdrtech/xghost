@@ -208,6 +208,34 @@ them. `N` is the number of the monitor.
 `MODE` and `POSITION` are the same facts in the form a `monitor =` line needs,
 so a template writes one placeholder rather than joining three.
 
+### Backlight
+
+| Key                        | Value                                                       |
+| -------------------------- | ----------------------------------------------------------- |
+| `MACHINE_BACKLIGHT_COUNT`  | The number of backlights, or `unknown`.                     |
+
+Then one block per backlight, numbered from 1 in the order the kernel names
+them. `N` is the number of the backlight.
+
+| Key                        | Value                                                       |
+| -------------------------- | ----------------------------------------------------------- |
+| `MACHINE_BACKLIGHT_N_NAME` | The name of the entry, such as `intel_backlight`.           |
+| `MACHINE_BACKLIGHT_N_TYPE` | `raw`, `platform` or `firmware`, as the kernel classes it.  |
+
+The source is `/sys/class/backlight`, which is a directory rather than a
+program, so this is the one fact of the file a machine answers with no program
+installed at all.
+
+A count of `0` and a count of `unknown` are two different answers, and the
+difference is the one in "The two values that are not facts" above. `0` means
+the directory was read and holds nothing: this machine has no backlight, and a
+brightness control on it would control nothing. `unknown` means the directory
+is not there, so this run could not read whether the machine has one.
+
+A machine with two backlights is a laptop whose firmware and whose graphics
+driver both offer one. `TYPE` is what tells them apart, so both are recorded
+and neither is chosen here.
+
 ### Time and keyboard
 
 | Key                             | Value                                                  |

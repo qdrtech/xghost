@@ -271,6 +271,122 @@ MACHINE_TOUCHPAD_COUNT=0
 MACHINE_SWITCH_COUNT=0" ]
 }
 
+# --- the backlight ----------------------------------------------------------
+
+# Build one directory of backlights, the way the kernel exposes them, and print
+# its path.
+#
+#   backlight_fixture NAME:TYPE...
+#
+# An entry written without a ':' gets no 'type' file, which is the backlight
+# whose kind this run cannot read. The directory is inside the temporary
+# directory of the test, so nothing here reads /sys and nothing here depends on
+# the hardware of the machine running the suite.
+backlight_fixture() {
+	local dir="$BATS_TEST_TMPDIR/backlight" entry name
+	rm -rf "$dir"
+	mkdir -p "$dir"
+	for entry in "$@"; do
+		name=${entry%%:*}
+		mkdir -p "$dir/$name"
+		if [ "$entry" != "$name" ]; then
+			printf '%s\n' "${entry#*:}" >"$dir/$name/type"
+		fi
+	done
+	printf '%s\n' "$dir"
+}
+
+# Read one directory of backlights and print the facts, and then the warnings.
+#
+#   run_backlight DIRECTORY
+run_backlight() {
+	run bash -c '
+		set -uo pipefail
+		. "$1/lib/detect.sh"
+		detect_backlight "$2"
+		detect_document | grep "^MACHINE_BACKLIGHT"
+		# printf repeats its format once with no argument at all, so an empty
+		# list would print one warning line that no run produced.
+		if [ "${#DETECT_WARNINGS[@]}" -gt 0 ]; then
+			printf "warning: %s\n" "${DETECT_WARNINGS[@]}"
+		fi
+	' _ "$ROOT_DIR" "$1"
+}
+
+# The machine this bundle was written on takes this path: /sys/class/backlight
+# exists and holds nothing. A count of 0 is an answer, and it is the answer
+# that decides a notification centre gets no brightness slider.
+@test "a machine with no backlight records a count of zero and no block" {
+	run_backlight "$(backlight_fixture)"
+	[ "$status" -eq 0 ]
+	[ "$output" = "MACHINE_BACKLIGHT_COUNT=0" ]
+}
+
+@test "one backlight is recorded by its name and by its kind" {
+	run_backlight "$(backlight_fixture intel_backlight:raw)"
+	[ "$status" -eq 0 ]
+	[ "$output" = "MACHINE_BACKLIGHT_COUNT=1
+MACHINE_BACKLIGHT_1_NAME=intel_backlight
+MACHINE_BACKLIGHT_1_TYPE=raw" ]
+}
+
+# A laptop with a discrete graphics card has two, and the kind is the only
+# thing that tells them apart. Both are recorded, so whatever reads them later
+# chooses between them rather than being handed one this module picked.
+@test "two backlights are both recorded, in the order the kernel names them" {
+	run_backlight "$(backlight_fixture acpi_video0:firmware amdgpu_bl0:raw)"
+	[ "$status" -eq 0 ]
+	[ "$output" = "MACHINE_BACKLIGHT_COUNT=2
+MACHINE_BACKLIGHT_1_NAME=acpi_video0
+MACHINE_BACKLIGHT_1_TYPE=firmware
+MACHINE_BACKLIGHT_2_NAME=amdgpu_bl0
+MACHINE_BACKLIGHT_2_TYPE=raw" ]
+}
+
+# The entry is a backlight whether or not its 'type' can be read, so the block
+# is written and the one value that is missing is the one that says 'unknown'.
+@test "a backlight whose kind cannot be read is still a backlight, and says so" {
+	run_backlight "$(backlight_fixture nvidia_wmi_ec_backlight)"
+	[ "$status" -eq 0 ]
+	[[ $output == "MACHINE_BACKLIGHT_COUNT=1
+MACHINE_BACKLIGHT_1_NAME=nvidia_wmi_ec_backlight
+MACHINE_BACKLIGHT_1_TYPE=unknown"* ]]
+	[[ $output == *"warning: '"*"/nvidia_wmi_ec_backlight/type' could not be read"* ]]
+}
+
+# An empty directory and no directory are two different answers, and the file
+# tells them apart: 0 is a machine with no backlight, 'unknown' is a run that
+# could not read whether it has one.
+@test "a backlight directory that is not there records unknown rather than zero" {
+	run_backlight "$BATS_TEST_TMPDIR/no-such-directory"
+	[ "$status" -eq 0 ]
+	[[ $output == "MACHINE_BACKLIGHT_COUNT=unknown"* ]]
+	[[ $output == *"warning: '"*"/no-such-directory' is not a directory"* ]]
+}
+
+# The rule of the whole module: a fact this run could not read keeps the value
+# of the previous run. A count that is kept names blocks, and those blocks are
+# written again with it, so the file never holds a count of two and no block.
+@test "a run that read no backlight keeps the count and the blocks of the last one" {
+	run bash -c '
+		set -uo pipefail
+		. "$1/lib/detect.sh"
+		DETECT_PREVIOUS_SCALARS[MACHINE_BACKLIGHT_COUNT]=2
+		DETECT_PREVIOUS_SCALARS[MACHINE_BACKLIGHT_1_NAME]=acpi_video0
+		DETECT_PREVIOUS_SCALARS[MACHINE_BACKLIGHT_1_TYPE]=firmware
+		DETECT_PREVIOUS_SCALARS[MACHINE_BACKLIGHT_2_NAME]=amdgpu_bl0
+		DETECT_PREVIOUS_SCALARS[MACHINE_BACKLIGHT_2_TYPE]=raw
+		detect_backlight "$2"
+		detect_document | grep "^MACHINE_BACKLIGHT"
+	' _ "$ROOT_DIR" "$BATS_TEST_TMPDIR/no-such-directory"
+	[ "$status" -eq 0 ]
+	[ "$output" = "MACHINE_BACKLIGHT_COUNT=2
+MACHINE_BACKLIGHT_1_NAME=acpi_video0
+MACHINE_BACKLIGHT_1_TYPE=firmware
+MACHINE_BACKLIGHT_2_NAME=amdgpu_bl0
+MACHINE_BACKLIGHT_2_TYPE=raw" ]
+}
+
 # --- the keyboard of the system ---------------------------------------------
 
 @test "the settings of localectl are read from its output" {
@@ -470,6 +586,7 @@ run 3: 1 new" ]
 		MACHINE_KEYBOARD_DEVICE_COUNT MACHINE_POINTER_COUNT \
 		MACHINE_TOUCHPAD_COUNT MACHINE_TOUCHSCREEN_COUNT \
 		MACHINE_TABLET_COUNT MACHINE_SWITCH_COUNT \
+		MACHINE_BACKLIGHT_COUNT \
 		MACHINE_BROWSER MACHINE_TERMINAL; do
 		[ "$(fact "$key")" != '<absent>' ] || fail "$key is not in the file"
 	done
@@ -650,6 +767,12 @@ run 3: 1 new" ]
 	[ "$(fact MACHINE_KEYBOARD_DEVICE_COUNT)" = unknown ]
 	[ "$(fact MACHINE_TOUCHPAD_COUNT)" = unknown ]
 	[ "$(fact MACHINE_BROWSER)" = unknown ]
+
+	# The backlight is the one fact of the file that needs no program at all:
+	# the kernel exposes it as a directory. So it is read on this machine even
+	# here, and the value is a count or the word for a directory that is not
+	# there.
+	[[ $(fact MACHINE_BACKLIGHT_COUNT) =~ ^([0-9]+|unknown)$ ]]
 
 	# It is still a file the reader accepts.
 	run bash -c '

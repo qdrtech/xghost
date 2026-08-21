@@ -402,12 +402,15 @@ What becomes harder:
   rest of the configuration runs. `loadfile` is the call that reports rather
   than raises, and it is the one such a bundle uses.
 - The SwayNC configuration file is prescribed, not generated. It has no include
-  to reach a rendered fragment through, and the only route to a generated copy
-  is `swaync -c <path>` written into a compositor line that expands
-  `$XDG_STATE_HOME` to nothing when the variable is unset. So a SwayNC setting
-  that has to follow a theme, a knob or a machine fact is a setting this project
-  pins or drops, and records. [The SwayNC bundle](../bundles/swaync.md) names
-  the two it has.
+  to reach a rendered fragment through, so a SwayNC setting that has to follow a
+  theme, a knob or a machine fact is a setting this project pins or drops, and
+  records. [The SwayNC bundle](../bundles/swaync.md) names the two it has, and
+  it now records what each route to a generated copy was measured to cost. An
+  earlier draft of this bullet said the route was `swaync -c <path>` in a
+  compositor line "that expands `$XDG_STATE_HOME` to nothing when the variable
+  is unset". Both halves of that were measured afterwards and both are wrong:
+  the compositor leaves an unset variable as its own text, and `-c` reaches
+  only the daemon that line starts. That page holds the measurements.
 - A Waybar include path is executed, so it stays a project-owned constant.
 
 ## Confirmation
