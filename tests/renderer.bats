@@ -484,6 +484,23 @@ a=hello' ]
 	[ ! -L "$GENERATED/waybar.conf" ]
 }
 
+# A directory is not a file the theme ships. The copy loop reads the files of
+# the theme, so a directory at that path puts nothing into the output, and
+# treating it as a hand-written file would suppress the template and leave the
+# output holding nothing at all at that path.
+@test "a directory at the path of a hand-written file does not suppress the template" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_template gtk/colors.css <<-'EOF'
+		generated @BG@
+	EOF
+	mkdir -p "$XGHOST_THEMES_DIR/demo/files/gtk/colors.css"
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 0 ]
+	run cat "$GENERATED/gtk/colors.css"
+	[ "$output" = "generated #1a2b3c" ]
+}
+
 @test "a hand-written file whose link points at nothing is reported by name" {
 	use_own_inputs
 	plain_palette | make_theme demo
@@ -576,6 +593,20 @@ make_fragment() {
 	run cat "$GENERATED/pick.conf"
 	[ "$output" = "the fragment for Inter" ]
 	[ ! -e "$GENERATED/pick.conf.choice.FONT" ]
+}
+
+# The same rule on the path a structural choice names.
+@test "a directory at the path a choice names does not suppress the fragment" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_fragment pick.conf.choice.FONT default <<-'EOF'
+		the fallback
+	EOF
+	mkdir -p "$XGHOST_THEMES_DIR/demo/files/pick.conf"
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 0 ]
+	run cat "$GENERATED/pick.conf"
+	[ "$output" = "the fallback" ]
 }
 
 @test "a value that no fragment names and no default fails the render" {
