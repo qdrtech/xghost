@@ -6,12 +6,15 @@
 // docs/adr/0001-prescribed-config-architecture.md.
 //
 // SwayNC reads one configuration file and offers no include of any kind, which
-// docs/adr/0002-the-bridge-to-the-generated-output.md records. That costs this
-// bundle nothing, because no key of this file follows a theme, a knob or a
-// machine fact: every generated value of the notification centre is a colour or
-// a font family, and both reach it through the style sheet beside this file.
-// GTK4 CSS does have '@import'. docs/bundles/swaync.md records the decision and
-// what would change it.
+// docs/adr/0002-the-bridge-to-the-generated-output.md records. Every colour of
+// the notification centre, and its font family, reach it through the style
+// sheet beside this file, because GTK4 CSS does have '@import'.
+//
+// Two settings here follow one of the three inputs, and no include can carry
+// either of them. 'positionY' below follows KNOB_BAR_POSITION, and the
+// backlight widget follows a machine fact. This bundle pins the corner and
+// ships no backlight widget rather than build a delivery route for one file.
+// docs/bundles/swaync.md records both, and what each one would take.
 //
 // Two lines below hold '@DEFAULT_AUDIO_SINK@' and '@DEFAULT_AUDIO_SOURCE@',
 // which is the name wireplumber gives the default device. That is also the
@@ -27,8 +30,18 @@
   // installs it to. An editor reads it; swaync itself ignores the key.
   "$schema": "/etc/xdg/swaync/configSchema.json",
 
-  // Where a notification and the control centre appear. The bar sits at the top
-  // by default, so the notifications go to the other corner.
+  // Where a notification and the control centre appear.
+  //
+  // This corner follows KNOB_BAR_POSITION and cannot read it, so it is pinned.
+  // The knob offers 'top' and 'bottom' and defaults to 'top', which puts the
+  // bar at the far edge from the corner below. At KNOB_BAR_POSITION=bottom the
+  // two meet, and 'layer: overlay' below draws above the 'top' layer of the
+  // bar, so a notification covers it. tests/swaync.bats holds the default pair
+  // apart, and docs/bundles/swaync.md records the collision at the other value.
+  //
+  // 'control-center-margin-left' and 'control-center-margin-right' below are
+  // the same dependency in x. The knob names no side edge today, so neither
+  // margin has a value to follow yet.
   "positionX": "left",
   "positionY": "bottom",
   "layer": "overlay",
@@ -51,27 +64,39 @@
   "notification-inline-replies": true,
   "notification-window-width": 350,
   "notification-icon-size": 60,
+  // The schema sets a minimum of 200 on the width. The dotfiles wrote 180,
+  // which is below it. Nothing at run time reports a value out of range, so
+  // tests/swaync.bats reads this file against the packaged schema instead.
   "notification-body-image-height": 180,
-  "notification-body-image-width": 180,
+  "notification-body-image-width": 200,
 
+  // How long a notification stays on screen, in seconds. 'timeout-critical' is
+  // 0, which the schema documents as "0 to disable", so a critical notification
+  // stays until it is dismissed. The dotfiles wrote 1 here, which gave the most
+  // urgent notification the shortest life of the three.
   "timeout": 12,
   "timeout-low": 6,
-  "timeout-critical": 1,
+  "timeout-critical": 0,
 
   "fit-to-screen": true,
   "keyboard-shortcuts": true,
-  "image-visibility": "when available",
+  "image-visibility": "when-available",
   "transition-time": 200,
   "hide-on-clear": false,
   "hide-on-action": true,
   "script-fail-notify": true,
 
+  // The backlight widget is not here. Its 'device' key names a backlight of the
+  // machine, which is a machine fact, and a file with no include cannot follow
+  // one. The schema defaults the key to 'intel_backlight'; the machine this
+  // bundle was written on has no /sys/class/backlight entry at all, so the
+  // widget would draw a slider for a device that is not there.
+  // docs/bundles/swaync.md records what it would take to ship it.
   "widgets": [
     "mpris",
     "title",
     "notifications",
     "volume",
-    "backlight",
     "buttons-grid"
   ],
 
@@ -85,17 +110,8 @@
       "button-text": "󰆴"
     },
 
-    "mpris": {
-      "image-size": 80,
-      "image-radius": 0
-    },
-
     "volume": {
       "label": "󰕾 "
-    },
-
-    "backlight": {
-      "label": "󰃟 "
     },
 
     // Every command names a program on the PATH, and every program is declared

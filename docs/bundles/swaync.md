@@ -4,8 +4,9 @@ SwayNC is the notification centre of xghost. It draws every notification the
 session raises, and the control centre behind the bell of the bar.
 
 It is the one bundle whose application reads no include of any kind in its
-configuration file, and the one whose style sheet reaches nothing and reports
-nothing when the generated output is missing.
+configuration file. Its style sheet does reach the generated output, and when it
+cannot, GTK4 reports that once, at startup, on the standard error of the
+daemon.
 
 The bundle is two prescribed files and two generated ones:
 
@@ -44,20 +45,26 @@ reaches it by no other route: the configuration file has none to offer.
 
 SwayNC reads one `config.json` and offers **no include of any kind**. An unknown
 key in it is dropped in silence, so a mistake in a key name costs a setting and
-reports nothing. ADR 0002 records both facts, and it draws one conclusion from
-them: that the whole file has to be generated output.
+reports nothing at run time. ADR 0002 records both facts. It once drew a third
+thing from them — that the whole file had to be generated output — and this
+bundle is why that consequence was rewritten.
 
-This bundle prescribes the file instead. The reason is that the conclusion
-answers a question this bundle never asks.
+The silence is answered here rather than lived with. The file names the schema
+the `swaync` package installs, and `tests/swaync.bats` reads the file against
+it, so a key the daemon would drop fails a test on a machine that has swaync
+instead of costing a setting on a machine that runs it.
 
-> **No key of `config.json` follows a theme, a knob or a machine fact.** Every
-> generated value of the notification centre is a colour or a font family, and
-> both of those reach SwayNC through the style sheet, which is GTK4 CSS and does
-> have `@import`.
+This bundle prescribes the file instead, and the claim behind that is narrower
+than the one ADR 0002 drew.
 
-A rendered `config.json` would therefore be a template with no substitution in
-it: the same text for every theme, at every knob set, on every machine. It would
-also need a way to reach the daemon, and there is exactly one. SwayNC looks for
+> **No key of `config.json` follows a theme.** Every colour of the notification
+> centre, and its font family, reach SwayNC through the style sheet, which is
+> GTK4 CSS and does have `@import`.
+
+A knob and a machine fact are a different matter, and this file has one of each.
+Both are named in "The two settings that do follow an input" below, and both are
+pinned rather than generated. The reason is the same for both: a generated
+`config.json` needs a way to reach the daemon, and there is exactly one. SwayNC looks for
 the file at `$XDG_CONFIG_HOME/swaync/config.json` and then in the system config
 directories, so a file under the state directory is found only by
 `swaync -c <path>`. That path would be written into
@@ -67,31 +74,68 @@ line would point at the root of the file system, SwayNC would fall back to the
 packaged configuration, and nothing would say so.
 
 So the prescribed file is not a way around the missing include. It is what the
-missing include costs, and it costs nothing here:
+missing include costs, and here it costs two settings rather than nothing.
 `xghost config link` symlinks the directory, the file arrives at the path SwayNC
 already looks in, and the project owns every line of it. That is
-[ADR 0001](../adr/0001-prescribed-config-architecture.md) unchanged.
+[ADR 0001](../adr/0001-prescribed-config-architecture.md) unchanged, with the
+price written down below rather than left out.
 
-### What would flip this decision
+### The two settings that do follow an input
 
-One thing, and it is the whole of it:
+The condition that would flip this decision is not hypothetical, and it is not
+in the future. Two settings of `config.json` already follow an input this
+project has, and no include can carry either of them.
 
-> **A setting of `config.json` that has to follow a theme, a knob or a machine
-> fact.** `positionX` and `positionY` are the candidates, because a notification
-> in the same corner as the bar is a notification under the bar, and the bar
-> moves with `KNOB_BAR_POSITION` today.
+**The corner follows `KNOB_BAR_POSITION`.** `positionY` is `bottom` and
+`positionX` is `left`. `schema/knobs.conf` declares `KNOB_BAR_POSITION` with the
+values `top` and `bottom`, and it defaults to `top`, so a machine that changes
+nothing has the bar at one edge and the notifications at the other. Set the knob
+to `bottom` and the two meet. `config/waybar/config` puts the bar on the `top`
+layer, `layer` here is `overlay`, and `overlay` draws above `top`, so a
+notification covers the bar. `control-center-margin-left` and
+`control-center-margin-right` are the same dependency in x. The knob names no
+side edge today, so neither margin has a value to follow yet.
 
-On the day such a setting arrives, this file becomes a template, and the render
-gains a consumer that cannot read it. Delivering it then means either the
+**The backlight device is a machine fact.** The `backlight` widget takes a
+`device` key that names an entry of `/sys/class/backlight`, and the packaged
+schema defaults it to `intel_backlight`. On the machine this bundle was written
+on, `/sys/class/backlight` is empty, so the widget would draw a brightness
+slider for a device that is not there.
+
+What this bundle does about each, and what each choice costs:
+
+| Setting                  | What it does here                | What it costs                                               |
+| ------------------------ | -------------------------------- | ----------------------------------------------------------- |
+| `positionX`, `positionY` | Pinned to the bottom left corner | At `KNOB_BAR_POSITION=bottom` a notification covers the bar. |
+| The `backlight` widget   | Not shipped                      | A laptop gets no brightness slider in the control centre.    |
+
+Neither is repaired here, for one reason that covers both. Delivering either
+means a generated `config.json`, and that means one of two mechanisms: the
 `swaync -c` path above, with the Hyprland expansion measured rather than
 assumed, or a linker that places a link inside the config directory of a bundle
-rather than over it. Neither is built here, because neither is needed here, and
-a mechanism built before its first user is a mechanism that fits no user.
+rather than over it. The second changes the linker for every bundle. Both are
+larger than this bundle, and both are worth building once, for both settings, in
+one place.
 
-`tests/swaync.bats` holds that decision in place from the other side: it asserts
-that the prescribed configuration names no palette value, no knob and no machine
-fact. The day one of them appears, the test fails and sends the reader to this
-section.
+**Neither has an issue yet, and both need one.** Until then this section is the
+record, and the first is held by a test.
+
+`tests/swaync.bats` reads `positionY` out of the prescribed file and the default
+of `KNOB_BAR_POSITION` out of the schema, and it fails when the two name the
+same edge. So a change to the default of the knob fails the suite rather than
+shipping a desktop whose notifications sit on the bar.
+
+### What the placeholder test can and cannot catch
+
+`tests/swaync.bats` also asserts that the prescribed configuration writes no
+palette value, no `KNOB_` name and no `MACHINE_` name. That test greps for the
+text of a placeholder, so what it catches is a template marker pasted into a
+prescribed file.
+
+**It cannot catch a semantic dependency**, and that is how both settings above
+passed it. `positionY: "bottom"` follows a knob without spelling one, and
+`intel_backlight` is a machine fact without spelling one. A dependency of that
+kind needs a test written for it by name, the way the corner now has one.
 
 ### The file the renderer must never read
 
@@ -134,26 +178,48 @@ the palette of the active theme, and `to_string()` shows the imported
 Neither end of the path is written out in full: the directory it starts from
 moves with `XDG_CONFIG_HOME`, and the bridge moves with `XDG_STATE_HOME`.
 
-### GTK4 is silent where GTK3 is fatal
+### GTK4 reports once where GTK3 stops the bar
 
 This is the one place where copying the Waybar bundle line for line would be
-wrong, and the difference runs the other way from the one people expect.
+wrong, though the difference is smaller than it first looks.
 
-| Style sheet     | GTK  | An `@import` that reaches nothing              |
-| --------------- | ---- | ---------------------------------------------- |
-| Waybar          | GTK3 | **fatal**: Waybar exits 1, and there is no bar |
-| SwayNC          | GTK4 | **silent**: the daemon starts and draws unstyled |
+| Style sheet | GTK  | An `@import` that reaches nothing                               |
+| ----------- | ---- | ---------------------------------------------------------------- |
+| Waybar      | GTK3 | **fatal**: Waybar exits 1, and there is no bar                   |
+| SwayNC      | GTK4 | **one warning**: the daemon starts, draws unstyled, and runs on  |
 
-Measured here, on GTK 4.22.4: `Gtk.CssProvider.load_from_path` returns normally
-when an `@import` reaches nothing. The failure is delivered on the
-`parsing-error` signal, which a caller has to connect before it sees anything at
-all.
+Measured here on GTK 4.22.4, with **no handler connected**, which is the case
+the daemon takes:
 
-The consequence is the whole reason this page is careful about ordering. A
-Waybar that starts too early is a missing bar, which nobody can overlook. A
-SwayNC that starts too early is a notification centre in the packaged colours,
-with nothing in any log, and the difference from a themed one is a shade of
-grey.
+```
+Gtk-WARNING **: Theme parser error: style.css:1:1-49: Failed to import: Error
+opening file …/xghost-generated/swaync/colors.css: No such file or directory
+```
+
+`Gtk.CssProvider.load_from_path` returns normally, and the failure is delivered
+on the `parsing-error` signal. GTK attaches a **default** handler to that
+signal, and the default handler is what prints the line above, with the file,
+the line and the column range in it. Connecting a handler of your own
+**suppresses** the default one, so a probe that connects a handler measures the
+one case SwayNC never takes.
+
+SwayNC 0.12.6 connects none. `strings -a /usr/bin/swaync` holds no
+`parsing-error` at all, while `nm -D --undefined-only /usr/bin/swaync` names
+five CSS symbols: it uses the CSS provider and it leaves the signal alone.
+
+So the failure is reported, and it is reported well enough to fix from. What it
+does not do is stop anything. It is one line on the standard error of the
+daemon, written once when the sheet is parsed at startup, and the notification
+centre then runs for the whole session in the packaged colours. A daemon that
+SwayNC's own systemd user unit started writes that line to the journal under
+`swaync.service`. A daemon that `exec-once` started writes it wherever the
+compositor sends the standard error of its children.
+
+The consequence for ordering is unchanged, and only its reason moves. A Waybar
+that starts too early is a missing bar, which nobody can overlook. A SwayNC that
+starts too early is a notification centre in the packaged colours with one
+warning line in a log nobody reads during a login, and the difference from a
+themed one is a shade of grey.
 
 ## The rule of this bundle: the importing file wins
 
@@ -168,24 +234,31 @@ every template of the whole project and asserts that `font-family` is written in
 one file, so the setting cannot be added to a third one, and it proves that
 guard by evading it in a copy of the checkout.
 
-## The colours the dotfiles never defined
+## The colour names carry underscores here
 
-The style sheet of the dotfiles named `@surface-alt`, `@text-muted` and
-`@accent-alt`, with hyphens. The generated palette of this project defines
-`surface_alt`, `text_muted` and `accent_alt`, with underscores. GTK allows both
-characters in the identifier of an `@define-color`, so the three names of the
-dotfiles were three names nothing defined.
+The style sheet of the dotfiles named `@surface-alt` and `@text-muted`, with
+hyphens, and `scripts/theme-switch.sh` wrote a `theme-colors.css` beside it that
+defined `surface-alt` and `text-muted` with hyphens to match. The two agreed.
+The generated palette of this project defines `surface_alt` and `text_muted`,
+with underscores, because that is the spelling `themes/<name>/palette.conf` uses
+and every other bundle takes it unchanged.
 
-Nothing downstream catches that. A `Gtk.CssProvider` that loads a sheet naming an
-undefined colour reports no error at all — measured on GTK 4.22.4, and it is the
-one case in this bundle that is silent even to a caller that connects the
-`parsing-error` signal. The declaration is dropped and the widget draws in
-whatever the packaged sheet left it.
+So this is a naming convention that changed, and not a fault that was found.
+GTK allows both characters in the identifier of an `@define-color`, so neither
+spelling is wrong on its own. What would be wrong is a sheet on one convention
+reading a palette on the other, and that is the mistake this project is one
+paste away from making.
 
-Each one is now the underscored name the palette defines. `tests/swaync.bats`
-reads every `@name` out of the style sheet and asserts that the generated palette
-defines it, with a pattern that carries the hyphen, so a name that stopped at the
-hyphen cannot pass by matching a shorter one.
+It reports nothing at all. A `Gtk.CssProvider` that loads a sheet naming an
+undefined colour reports no error — measured on GTK 4.22.4 with a handler
+connected and again with none, and it is the one failure of this bundle that
+neither route reports. The declaration is dropped and the widget draws in
+whatever the packaged sheet left it. An `@import` that reaches nothing is
+reported; a colour name that reaches nothing is not.
+
+`tests/swaync.bats` reads every `@name` out of the style sheet and asserts that
+the generated palette defines it, with a pattern that carries the hyphen, so a
+name written the old way cannot pass by matching a shorter one that exists.
 
 ## The font of the centre is the font of the desktop
 
@@ -221,7 +294,8 @@ and the session cannot start before the installer has finished.
 
 `tests/swaync.bats` proves the order from both ends. After link, detect and
 render, every path the daemon reads is a file. After link alone, both imports
-reach nothing, and the style sheet still loads without a word.
+reach nothing, GTK writes one warning about it, and the style sheet loads
+anyway.
 
 ## What changed from the dotfiles
 
@@ -230,7 +304,7 @@ rest is here.
 
 | Change                                                    | Why                                                                    |
 | --------------------------------------------------------- | ---------------------------------------------------------------------- |
-| The three colour names carry underscores                  | See "The colours the dotfiles never defined" above. Three names of the style sheet resolved to nothing at every login. |
+| The two colour names carry underscores                     | See "The colour names carry underscores here" above. The dotfiles were self-consistent on hyphens; the palette of this project is on underscores, and the style sheet follows the palette. |
 | `@import url("theme-colors.css")` is the bridge path       | `theme-colors.css` was written beside the style sheet by `scripts/theme-switch.sh`. This project writes the generated output under the state directory, and the bridge is how a prescribed file reaches it. |
 | `font-family` is gone from the style sheet                 | It is `KNOB_FONT`, and a family here would overrule the generated one. `"SF Pro Text"` and `"SF Pro Display"` went with it: both are macOS families that no Arch machine carries. |
 | `pactl` is `wpctl` in the two audio buttons                | This desktop runs wireplumber, which `install/packages/base.txt` declares, and `config/hypr/conf/keybinding.conf` already mutes with `wpctl`. `pactl` is in `libpulse`, which nothing here declares. One tool for one job. |
@@ -238,6 +312,11 @@ rest is here.
 | Three buttons that ran `kitty bash -i -c '…'` are dropped  | They ran `Docs`, `Settings` and `tasks`, which are shell functions of the person the dotfiles belong to. `config/zsh/.zshrc` defines none of them, so each button opened a terminal that printed `command not found` and closed. |
 | The `gnome-network-displays` button is dropped             | No manifest of this project declares that package, and a button that runs a program the installation never installs is a button that reports nothing. |
 | The `label` widget configuration is dropped                | `label` is in no `widgets` list, so it drew nothing. This bundle prescribes what ran. |
+| `image-visibility` is `when-available`                     | The dotfiles wrote `when available`, with a space. The schema this file names enumerates `always`, `when-available` and `never`, so the value matched none of them, the setting was discarded, and the default applied. Nothing said so. |
+| `timeout-critical` is `0`                                  | The dotfiles wrote `1`, which gave the most urgent notification one second on screen against 6 for low and 12 for normal. `swaync(5)` documents the default as `0` and reads `0` as "disable", so a critical notification now stays until it is dismissed. |
+| `notification-body-image-width` is `200`                   | The dotfiles wrote `180`. The schema sets a minimum of `200` on that key, so the value was out of range. |
+| The `mpris` widget configuration is dropped                | It set `image-radius`, which is not a property of that widget and which `additionalProperties: false` rejects, and `image-size`, which the schema marks deprecated in favour of the CSS root variable `--mpris-album-art-icon-size`. `style.css` sets that variable now, so the size survives and the two dropped keys do not. |
+| The `backlight` widget is dropped                          | Its `device` key names an entry of `/sys/class/backlight`, which is a machine fact, and a file with no include cannot follow one. See "The two settings that do follow an input" above. |
 | `refresh.sh` is dropped                                    | It ran `pkill swaync; swaync`. Reloading every running component from one place is [issue #24](https://github.com/qdrtech/xghost/issues/24), and a reload built per bundle is one convention per bundle. |
 
 ## The packages this bundle needs
@@ -274,7 +353,23 @@ needed it first: `wireplumber` for `wpctl`, `ghostty` for the terminal,
   palette value and no knob, and that `@DEFAULT_AUDIO_SINK@` is in the prescribed
   file and in no template. Two tests are the order of an installation: after
   link, detect and render, every path the daemon reads is a file; after link
-  alone, the imports reach nothing and the sheet still loads.
+  alone, the imports reach nothing, GTK reports it once, and the sheet loads
+  anyway.
+- Three of those tests are measurements rather than readings, and each carries a
+  positive control. The GTK4 tests load a sheet whose imports resolve first, and
+  assert on a marker that only a parsed file can produce, so an empty warning
+  stream cannot pass for a clean parse. They **fail** rather than skip when
+  `XGHOST_REQUIRE_GTK4` is set, which the CI workflow sets, so the machine that
+  gates a merge can never report the measurement as a skip.
+- `tests/swaync.bats` validates the prescribed configuration against
+  `/etc/xdg/swaync/configSchema.json`, the schema the file names, whenever the
+  `swaync` package has installed it. That is what catches a key the daemon would
+  drop, a value outside an enumeration, and a number outside a range. It skips
+  on a machine with no `swaync` installed, and it says so.
+- `tests/swaync.bats` reads `positionY` out of the prescribed file and the
+  default of `KNOB_BAR_POSITION` out of the schema, and fails when the two name
+  the same edge. It is the one semantic dependency of this file that has a test
+  of its own.
 - `tests/golden.bats` compares the rendered colours and font family of every
   theme with the committed output under
   `tests/golden/<knob set>/<theme>/swaync/`, and `tests/swaync.bats` reads those
@@ -302,12 +397,24 @@ What that leaves unobserved:
   an observation. Raising a notification needs a running daemon, and the running
   one belongs to the maintainer.
 - **The control centre has never drawn.** The widgets, the buttons and their
-  glyphs are carried over from a centre that ran in the dotfiles. Five of the
-  twelve buttons are changed or dropped here, and none of the eight that remain
-  has been clicked.
-- **No exit code has been read, and no log line.** That an unknown key of
-  `config.json` is dropped in silence is taken from ADR 0002 rather than from a
-  run here.
+  glyphs are carried over from a centre that ran in the dotfiles. Seven of the
+  twelve buttons are changed or dropped here — four dropped and three changed —
+  and none of the eight that remain has been clicked.
+- **Most of the control centre still draws in SwayNC's own white.** The
+  packaged 0.12.6 style sheet themes through `:root` custom properties.
+  `--text-color` is `rgb(255, 255, 255)` and is read 14 times, and `--cc-bg`,
+  `--noti-bg`, `--noti-bg-hover` and `--noti-close-bg` carry the greys beside
+  it. Its `@define-color` block is labelled "Fallback for older CSS themes".
+  This bundle sets none of those variables and names ten classes of its own, so
+  every widget outside those ten keeps the packaged value. That is survivable
+  while both themes of this project are dark. On a light theme it is white text
+  on a light background, and no light theme exists yet.
+- **No exit code has been read, and no log line of a running daemon.** The
+  `Gtk-WARNING` above was measured from a `Gtk.CssProvider` in this suite, not
+  read out of a log that `swaync` wrote. Which log it lands in on the
+  `exec-once` route follows from how a compositor passes standard error to a
+  child, and was not observed. That an unknown key of `config.json` is dropped
+  in silence is taken from ADR 0002 rather than from a run here.
 - **The daemon has never been watched finding its files.** That SwayNC reads
   `$XDG_CONFIG_HOME/swaync/config.json` and `$XDG_CONFIG_HOME/swaync/style.css`
   is taken from `swaync(1)`, from the path fragments `swaync/config.json` and
@@ -322,8 +429,9 @@ A first session with this bundle is therefore the first test of it. Three
 failures are the ones to look for:
 
 - **Notifications in grey, with square icons.** An `@import` reached nothing.
-  This is the failure that reports nothing anywhere, so it is the one to check
-  first. `xghost theme set` and a fresh `swaync` tell it apart.
+  There is one `Gtk-WARNING` about it, written when the daemon started, so the
+  log of the session names the file and the line. `xghost theme set` and a fresh
+  `swaync` fix it.
 - **A notification in the old colours after a theme switch.** Expected today:
   the daemon holds the style sheet it started with, and issue #24 owns the
   reload.

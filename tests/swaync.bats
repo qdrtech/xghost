@@ -21,9 +21,16 @@
 #   - A rule of the importing file wins over a rule of the same weight in the
 #     file it imported, so a property the generated files set must be absent
 #     from the prescribed style sheet.
-#   - A GTK4 '@import' that reaches nothing is silent. It is not fatal, the way
-#     the GTK3 one of the bar is. So the render has to run before the first
-#     session, and nothing at all reports it when it did not.
+#   - A GTK4 '@import' that reaches nothing is reported once and stops nothing.
+#     It is not fatal, the way the GTK3 one of the bar is. GTK writes one
+#     Gtk-WARNING to standard error and the daemon runs on unstyled for the
+#     whole session, so the render still has to precede the first session.
+#
+#     That report comes from GTK's default 'parsing-error' handler, which runs
+#     only when a caller has connected none of its own. Connecting one
+#     suppresses it. So a probe that connects a handler measures the case
+#     SwayNC never takes, and the tests below measure both and hold the
+#     difference in place.
 #
 # The design of the bundle is recorded in docs/bundles/swaync.md.
 bats_require_minimum_version 1.5.0
@@ -147,9 +154,14 @@ schema_values() {
 # every '@import' has been followed, so an import that resolved shows up as the
 # text it pulled in rather than as the absence of an error.
 #
-# A parsing error is delivered on a signal rather than through the return value.
-# Each one is printed with an 'ERROR' prefix, and a test that wants the silence
-# of GTK4 asserts on that prefix being absent.
+# A parsing error is delivered on the 'parsing-error' signal rather than through
+# the return value. This helper connects a handler, so each error is printed on
+# standard output with an 'ERROR' prefix.
+#
+# Connecting that handler also suppresses the Gtk-WARNING GTK would otherwise
+# write to standard error. That is the whole difference between this helper and
+# gtk4_css_default below, and it is why a test about what the daemon reports
+# must not use this one.
 gtk4_css() {
 	local sheet=$1
 	local script="$BATS_TEST_TMPDIR/cssprobe.py"
@@ -171,19 +183,118 @@ gtk4_css() {
 	python3 "$script" "$sheet"
 }
 
+# Load one style sheet into a GTK4 CssProvider with no handler connected, which
+# is what SwayNC does.
+#
+# GTK attaches a default 'parsing-error' handler of its own, and that handler is
+# what writes a Gtk-WARNING to standard error naming the file, the line and the
+# column range. A caller that connects a handler replaces it and gets silence
+# there instead.
+#
+# 'swaync' connects none: the test below reads that out of the binary. So this
+# helper, and not gtk4_css above, is the one that measures what a session sees.
+#
+# Standard output holds the rules the provider kept. Standard error holds GTK's
+# own report. A caller reads the two apart with 'run --separate-stderr'.
+gtk4_css_default() {
+	local sheet=$1
+	local script="$BATS_TEST_TMPDIR/cssprobe-default.py"
+
+	cat >"$script" <<-'EOF'
+		import sys
+		import gi
+		gi.require_version("Gtk", "4.0")
+		from gi.repository import Gtk
+
+		provider = Gtk.CssProvider()
+		provider.load_from_path(sys.argv[1])
+		print(provider.to_string())
+	EOF
+	python3 "$script" "$sheet"
+}
+
+# Print the value the schema declares as the default of one knob.
+schema_default() {
+	local knob=$1
+	awk -v knob="$knob" '
+		/^[a-z]+=/ {
+			field = substr($0, 1, index($0, "=") - 1)
+			value = substr($0, index($0, "=") + 1)
+			if (field == "knob") { current = value }
+			else if (field == "default" && current == knob) { print value }
+		}
+	' "$ROOT_DIR/schema/knobs.conf"
+}
+
 # Skip the calling test when this machine has no GTK4 for Python.
 #
 # The bindings are not a dependency of xghost and no manifest declares them, so
 # a machine without them is a machine this suite still has to run on. The skip
 # names what went unproved rather than passing quietly.
+#
+# On the machine that gates a merge a skip is not good enough. The GTK4 tests
+# are the evidence base of this bundle, and a skip and a pass read the same in a
+# summary line: this suite once reported 673 passing with the two measurements
+# among the skips. So .github/workflows/ci.yml installs the bindings and sets
+# XGHOST_REQUIRE_GTK4, and this fails there rather than skipping.
 require_gtk4() {
+	local reason=
 	if ! command -v python3 >/dev/null 2>&1; then
-		skip "no python3, so the GTK4 parse of the style sheet is unproved"
-	fi
-	if ! python3 -c 'import gi; gi.require_version("Gtk", "4.0"); from gi.repository import Gtk' \
+		reason="no python3"
+	elif ! python3 -c 'import gi; gi.require_version("Gtk", "4.0"); from gi.repository import Gtk' \
 		>/dev/null 2>&1; then
-		skip "no GTK4 bindings for Python, so the GTK4 parse of the style sheet is unproved"
+		reason="no GTK4 bindings for Python"
 	fi
+	[ -n "$reason" ] || return 0
+
+	if [ -n "${XGHOST_REQUIRE_GTK4:-}" ]; then
+		printf '%s, and XGHOST_REQUIRE_GTK4 is set: this machine gates a merge, so the GTK4 measurement has to run rather than skip\n' \
+			"$reason" >&2
+		return 1
+	fi
+	skip "$reason, so the GTK4 parse of the style sheet is unproved"
+}
+
+# Skip the calling test when the packaged schema, or the validator for it, is
+# missing.
+#
+# The schema arrives with the 'swaync' package, so a machine without swaync
+# cannot run this check at all. That is the state of the CI runner, which is
+# Ubuntu, and docs/bundles/swaync.md says so rather than leaving the skip to be
+# read as a pass.
+require_swaync_schema() {
+	SWAYNC_SCHEMA=/etc/xdg/swaync/configSchema.json
+	if [ ! -f "$SWAYNC_SCHEMA" ]; then
+		skip "no swaync installed, so the prescribed configuration is unvalidated here"
+	fi
+	if ! python3 -c 'import jsonschema' >/dev/null 2>&1; then
+		skip "no jsonschema for Python, so the prescribed configuration is unvalidated here"
+	fi
+}
+
+# Print one line per problem the packaged schema finds in one JSON document, and
+# nothing at all when it finds none.
+schema_problems() {
+	local document=$1
+	local script="$BATS_TEST_TMPDIR/schema.py"
+
+	cat >"$script" <<-'EOF'
+		import json
+		import sys
+		import jsonschema
+
+		with open(sys.argv[1]) as handle:
+		    document = json.load(handle)
+		with open(sys.argv[2]) as handle:
+		    schema = json.load(handle)
+
+		validator = jsonschema.Draft7Validator(schema)
+		problems = sorted(validator.iter_errors(document), key=lambda e: list(e.path))
+		for problem in problems:
+		    path = "/".join(str(part) for part in problem.path) or "."
+		    print("%s: %s" % (path, problem.message))
+	EOF
+	python3 "$script" "$document" "$SWAYNC_SCHEMA"
 }
 
 @test "the SwayNC configuration is prescribed configuration" {
@@ -227,17 +338,28 @@ require_gtk4() {
 	done <<<"$output"
 }
 
-# The decision of this bundle, held in place from the other side.
+# What this test catches is a placeholder, and it is worth being exact about
+# what that leaves out.
 #
-# SwayNC has no include mechanism, so a setting of this file that followed a
-# theme, a knob or a machine fact could not be generated and delivered without a
-# mechanism nothing here builds. The file is prescribed because no setting does.
-# The day one appears, this fails, and docs/bundles/swaync.md records what to do
-# about it.
-@test "the prescribed configuration names no theme value, no knob and no fact" {
-	run grep -n 'KNOB_' "$CONFIG_FILE"
+# The renderer substitutes an upper case name between two '@'. None is in this
+# file, so a paste from a template shows up here and a render of this file would
+# change nothing. The document also names no palette value written out by hand.
+#
+# It cannot see a semantic dependency. 'positionY' follows KNOB_BAR_POSITION
+# without spelling it, and 'intel_backlight' would be a machine fact without
+# spelling one, so both passed this test while being exactly the thing it reads
+# as absent. The two tests after this one are written for those two by name.
+# docs/bundles/swaync.md records the limit.
+@test "the prescribed configuration writes no placeholder and no palette value" {
+	run grep -nE '@(KNOB|MACHINE)_[A-Z0-9_]*@' "$CONFIG_FILE"
 	[ "$status" -ne 0 ]
-	run grep -n 'MACHINE_' "$CONFIG_FILE"
+
+	# The document SwayNC reads, with the comments dropped. The comments name
+	# KNOB_BAR_POSITION on purpose: 'positionY' follows that knob and cannot read
+	# it, and the comment is where a reader is told so.
+	local document
+	document=$(prescribed_json)
+	run grep -nE 'KNOB_|MACHINE_' <<<"$document"
 	[ "$status" -ne 0 ]
 
 	# No colour of any spelling, and no name the palette declares.
@@ -256,6 +378,116 @@ require_gtk4() {
 		count=$((count + 1))
 	done < <(sed -n 's/^\([A-Z][A-Z0-9_]*\)=.*/\1/p' "$ROOT_DIR/themes/tokyonight/palette.conf")
 	[ "$count" -gt 0 ]
+}
+
+# The one semantic dependency of this file that has a test of its own.
+#
+# 'positionY' follows KNOB_BAR_POSITION and cannot read it, because this file
+# has no include. The knob defaults to 'top' and the corner is pinned to
+# 'bottom', so a machine that changes nothing has the bar at one edge and the
+# notifications at the other.
+#
+# Change the default of the knob and the two meet: the bar draws on the 'top'
+# layer, this file sets 'layer: overlay', and 'overlay' draws above 'top', so a
+# notification covers the bar. That collision is real at KNOB_BAR_POSITION=
+# bottom today, and docs/bundles/swaync.md records it as a defect with no fix.
+# This test is the guard on the default, which is the case every machine that
+# changes nothing gets.
+@test "the corner of the centre is the far edge from the bar at the knob default" {
+	local corner default_edge
+	corner=$(json_value "$(prescribed_json)" positionY)
+	default_edge=$(schema_default KNOB_BAR_POSITION)
+
+	# Both name an edge on the same axis, so the comparison below is about one
+	# axis rather than about two unrelated words.
+	[[ $corner == top || $corner == bottom ]]
+	[[ $default_edge == top || $default_edge == bottom ]]
+
+	[ "$corner" != "$default_edge" ] || {
+		printf 'the centre sits at %s and the bar defaults to %s: the overlay layer of the centre draws above the top layer of the bar, so a notification covers it\n' \
+			"$corner" "$default_edge" >&2
+		return 1
+	}
+
+	# And the layer relation that sentence rests on, read rather than assumed.
+	run grep -Fn '"layer": "top",' "$ROOT_DIR/config/waybar/config"
+	[ "$status" -eq 0 ]
+	local layer
+	layer=$(json_value "$(prescribed_json)" layer)
+	[ "$layer" = overlay ]
+}
+
+# The other semantic dependency, and this bundle ships without it.
+#
+# The backlight widget takes a 'device' key that names an entry of
+# /sys/class/backlight, and the packaged schema defaults it to
+# 'intel_backlight'. That is a machine fact, and a file with no include cannot
+# follow one, so the widget is not shipped. docs/bundles/swaync.md records what
+# shipping it would take.
+@test "the centre draws and configures no widget that follows a machine fact" {
+	local document index name
+	document=$(prescribed_json)
+
+	index=0
+	while name=$(json_value "$document" "widgets.$index"); do
+		[ "$name" != backlight ] || {
+			printf 'the widget list names backlight, whose device key is a machine fact this file cannot follow\n' >&2
+			return 1
+		}
+		index=$((index + 1))
+	done
+	[ "$index" -gt 0 ]
+
+	run json_value "$document" 'widget-config.backlight'
+	[ "$status" -ne 0 ]
+}
+
+# The prescribed configuration against the schema it names.
+#
+# An unknown key is dropped in silence, a value outside an enumeration is
+# discarded and the default applies, and a number outside a range is refused
+# without a word. None of the three reports anything to a session, so the schema
+# is read here rather than trusted.
+#
+# The dotfiles this bundle comes from broke it three times, and this test is
+# what found the third: 'image-radius' is not a property of the mpris widget and
+# 'additionalProperties' is false there, 'when available' is not one of the
+# three values 'image-visibility' takes, and 'notification-body-image-width' was
+# 180 against a minimum of 200.
+@test "the prescribed configuration validates against the schema it names" {
+	require_swaync_schema
+
+	# The path being read is the path the file names, so a schema that moved
+	# fails here rather than leaving this test reading a file nothing points at.
+	local named
+	named=$(json_value "$(prescribed_json)" '$schema')
+	[ "$named" = "$SWAYNC_SCHEMA" ]
+
+	local document="$BATS_TEST_TMPDIR/config.json"
+	prescribed_json >"$document"
+
+	run schema_problems "$document"
+	[ "$status" -eq 0 ]
+	[ "$output" = "" ]
+
+	# The positive control. Empty output holds just as well for a validator that
+	# read an empty document, or a schema with no rules left in it, so the same
+	# validator is handed the key the dotfiles carried and has to reject it.
+	local broken="$BATS_TEST_TMPDIR/broken-config.json"
+	python3 - "$document" "$broken" <<-'EOF'
+		import json
+		import sys
+
+		with open(sys.argv[1]) as handle:
+		    document = json.load(handle)
+		document["widget-config"]["mpris"] = {"image-radius": 0}
+		with open(sys.argv[2], "w") as handle:
+		    json.dump(document, handle)
+	EOF
+
+	run schema_problems "$broken"
+	[ "$status" -eq 0 ]
+	[[ $output == *"image-radius"* ]]
 }
 
 # The one file of this project that holds the renderer's own spelling and must
@@ -367,9 +599,16 @@ require_gtk4() {
 	# Every import comes before the first rule. A colour has to be defined
 	# before a rule names it, and a rule of this file wins over a rule of the
 	# same weight above it.
+	#
+	# The pattern excludes a comment, whose first line starts with '/' and whose
+	# later lines start with white space, and a closing brace. It excludes
+	# neither '*' nor ':', which are the first characters of the two rules this
+	# sheet opens with. An earlier version excluded '*' and read '.notification'
+	# as the first rule, three sections down, so the assertion held by accident
+	# and would have held for a sheet that opened with a rule above the imports.
 	local first_import first_rule
 	first_import=$(grep -n '^@import' "$STYLE_FILE" | head -1 | cut -d: -f1)
-	first_rule=$(grep -nE '^[^ /*@}].*\{' "$STYLE_FILE" | head -1 | cut -d: -f1)
+	first_rule=$(grep -nE '^[^[:space:]/}].*\{' "$STYLE_FILE" | head -1 | cut -d: -f1)
 	[ -n "$first_import" ]
 	[ -n "$first_rule" ]
 	[ "$first_import" -lt "$first_rule" ]
@@ -454,17 +693,23 @@ require_gtk4() {
 }
 
 # A GTK colour that no file defines is a colour the style sheet cannot draw
-# with, and this style sheet defines none of its own. The dotfiles this bundle
-# comes from named three colours with hyphens that their generated file defined
-# with underscores, which is the fault this test exists for.
+# with, and this style sheet defines none of its own.
+#
+# The dotfiles this bundle comes from wrote '@surface-alt' and '@text-muted'
+# with hyphens, and the theme script beside them generated a file that defined
+# the same two with hyphens, so the two agreed. The palette of this project is
+# on underscores instead. This guard is therefore against a convention that
+# changed under a style sheet, and not against a fault that ever shipped.
 #
 # The pattern carries the hyphen, and that is the point of it. GTK allows '-' in
-# the identifier of an '@define-color', so '@accent-alt' is one name. A pattern
-# that stopped at the hyphen would read it as '@accent', find 'accent' in the
-# palette, and pass. Nothing downstream catches that: a Gtk.CssProvider that
-# loads a sheet naming an undefined colour reports no error at all, not even on
-# the signal, which is how the three names above went unnoticed through every
-# login.
+# the identifier of an '@define-color', so '@surface-alt' is one name. A pattern
+# that stopped at the hyphen would read it as '@surface', find 'surface' in the
+# palette, and pass.
+#
+# Nothing downstream catches the mistake either. A Gtk.CssProvider that loads a
+# sheet naming an undefined colour reports no error at all: not on the signal,
+# and not through GTK's own default handler. It is the one failure of this
+# bundle that neither route reports, which is why the guard is here.
 @test "every colour the style sheet names is defined by the generated palette" {
 	"$XGHOST" theme set tokyonight >/dev/null
 	local generated="$GENERATED/swaync/colors.css"
@@ -663,10 +908,13 @@ require_gtk4() {
 # The other half of the order, and the difference from the bar.
 #
 # A GTK3 '@import' that reaches nothing stops Waybar, so a bar started too early
-# is a bar nobody can overlook. The GTK4 one is silent: the sheet loads, the
-# daemon starts, and it draws in the packaged colours. Nothing reports it, which
-# is why the order is a requirement rather than a preference.
-@test "the imports reach nothing before the first render, and GTK4 says so to nobody" {
+# is a bar nobody can overlook. The GTK4 one loads the sheet, starts the daemon,
+# and draws in the packaged colours for the whole session. GTK reports it once,
+# at startup, and stops nothing, which is why the order is a requirement rather
+# than a preference.
+#
+# This is measured with no handler connected, which is what the daemon does.
+@test "an import that reaches nothing is reported once, and the sheet loads anyway" {
 	run link_prescribed
 	[ "$status" -eq 0 ]
 
@@ -677,13 +925,90 @@ require_gtk4() {
 
 	require_gtk4
 
-	# The sheet still loads. The failure is delivered on the 'parsing-error'
-	# signal, which this helper connects and the daemon need not.
-	run gtk4_css "$XDG_CONFIG_HOME/swaync/style.css"
+	# The positive control comes first, because the assertion this test is named
+	# for is about text on standard error. An empty standard error holds just as
+	# well for a probe that parsed nothing at all, so a render is done first and
+	# the palette in the provider is what proves the file reached GTK.
+	"$XGHOST" theme set tokyonight >/dev/null
+	run --separate-stderr gtk4_css_default "$XDG_CONFIG_HOME/swaync/style.css"
 	[ "$status" -eq 0 ]
-	[[ $output == *"Failed to import"* ]]
+	[[ $output == *"@define-color bg"* ]]
+	[[ $stderr != *"Gtk-WARNING"* ]]
+
+	# And now the state an early session is in. The generated tree is removed, so
+	# both imports reach nothing again.
+	rm -rf "$XDG_STATE_HOME/xghost/generated"
+	for name in colors knobs; do
+		[ ! -e "$XDG_CONFIG_HOME/$BRIDGE_NAME/swaync/$name.css" ]
+	done
+
+	run --separate-stderr gtk4_css_default "$XDG_CONFIG_HOME/swaync/style.css"
+
+	# The sheet still loads, and the rules of this file survive.
+	[ "$status" -eq 0 ]
+	[[ $output == *"font-size"* ]]
+
+	# GTK reports it, and the report names the file, a line and a column range.
+	[[ $stderr == *"Gtk-WARNING"* ]]
+	[[ $stderr == *"Failed to import"* ]]
+	[[ $stderr =~ style\.css:[0-9]+:[0-9]+-[0-9]+ ]]
 
 	# And the palette is simply absent, so every rule that names a colour draws
 	# with nothing.
 	[[ $output != *"@define-color bg"* ]]
+}
+
+# Why the test above connects no handler, held in place.
+#
+# The first version of this bundle measured with a handler connected and read
+# the empty standard error as GTK4's own silence. It was the handler's. The two
+# probes below run against one broken sheet, and only the one that connects
+# nothing writes a Gtk-WARNING.
+#
+# This is the test that would have failed the claim the bundle was built on, so
+# it stays whether or not the claim ever moves again.
+@test "connecting a parsing-error handler suppresses the warning GTK4 prints" {
+	run link_prescribed
+	[ "$status" -eq 0 ]
+	require_gtk4
+
+	local sheet="$XDG_CONFIG_HOME/swaync/style.css"
+
+	# No handler: GTK's default one prints, on standard error.
+	run --separate-stderr gtk4_css_default "$sheet"
+	[ "$status" -eq 0 ]
+	[[ $stderr == *"Gtk-WARNING"* ]]
+	[[ $stderr == *"Failed to import"* ]]
+
+	# A handler: the same failure arrives on the signal, and standard error
+	# carries no Gtk-WARNING at all.
+	run --separate-stderr gtk4_css "$sheet"
+	[ "$status" -eq 0 ]
+	[[ $output == *"ERROR"* ]]
+	[[ $output == *"Failed to import"* ]]
+	[[ $stderr != *"Gtk-WARNING"* ]]
+}
+
+# The fact that puts SwayNC in the default case: it connects nothing.
+#
+# The binary is read, never run. The machine this bundle was written on has a
+# swaync serving the live session of its owner, and no test here may touch it.
+@test "swaync uses the CSS provider and connects nothing to its parsing-error signal" {
+	local binary=/usr/bin/swaync
+	if [ ! -x "$binary" ]; then
+		skip "no swaync installed, so the handler of the daemon is unproved here"
+	fi
+	if ! command -v strings >/dev/null 2>&1 || ! command -v nm >/dev/null 2>&1; then
+		skip "no binutils, so the handler of the daemon is unproved here"
+	fi
+
+	# It uses the CSS provider, so the signal is one it could connect to.
+	run bash -c "nm -D --undefined-only '$binary' | grep -ci css"
+	[ "$status" -eq 0 ]
+	[ "$output" -gt 0 ]
+
+	# And it holds the name of the signal nowhere, so it connects nothing and
+	# GTK's default handler is the one that runs.
+	run bash -c "strings -a '$binary' | grep -c 'parsing-error'"
+	[ "$output" = "0" ]
 }

@@ -21,13 +21,28 @@
  * docs/adr/0002-the-bridge-to-the-generated-output.md records it.
  *
  * GTK4 differs from GTK3 in what it does when such a path reaches nothing.
- * Waybar exits 1; SwayNC starts and draws in the packaged colours, and says
- * nothing anywhere. The render therefore has to precede the first session, and
- * docs/bundles/swaync.md records the order that makes it so.
+ * Waybar exits 1 and there is no bar. SwayNC starts, draws in the packaged
+ * colours, and GTK writes one Gtk-WARNING to the standard error of the daemon
+ * naming this file, the line and the column range. It is reported once, at
+ * startup, against a daemon that then runs on. The render therefore has to
+ * precede the first session, and docs/bundles/swaync.md records the order that
+ * makes it so.
  */
 
 @import "../xghost-generated/swaync/colors.css";
 @import "../xghost-generated/swaync/knobs.css";
+
+/* ==========================================================================
+ * ROOT VARIABLES
+ * ======================================================================== */
+
+/* The album art of the mpris widget. The 'image-size' key of config.json is
+ * deprecated in favour of this variable, which the packaged style sheet defines
+ * in ':root' and reads as '-gtk-icon-size'. The packaged sheet is loaded first,
+ * so this rule wins at the same specificity. */
+:root {
+  --mpris-album-art-icon-size: 80px;
+}
 
 /* ==========================================================================
  * GLOBAL
