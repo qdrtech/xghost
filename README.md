@@ -75,4 +75,6 @@ what it is, and what an installation has never been observed doing.
   application that keeps the value of the file that includes the generated one.
 - [The shell bundle](docs/bundles/shell.md) — zsh, starship and tmux, and the
   first bundle whose entry point sits outside the config directory.
+- [The Rofi bundle](docs/bundles/rofi.md) — the launcher, and the one
+  application that cannot reach the generated output by a relative path.
 - [Architecture decision records](docs/adr/) — the decisions and their reasons.

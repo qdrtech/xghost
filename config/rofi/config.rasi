@@ -1,0 +1,246 @@
+/* The Rofi configuration of xghost.
+ *
+ * This file is prescribed configuration. The project owns it, and 'xghost
+ * config link' symlinks the directory that holds it to ~/.config/rofi. Do not
+ * edit it: an edit dirties the checkout and conflicts on the next pull. See
+ * docs/adr/0001-prescribed-config-architecture.md.
+ *
+ * The colours and the font family are not here. They come from the active
+ * theme and from KNOB_FONT, through the two generated files loaded below. See
+ * docs/bundles/rofi.md.
+ *
+ * Two rules of this file, and docs/bundles/rofi.md records the failure each one
+ * prevents:
+ *
+ *   - There is exactly one '@theme', it is the first of the two lines below,
+ *     and it names the colours. '@theme' discards the theme loaded so far, so
+ *     a second one would throw the first away, and a '@theme' written under the
+ *     blocks below would throw all of them away.
+ *   - This file names no colour and no font of its own. Both come from the
+ *     generated files, and a value written twice is a theme or a knob that
+ *     changes nothing anyone can see.
+ */
+configuration {
+    modi: "drun,run";
+    show-icons: true;
+    drun-display-format: "{name}";
+}
+
+/* The generated colours of the active theme, and the generated font family.
+ *
+ * The path is written from the home directory rather than relative to this
+ * file. Rofi 2.0.0 tests a relative import for existence against the path the
+ * kernel resolves, and then opens the path it canonicalises itself, and this
+ * file is opened through a symbolic link, so the two disagree and the import
+ * is dropped without a word. docs/bundles/rofi.md records the measurement, and
+ * docs/adr/0002-the-bridge-to-the-generated-output.md records the rule.
+ *
+ * 'xghost-generated' is the bridge 'xghost config link' creates, so the state
+ * directory is still never written out and XDG_STATE_HOME is still followed.
+ * XDG_CONFIG_HOME is not: this is the one path of the project that assumes the
+ * default. docs/bundles/rofi.md names the failure that leaves.
+ *
+ * The second line is the optional form, '?import'. A missing target is silent
+ * for '@import' and reported for '?import', and the report is printed when the
+ * launcher reads its own configuration, which is the path a session takes. One
+ * render writes both files, so a missing font file is the signal that the
+ * colours are missing as well. The colours line cannot take the same form:
+ * '?theme' is not in this language, and it is a parse error that drops this
+ * whole file in silence. docs/bundles/rofi.md records both measurements.
+ */
+@theme "~/.config/xghost-generated/rofi/colors.rasi"
+?import "~/.config/xghost-generated/rofi/knobs.rasi"
+
+// Main //
+window {
+    height:                      35em;
+    width:                       56em;
+    transparency:                "real";
+    fullscreen:                  false;
+    enabled:                     true;
+    cursor:                      "default";
+    spacing:                     0em;
+    padding:                     0em;
+    border:                      1px;
+    border-color:                @accent;
+    border-radius:               6px;
+    background-color:            @bg;
+}
+
+mainbox {
+    enabled:                     true;
+    spacing:                     0em;
+    padding:                     0em;
+    orientation:                 vertical;
+    children:                    [ "inputbar" , "listbox" ];
+    background-color:            transparent;
+}
+
+
+// Inputs //
+inputbar {
+    enabled:                     true;
+    spacing:                     0em;
+    padding:                     5em;
+    children:                    [ "textbox-prompt-colon", "entry" ];
+    background-color:            transparent;
+}
+
+textbox-prompt-colon {
+    enabled:                     true;
+    expand:                      false;
+    str:                         "  ";
+    padding:                     1em 1em 0em 0em;
+    text-color:                  @text;
+    border-radius:               2em 0em 0em 2em;
+    background-color:            @bg;
+}
+
+entry {
+    enabled:                     true;
+    border-radius:               0em 2em 2em 0em;
+    spacing:                     1em;
+    padding:                     1em;
+    background-color:            @bg;
+    text-color:                  @text;
+    cursor:                      text;
+    placeholder:                 "Search";
+    placeholder-color:           inherit;
+}
+
+// Lists //
+listbox {
+    padding:                     0em;
+    spacing:                     0em;
+    orientation:                 horizontal;
+    children:                    [ "listview" , "mode-switcher" ];
+    background-color:            @bg;
+}
+
+listview {
+    padding:                     1.5em;
+    spacing:                     0.5em;
+    enabled:                     true;
+    columns:                     2;
+    lines:                       3;
+    cycle:                       true;
+    dynamic:                     true;
+    scrollbar:                   false;
+    layout:                      vertical;
+    reverse:                     false;
+    fixed-height:                true;
+    fixed-columns:               true;
+    cursor:                      "default";
+    background-color:            transparent;
+    text-color:                  @text;
+}
+
+
+// Modes //
+mode-switcher {
+    orientation:                 vertical;
+    width:                       6.6em;
+    enabled:                     true;
+    padding:                     1.5em;
+    spacing:                     1.5em;
+    background-color:            transparent;
+}
+
+button {
+    cursor:                      pointer;
+    border-radius:               2em;
+    background-color:            @bg;
+    text-color:                  @text;
+}
+
+button selected {
+    background-color:            @accent;
+    text-color:                  @text;
+}
+
+
+// Elements //
+element {
+    enabled:                     true;
+    spacing:                     0em;
+    padding:                     0.5em;
+    cursor:                      pointer;
+    background-color:            transparent;
+    text-color:                  @text;
+}
+
+element selected.normal {
+    background-color:            @accent;
+    text-color:                  @text;
+    border-radius:               1.5em;
+}
+
+element normal.normal {
+    background-color:            inherit;
+    text-color:                  @text;
+}
+
+element normal.urgent {
+    background-color:            inherit;
+    text-color:                  @text;
+}
+
+element normal.active {
+    background-color:            inherit;
+    text-color:                  @text;
+}
+
+element selected.urgent {
+    background-color:            inherit;
+    text-color:                  @text;
+}
+
+element selected.active {
+    background-color:            inherit;
+    text-color:                  @text;
+}
+
+element alternate.normal {
+    background-color:            inherit;
+    text-color:                  @text;
+}
+
+element alternate.urgent {
+    background-color:            inherit;
+    text-color:                  @text;
+}
+
+element alternate.active {
+    background-color:            inherit;
+    text-color:                  @text;
+}
+
+element-icon {
+    size:                        3em;
+    cursor:                      inherit;
+    background-color:            transparent;
+    text-color:                  inherit;
+}
+
+element-text {
+    vertical-align:              0.5;
+    horizontal-align:            0.1;
+    cursor:                      inherit;
+    background-color:            transparent;
+    text-color:                  inherit;
+}
+
+// Error message //
+error-message {
+    text-color:                  @text;
+    background-color:            @bg;
+    text-transform:              capitalize;
+    children:                    [ "textbox" ];
+}
+
+textbox {
+    text-color:                  inherit;
+    background-color:            inherit;
+    vertical-align:              0.5;
+    horizontal-align:            0.5;
+}

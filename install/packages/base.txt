@@ -29,9 +29,8 @@
 #
 # What is not here:
 #
-#   - A package a later bundle owns. The launcher (rofi, issue #13) and the
-#     notifications (swaync, issue #14) arrive with their own bundles, and each
-#     one adds its line here then.
+#   - A package a later bundle owns. The notifications (swaync, issue #14)
+#     arrive with their own bundle, and it adds its line here then.
 #   - A package of the Arch 'base' group, such as util-linux for 'flock' and
 #     systemd for 'localectl'. Every Arch installation already has those, and
 #     declaring them would say that this project chose them.
@@ -93,3 +92,11 @@ starship
 tmux
 zsh-syntax-highlighting       # the highlighter the prescribed zshrc sources
 zsh-autosuggestions           # the suggestions the prescribed zshrc sources
+
+# The launcher. docs/bundles/rofi.md.
+#
+# 'rofi' provides and replaces 'rofi-wayland', so the compositor of this desktop
+# needs no second package. No icon theme is here: 'hicolor-icon-theme' is a hard
+# dependency of rofi itself and 'adwaita-icon-theme' is one of gtk3, which the
+# bar already needs, so declaring either would say that this project chose it.
+rofi
