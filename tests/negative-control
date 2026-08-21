@@ -1154,6 +1154,72 @@ control "the recorded resolution of '..' is asserted the other way round" \
 	"a '..' path from the config directory reaches the checkout and not the bridge" \
 	m_flip_the_dotdot_assertion
 
+#
+# The renderer. Issue #48: a value reaches a file another program reads as code,
+# so the renderer refuses the six characters that are not inert there. The rule
+# is the renderer's, so every control here mutates lib/renderer.sh and no
+# control mutates a template or a bundle.
+#
+
+SUITE=tests/renderer.bats
+RENDERER=lib/renderer.sh
+
+# A deleted guard: the check is never reached, so every value is substituted as
+# the text it is and a quotation mark closes the literal it lands in.
+m_no_check_of_the_value() {
+	substitute "$RENDERER" \
+		'			if render_unsafe_reason "${RENDER_SCALARS[$name]}"; then' \
+		'			if false; then'
+}
+
+# A deleted guard: the backslash branch is gone. Every other character is still
+# refused, so a control that only ran the quotation mark case would hold.
+m_the_backslash_is_allowed() {
+	substitute "$RENDERER" \
+		"	*'\\'*) RENDER_UNSAFE_REASON='a backslash' ;;" \
+		''
+}
+
+# A perturbed input: the value is found, named and listed, and the render
+# carries on and succeeds anyway. Nothing is deleted and every command still
+# ends well. This is the failure criterion 3 of the issue names: a render that
+# reports a problem and still moves its tree into place.
+m_the_report_is_not_a_failure() {
+	substitute "$RENDERER" \
+		'	[ "${#RENDER_MISSING[@]}" -eq 0 ] &&
+		[ "${#RENDER_UNKNOWN[@]}" -eq 0 ] &&
+		[ "${#RENDER_UNSAFE[@]}" -eq 0 ]' \
+		'	[ "${#RENDER_MISSING[@]}" -eq 0 ] &&
+		[ "${#RENDER_UNKNOWN[@]}" -eq 0 ]'
+}
+
+# A perturbed input: the rule is widened to the ampersand. Every test that
+# asserts a refusal still passes, because a refusal is what they expect. Only
+# the test that renders an ordinary value notices.
+m_the_rule_reaches_an_ordinary_character() {
+	substitute "$RENDERER" \
+		"	*'\"'*) RENDER_UNSAFE_REASON='a quotation mark' ;;" \
+		"	*'\"'*) RENDER_UNSAFE_REASON='a quotation mark' ;;
+	*'&'*) RENDER_UNSAFE_REASON='an ampersand' ;;"
+}
+
+printf '\n'
+control "the value of a placeholder is never checked" \
+	"a value that holds a quotation mark fails the render" \
+	m_no_check_of_the_value
+control "the value of a placeholder is never checked, in the two executed templates" \
+	"a value that would close a literal is refused in the two executed templates" \
+	m_no_check_of_the_value
+control "the backslash branch of the rule is gone" \
+	"a value that holds a backslash fails the render" \
+	m_the_backslash_is_allowed
+control "a refused value is reported and the render succeeds all the same" \
+	"a refused value leaves the previous generated output byte for byte" \
+	m_the_report_is_not_a_failure
+control "the rule is widened to an ordinary character of a value" \
+	"a value that holds an ampersand, a hash and a comma still renders" \
+	m_the_rule_reaches_an_ordinary_character
+
 printf '\n%s: %d controls held, %d did not\n' "$PROGRAM" "$PASSED" "$FAILED"
 if [ "$FAILED" -gt 0 ]; then
 	exit 1
