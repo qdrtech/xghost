@@ -73,4 +73,6 @@ what it is, and what an installation has never been observed doing.
   first application whose configuration is rendered from the machine facts.
 - [The Waybar bundle](docs/bundles/waybar.md) — the bar, and the first
   application that keeps the value of the file that includes the generated one.
+- [The shell bundle](docs/bundles/shell.md) — zsh, starship and tmux, and the
+  first bundle whose entry point sits outside the config directory.
 - [Architecture decision records](docs/adr/) — the decisions and their reasons.

@@ -1,0 +1,350 @@
+#!/usr/bin/env bash
+#
+# negative-control — prove that the tests of the shell bundle can fail.
+#
+#   tests/negative-control
+#
+# A test that cannot fail proves nothing, and the shell bundle shipped four of
+# them: one assertion compared a variable with itself, one was true whatever the
+# prescribed file said, and two skipped instead of failing when the line they
+# read was deleted. Each of the four passed on every machine and on every commit.
+# A test suite that is only ever run against correct sources cannot tell those
+# apart from the tests that work.
+#
+# So this script breaks the sources on purpose, one break at a time, and requires
+# the named test to fail. A break that leaves its test passing is reported here,
+# and that test is the next vacuous one.
+#
+# How one case runs:
+#
+#   1. The checkout is copied into a temporary directory. Nothing below writes
+#      into the checkout, and nothing below touches a file of the person running
+#      it: every path is inside that copy or inside the temporary directory of
+#      bats.
+#   2. One mutation is applied to the copy. Each one is a change a careless
+#      commit could really make: a guard deleted, a path changed, a report
+#      removed.
+#   3. 'bats -f' runs the one test that mutation is aimed at, and this script
+#      requires that run to end non-zero **and** to name that test in its
+#      report. A run that failed for another reason is not a control.
+#
+# The suite itself is what proves the other direction: every test named here
+# passes against the unmutated sources, and 'bats tests' is where that is read.
+#
+# The last section holds the tests that no mutation of this project can break,
+# because they record what zsh itself does rather than what this project wrote.
+# Their control mutates the assertion instead, which proves that the assertion
+# runs and is compared, and it is listed apart because it is a weaker thing.
+
+set -euo pipefail
+
+PROGRAM=${0##*/}
+ROOT=$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+SUITE=tests/shell.bats
+
+warn() {
+	printf '%s: %s\n' "$PROGRAM" "$*" >&2
+}
+
+die() {
+	warn "$*"
+	exit 1
+}
+
+if ! command -v bats >/dev/null 2>&1; then
+	die "bats is not installed, so no test can be run and no control can be proved."
+fi
+
+WORK=$(mktemp -d) || die "cannot create a temporary directory"
+trap 'rm -rf "$WORK"' EXIT
+
+PASSED=0
+FAILED=0
+
+# Copy the checkout into $WORK/case. The copy is what every mutation is applied
+# to, so the checkout is read and never written.
+fresh_copy() {
+	rm -rf "$WORK/case"
+	mkdir -p "$WORK/case"
+	tar -C "$ROOT" --exclude=./.git --exclude=./.claude -cf - . |
+		tar -C "$WORK/case" -xf -
+}
+
+# Replace one exact block of one file of the copy. A block that is not there is
+# a mutation that would silently do nothing, and a mutation that does nothing
+# turns this whole script into the thing it exists to catch. So it is fatal.
+substitute() {
+	local file=$1 old=$2 new=$3
+	OLD=$old NEW=$new python3 - "$WORK/case/$file" <<'PY'
+import os, sys
+path = sys.argv[1]
+old, new = os.environ["OLD"], os.environ["NEW"]
+text = open(path, encoding="utf-8").read()
+if old not in text:
+	sys.stderr.write("negative-control: the anchor is not in %s:\n%s\n" % (path, old))
+	sys.exit(1)
+open(path, "w", encoding="utf-8").write(text.replace(old, new, 1))
+PY
+}
+
+# Run one case.
+#
+#   control LABEL TEST-NAME MUTATION-FUNCTION
+control() {
+	local label=$1 name=$2 mutate=$3
+	local output status=0
+
+	fresh_copy
+	"$mutate"
+
+	# HOME is inside the temporary directory of this script as well as inside
+	# the one bats gives each test, so a suite that ever stopped setting its own
+	# would still write nothing of the person running this.
+	mkdir -p "$WORK/home"
+	output=$(cd "$WORK/case" && env HOME="$WORK/home" \
+		XDG_CONFIG_HOME="$WORK/home/.config" \
+		XDG_STATE_HOME="$WORK/home/.local/state" \
+		XDG_CACHE_HOME="$WORK/home/.cache" \
+		ZDOTDIR="$WORK/home" \
+		bats -f "$name" "$SUITE" 2>&1) || status=$?
+
+	if [ "$status" -eq 0 ]; then
+		printf 'NO CONTROL  %s\n' "$label"
+		printf '            the mutation left "%s" passing\n' "$name"
+		FAILED=$((FAILED + 1))
+		return
+	fi
+
+	# The run has to have named the test this case is aimed at. A mutation that
+	# broke the suite somewhere else would end non-zero and prove nothing.
+	if ! printf '%s\n' "$output" | grep -qF "not ok" ||
+		! printf '%s\n' "$output" | grep -qF "$name"; then
+		printf 'WRONG FAIL  %s\n' "$label"
+		printf '            the run ended %s and did not report "%s"\n' "$status" "$name"
+		printf '%s\n' "$output" | sed 's/^/            /'
+		FAILED=$((FAILED + 1))
+		return
+	fi
+
+	printf 'ok          %s\n' "$label"
+	PASSED=$((PASSED + 1))
+}
+
+STEP=install/steps/config/40-shell.sh
+ZSHRC=config/zsh/.zshrc
+TMUX_CONF=config/tmux/tmux.conf
+UNLINK=commands/config-unlink
+TEMPLATE=templates/starship/starship.toml
+
+#
+# The install step writes a real dotfile, so every guard in it has a control.
+#
+
+m_fixed_temporary_path() {
+	substitute "$STEP" \
+		'if ! temporary=$(mktemp "$zshenv.XXXXXX" 2>/dev/null); then' \
+		'temporary=$zshenv.xghost-new
+if false; then'
+}
+
+m_temporary_left_behind() {
+	substitute "$STEP" 'if ! chmod 0644 "$temporary" || ! mv -- "$temporary" "$zshenv"; then' \
+		'if ! chmod 0644 "$temporary" || ! cp -- "$temporary" "$zshenv"; then'
+}
+
+m_orphan_guard_reads_zshrc_only() {
+	substitute "$STEP" 'readonly ZSH_STARTUP_FILES=(.zshrc .zprofile .zlogin .zlogout)' \
+		'readonly ZSH_STARTUP_FILES=(.zshrc)'
+}
+
+m_no_dangling_link_branch() {
+	substitute "$STEP" '	if [ -L "$found" ] && [ ! -e "$found" ]; then' \
+		'	if false; then'
+}
+
+m_no_directory_branch() {
+	substitute "$STEP" 'if [ -d "$zshenv" ] && [ ! -L "$zshenv" ]; then' \
+		'if false; then'
+}
+
+m_unwritable_home_fails_the_run() {
+	substitute "$STEP" \
+		'	install_warn "cannot create a temporary file beside $zshenv, so zsh was not pointed at the shell configuration of xghost"
+	install_warn "what to do: check the permissions of $HOME, then run '\''./install.sh'\'' again. Nothing was changed at $zshenv, and the rest of the desktop is in place."
+	exit 0' \
+		'	install_fail "cannot create a temporary file beside $zshenv" "check the permissions of $HOME."'
+}
+
+m_no_missing_starship_line_report() {
+	substitute "$STEP" \
+		'		if ! grep -qxF -- "$starship_line" "$zshenv" 2>/dev/null; then' \
+		'		if false; then'
+}
+
+m_no_history_report() {
+	substitute "$STEP" \
+		'install_say "the first shell opens with an empty history: the prescribed configuration keeps the history under XDG_STATE_HOME, and a ~/.histfile of an earlier shell is left exactly where it is and is read by nothing"' \
+		':'
+}
+
+m_zshenv_carries_no_starship_line() {
+	substitute "$STEP" '$zdotdir_line
+$starship_line
+EOF' '$zdotdir_line
+EOF'
+}
+
+m_starship_line_diverges() {
+	substitute "$STEP" \
+		"starship_line='export STARSHIP_CONFIG=\"\${XDG_CONFIG_HOME:-\$HOME/.config}/xghost-generated/starship/starship.toml\"'" \
+		"starship_line='export STARSHIP_CONFIG=\"\${XDG_CONFIG_HOME:-\$HOME/.config}/starship.toml\"'"
+}
+
+control "the temporary path is a fixed name a symbolic link can be planted at" \
+	"the step writes through no symbolic link planted beside ~/.zshenv" \
+	m_fixed_temporary_path
+control "the temporary file is left in the home directory" \
+	"the step leaves no temporary file behind" \
+	m_temporary_left_behind
+control "the orphan guard reads .zshrc and none of the other three" \
+	"the step refuses to orphan any startup file that ZDOTDIR moves" \
+	m_orphan_guard_reads_zshrc_only
+control "the dangling symbolic link branch is gone" \
+	"the step reports a dangling ~/.zshrc without advice about what to keep" \
+	m_no_dangling_link_branch
+control "the directory branch is gone" \
+	"the step reports a ~/.zshenv that is a directory and prints no line to add" \
+	m_no_directory_branch
+control "an unwritable home directory fails the installation again" \
+	"the step reports a home directory it cannot write and ends well" \
+	m_unwritable_home_fails_the_run
+control "the report about a missing STARSHIP_CONFIG line is gone" \
+	"the step reports a ~/.zshenv that carries no STARSHIP_CONFIG line" \
+	m_no_missing_starship_line_report
+control "the report about the empty history is gone" \
+	"the step tells the reader that the first shell has an empty history" \
+	m_no_history_report
+control "the written ~/.zshenv carries the ZDOTDIR line alone" \
+	"STARSHIP_CONFIG is set in a zsh that never reads the prescribed zshrc" \
+	m_zshenv_carries_no_starship_line
+control "the two copies of the STARSHIP_CONFIG line diverge" \
+	"the ~/.zshenv the step writes carries the STARSHIP_CONFIG line of the zshrc" \
+	m_starship_line_diverges
+control "the ~/.zshenv line stops naming the bridge" \
+	"the ~/.zshenv line resolves to the generated prompt through the bridge" \
+	m_starship_line_diverges
+
+#
+# The prescribed files.
+#
+
+m_zshrc_drops_the_xdg_default() {
+	substitute "$ZSHRC" \
+		'export STARSHIP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/xghost-generated/starship/starship.toml"' \
+		'export STARSHIP_CONFIG="$XDG_CONFIG_HOME/xghost-generated/starship/starship.toml"'
+}
+
+m_history_goes_back_to_the_home_directory() {
+	substitute "$ZSHRC" \
+		'HISTFILE=${XDG_STATE_HOME:-$HOME/.local/state}/zsh/history' \
+		'HISTFILE=$HOME/.histfile'
+}
+
+m_tmux_names_no_shell() {
+	substitute "$TMUX_CONF" 'set -g default-shell /usr/bin/zsh' \
+		'# the line is gone'
+}
+
+m_a_dead_starship_section_comes_back() {
+	substitute "$TEMPLATE" '[golang]' "[rust]
+style = 'warn'
+symbol = ' '
+
+[golang]"
+}
+
+control "the zshrc writes the variable with no XDG default" \
+	"the prompt path is right when XDG_CONFIG_HOME is unset" \
+	m_zshrc_drops_the_xdg_default
+control "the history goes back to ~/.histfile" \
+	"a shell that starts writes no file into the checkout" \
+	m_history_goes_back_to_the_home_directory
+control "the tmux configuration names no shell at all" \
+	"tmux takes the shell of this desktop from the prescribed configuration" \
+	m_tmux_names_no_shell
+control "the tmux configuration names no shell at all" \
+	"the tmux reload binding ends well when the shell of this desktop is there" \
+	m_tmux_names_no_shell
+control "a section the format string never names comes back" \
+	"the format string of the prompt names every module the template configures" \
+	m_a_dead_starship_section_comes_back
+
+#
+# The command, the manifest, and the loops that could run zero times.
+#
+
+m_unlink_says_nothing() {
+	substitute "$UNLINK" 'report_zshenv "$dry_run"' ':'
+}
+
+m_unlink_reports_every_zshenv() {
+	substitute "$UNLINK" \
+		'	if ! grep -qxF -- "$XGHOST_ZDOTDIR_LINE" "$zshenv" 2>/dev/null; then
+		return 0
+	fi' '	:'
+}
+
+m_manifest_drops_a_package_of_the_page() {
+	substitute install/packages/base.txt 'ttf-jetbrains-mono-nerd' \
+		'# ttf-jetbrains-mono-nerd'
+}
+
+m_theme_list_prints_nothing() {
+	substitute commands/theme-list 'set -euo pipefail' 'set -euo pipefail
+exit 0'
+}
+
+control "'config unlink' stops naming the file it leaves behind" \
+	"'config unlink' names the ~/.zshenv it leaves behind" \
+	m_unlink_says_nothing
+control "'config unlink' stops naming the file it would leave behind" \
+	"a dry run of 'config unlink' names the ~/.zshenv it would leave" \
+	m_unlink_says_nothing
+control "'config unlink' reports a ~/.zshenv it did not write" \
+	"'config unlink' says nothing about a ~/.zshenv that xghost did not write" \
+	m_unlink_reports_every_zshenv
+control "the manifest drops a package the bundle page lists" \
+	"the manifest declares every package the bundle page lists" \
+	m_manifest_drops_a_package_of_the_page
+control "'theme list' prints nothing, so the loop body never runs" \
+	"every colour of the prompt is a colour of the active theme" \
+	m_theme_list_prints_nothing
+control "'theme list' prints nothing, so the loop body never runs" \
+	"the starship template names every colour the themes declare" \
+	m_theme_list_prints_nothing
+
+#
+# The weaker controls.
+#
+# These tests record what zsh does with its own startup files. No change to this
+# project can make zsh read a different file, so no mutation of the sources can
+# break them, and the control below mutates the assertion instead. That proves
+# the assertion runs and is compared. It does not prove the test is sensitive to
+# this project, because it is not: it is a record of the shell.
+#
+
+m_flip_the_zsh_startup_assertion() {
+	substitute "$SUITE" \
+		"	[ \"\$(zsh -c 'printf \"%s\\n\" \"\${FROM_ZDOTDIR_ZSHENV:-UNSET}\"' 2>/dev/null)\" = UNSET ]" \
+		"	[ \"\$(zsh -c 'printf \"%s\\n\" \"\${FROM_ZDOTDIR_ZSHENV:-UNSET}\"' 2>/dev/null)\" = 1 ]"
+}
+
+printf '\n'
+control "the recorded zsh behaviour is asserted the other way round" \
+	"zsh reads no .zshenv from ZDOTDIR, and reads .zprofile for a login shell alone" \
+	m_flip_the_zsh_startup_assertion
+
+printf '\n%s: %d controls held, %d did not\n' "$PROGRAM" "$PASSED" "$FAILED"
+if [ "$FAILED" -gt 0 ]; then
+	exit 1
+fi

@@ -172,6 +172,7 @@ the order of their names.
 | `config`       | `10-link.sh`                    | `xghost config link --backup`.                                    |
 | `config`       | `20-detect.sh`                  | `xghost machine detect`.                                          |
 | `config`       | `30-theme.sh`                   | `xghost theme set`.                                               |
+| `config`       | `40-shell.sh`                   | Write `~/.zshenv`, so zsh reads the prescribed shell configuration. |
 | `post-install` | `10-command-path.sh`            | Link `bin/xghost` into your bin directory.                        |
 | `post-install` | `20-summary.sh`                 | Prove that a theme is active, then report the end state.          |
 
@@ -236,8 +237,19 @@ render again inside the first session:
 install.sh   config/10-link.sh    the prescribed configuration and the bridge
              config/20-detect.sh  every fact except the monitors
              config/30-theme.sh   the generated output, complete
+             config/40-shell.sh   the ZDOTDIR line that zsh reads first
 first login  xghost machine refresh   the monitors, then the render again
 ```
+
+`config/40-shell.sh` is last of the four because it is the only step that
+writes into the home directory rather than into the config directory, and
+because it changes nothing at all on a machine whose home directory already
+holds a `~/.zshenv` or any startup file of zsh. It never fails the installation:
+six of its seven cases are a report, and a home directory that will not take the
+write is one of the six. zsh is a login shell rather than a part of the session,
+so the rest of the desktop is in place either way and a report is the whole of
+what a stop would buy. [The shell bundle](bundles/shell.md) records every case
+it meets and how to undo the one file it writes.
 
 The third step works because `unknown` is a value the bundle prescribes a
 fragment for. The `default` monitor fragment names no output, so Hyprland takes
