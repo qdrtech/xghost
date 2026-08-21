@@ -10,6 +10,7 @@
 #
 #   Monitors and display scale   hyprctl monitors -j          Hyprland
 #   Input devices                hyprctl devices -j           Hyprland
+#   Backlights                   /sys/class/backlight         the kernel
 #   Keyboard of the compositor   hyprctl getoption ... -j     Hyprland
 #   Keyboard of the system       localectl status             systemd
 #   Timezone                     timedatectl show -p Timezone systemd
@@ -776,6 +777,98 @@ detect_monitor_blocks() {
 	done
 }
 
+# --- the backlight ----------------------------------------------------------
+
+# The directory the kernel gives one entry per backlight in. It is passed to
+# detect_backlight rather than read inside it, so the tests read a fixture
+# directory and this constant is what the section below passes.
+readonly DETECT_BACKLIGHT_DIR=/sys/class/backlight
+
+detect_section_backlight() {
+	detect_line ''
+	detect_line '# --- Backlight --------------------------------------------------------------'
+	detect_line '#'
+	detect_line '# One block per backlight the kernel exposes, numbered from 1 in the order it'
+	detect_line '# names them. A machine with no backlight records a count of 0 and no block at'
+	detect_line '# all, which is the answer a desktop with no screen brightness to set gives.'
+	detect_line ''
+
+	detect_backlight "$DETECT_BACKLIGHT_DIR"
+}
+
+# The backlights of this machine, from the directory the kernel exposes them in.
+#
+#   detect_backlight DIRECTORY
+#
+# Each entry of the directory is one backlight, and the name of that entry is
+# the name a program uses to address it. 'swaync(5)' says as much about its own
+# 'device' key: find the value with 'ls /sys/class/backlight'. The 'type' file
+# inside each entry holds 'raw', 'platform' or 'firmware', and it is the only
+# thing that tells two backlights of one machine apart.
+#
+# A directory that is not there is not an answer. sysfs may not be mounted, and
+# a kernel that is not Linux exposes no such directory at all, so the count is
+# 'unknown' and the run names the directory it could not read. An empty
+# directory IS an answer, and the answer is 0: this machine has no backlight.
+# docs/machine-facts.md records the difference between the two.
+detect_backlight() {
+	local dir=$1
+	local -a names=()
+	local path name count index
+
+	if [ ! -d "$dir" ]; then
+		detect_warn "'$dir' is not a directory, so this run read no backlight"
+		detect_add MACHINE_BACKLIGHT_COUNT "$FACTS_UNKNOWN"
+		count=$DETECT_ADDED
+		detect_previous_blocks "$count" MACHINE_BACKLIGHT NAME TYPE
+		return 0
+	fi
+
+	for path in "$dir"/*; do
+		# A glob that matches nothing is left as it is, so the entry is tested
+		# rather than counted. That is the empty directory, which is a machine
+		# with no backlight.
+		[ -e "$path" ] || continue
+		names+=("${path##*/}")
+	done
+
+	detect_add MACHINE_BACKLIGHT_COUNT "${#names[@]}"
+
+	index=0
+	for name in ${names[@]+"${names[@]}"}; do
+		index=$((index + 1))
+		detect_add "MACHINE_BACKLIGHT_${index}_NAME" "$name"
+		detect_backlight_type "$dir/$name/type"
+		detect_add "MACHINE_BACKLIGHT_${index}_TYPE" "$DETECT_FIELD"
+	done
+}
+
+# The type of one backlight, into DETECT_FIELD.
+#
+#   detect_backlight_type PATH
+#
+# The kernel documents three values: 'raw', 'platform' and 'firmware'. A file
+# that cannot be read, and a file that holds nothing, are both 'unknown': the
+# entry is a backlight either way, and this run could not read which kind.
+detect_backlight_type() {
+	local path=$1 line=
+
+	DETECT_FIELD=$FACTS_UNKNOWN
+
+	# The standard error is redirected before the file is opened, so a refused
+	# open is dropped here rather than reaching the terminal as a raw
+	# diagnostic of the shell.
+	if ! IFS= read -r line 2>/dev/null <"$path" && [ -z "$line" ]; then
+		detect_warn "'$path' could not be read, so the type of that backlight is '$FACTS_UNKNOWN'"
+		return 0
+	fi
+
+	detect_trim "$line"
+	if [ -z "$DETECT_FIELD" ]; then
+		DETECT_FIELD=$FACTS_UNKNOWN
+	fi
+}
+
 # --- the timezone and the keyboard ------------------------------------------
 
 detect_section_system() {
@@ -1215,6 +1308,7 @@ detect_all() {
 
 	detect_add "$FACTS_VERSION_KEY" "$FACTS_VERSION"
 	detect_section_displays
+	detect_section_backlight
 	detect_section_system
 	detect_section_input
 	detect_section_applications

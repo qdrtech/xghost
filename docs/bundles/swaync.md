@@ -64,14 +64,14 @@ than the one ADR 0002 drew.
 A knob and a machine fact are a different matter, and this file has one of each.
 Both are named in "The two settings that do follow an input" below, and both are
 pinned rather than generated. The reason is the same for both: a generated
-`config.json` needs a way to reach the daemon, and there is exactly one. SwayNC looks for
-the file at `$XDG_CONFIG_HOME/swaync/config.json` and then in the system config
-directories, so a file under the state directory is found only by
-`swaync -c <path>`. That path would be written into
-`config/hypr/conf/autostart.conf`, and Hyprland expands `$XDG_STATE_HOME` there
-to nothing when the variable is unset, which is the state of most machines. The
-line would point at the root of the file system, SwayNC would fall back to the
-packaged configuration, and nothing would say so.
+`config.json` needs a way to reach the daemon, and every route to the daemon
+reads the same path. SwayNC looks for the file at
+`$XDG_CONFIG_HOME/swaync/config.json` and then in the system config directories,
+so a file under the state directory is found only by `swaync -c <path>` — and
+`-c` is on one route in and not on the others. "What the two delivery routes
+were measured to cost" below records that, and it replaces what this paragraph
+used to claim about the compositor expanding `$XDG_STATE_HOME`, which was
+measured afterwards and is wrong.
 
 So the prescribed file is not a way around the missing include. It is what the
 missing include costs, and here it costs two settings rather than nothing.
@@ -109,16 +109,81 @@ What this bundle does about each, and what each choice costs:
 | `positionX`, `positionY` | Pinned to the bottom left corner | At `KNOB_BAR_POSITION=bottom` a notification covers the bar. |
 | The `backlight` widget   | Not shipped                      | A laptop gets no brightness slider in the control centre.    |
 
-Neither is repaired here, for one reason that covers both. Delivering either
-means a generated `config.json`, and that means one of two mechanisms: the
-`swaync -c` path above, with the Hyprland expansion measured rather than
-assumed, or a linker that places a link inside the config directory of a bundle
-rather than over it. The second changes the linker for every bundle. Both are
-larger than this bundle, and both are worth building once, for both settings, in
-one place.
+The device the widget would name is no longer missing. `xghost machine detect`
+records `MACHINE_BACKLIGHT_COUNT` and one block per backlight, so the fact this
+widget needs is in the file and waits for a file that can read it.
+[Machine facts](../machine-facts.md) records the keys. The widget is still not
+shipped, because shipping it needs the whole of the section below.
+
+Neither is repaired here, for one reason that covers both: delivering either
+means a generated `config.json`. What that would take was left as two open
+routes above. Both have now been measured, and so has a third thing that sits
+in front of them.
 
 **Neither has an issue yet, and both need one.** Until then this section is the
 record, and the first is held by a test.
+
+### What the two delivery routes were measured to cost
+
+**`swaync -c <path>` in a compositor line.** The half everybody expected to
+fail works, and the half nobody asked about does not.
+
+The compositor half works, in one form. hyprlang 0.6.8, which `ldd` names among
+the libraries of Hyprland 0.56.2, expands `$XDG_STATE_HOME` when the variable is
+set and **leaves the text alone when it is not** — it does not expand it to
+nothing, which is what an earlier draft of this page and of ADR 0002 said. An
+`exec-once` line then reaches `/bin/sh -c`, so `${XDG_STATE_HOME:-$HOME/.local/state}`
+is a form that survives both machines: hyprlang reads no `${…}` and the shell
+does. [The Hyprland bundle](hyprland.md) records the measurement and how it was
+taken without starting anything.
+
+The route still fails, on the daemon rather than on the path. **`-c` reaches
+only the daemon that line starts.** SwayNC is activatable, and both service
+files, `org.freedesktop.Notifications` and `org.erikreider.swaync.cc`, run
+`Exec=/usr/bin/swaync` and name `SystemdService=swaync.service`, whose
+`ExecStart=/usr/bin/swaync` carries no `-c` either. So a daemon that the first
+notification started, or the bell of the bar, or a restart after a failure,
+reads `$XDG_CONFIG_HOME/swaync/config.json` and not the generated file. The
+machine would hold two configurations for one daemon, the live one would depend
+on which route won a race at login, and nothing would say which. That is the
+silence this project spends ADR 0002 avoiding, so this route is rejected rather
+than deferred.
+
+**A linker mode that points a config directory at the generated output.** Not
+built here. It is the route that survives the measurement above, because it puts
+the generated file at the path every route to the daemon already reads. It
+changes `lib/linker.sh`, which serves every bundle and which has caused the only
+two losses of data this project has had, so it is a slice of its own with the
+existing regression tests as its floor.
+
+### The renderer is what stands in front of both routes
+
+A delivery route only matters once `config.json` can be a template at all, and
+today it cannot. Three measurements, each made by rendering a fixture rather
+than by reading the module:
+
+1. **`@DEFAULT_AUDIO_SINK@` fails the render.** A template holding the line
+   `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` is refused with `no value for
+   'DEFAULT_AUDIO_SINK' in the theme palette, the machine facts or the knobs`.
+   The renderer has no escape for a literal placeholder, and "The file the
+   renderer must never read" below is exactly this file. Every route to a
+   generated `config.json` walks into it.
+2. **One output file takes exactly one structural choice.** Two choice
+   directories that write one path are refused: `it writes 'probe/two.json', and
+   'probe/two.json.choice.KNOB_ANIMATIONS' writes that path as well`.
+3. **A choice cannot hold another one.** `a structural choice cannot hold
+   another one`, which is the module saying so by name.
+
+The corner follows `KNOB_BAR_POSITION` and the widget follows a machine fact.
+Neither can be a value substituted into the file: the corner is the *opposite*
+edge from the bar, which the renderer derives nothing to produce, and the widget
+is a whole block rather than a value. So each of the two is a structural choice,
+they are two, they land on one file, and 2 and 3 above say that file cannot
+carry both.
+
+So the order of work is the other way round from the one this page assumed. The
+renderer decides whether a generated `config.json` is possible; the linker
+decides how it reaches the daemon.
 
 `tests/swaync.bats` reads `positionY` out of the prescribed file and the default
 of `KNOB_BAR_POSITION` out of the schema, and it fails when the two name the

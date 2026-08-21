@@ -264,11 +264,51 @@ than on the `PATH`, and the `.desktop` file of the package runs that same path.
 ## The other references that were not carried over
 
 The same rule was applied to every line of the dotfiles that named a file this
-project does not ship. A prescribed file cannot write its own location: Hyprland
-expands `$XDG_CONFIG_HOME` itself, and expands it to nothing when the variable
-is not set, so a path written into a prescribed file is right only on a machine
-whose config directory is the default. Every `exec` line therefore names a
-program on the `PATH`.
+project does not ship. A prescribed file cannot write its own location, so a
+path written into one is right only on a machine whose config directory is the
+default. Every `exec` line therefore names a program on the `PATH`.
+
+"What `$XDG_CONFIG_HOME` does in a Hyprland line" below records what the
+compositor does with such a variable. An earlier draft of this page said that
+Hyprland expands an unset variable to nothing. That was measured afterwards and
+it is wrong: the variable survives as its own text. The rule above is unchanged,
+because what happens to that text next is wrong in a different way.
+
+### What `$XDG_CONFIG_HOME` does in a Hyprland line
+
+Hyprland 0.56.2 parses its configuration with hyprlang, and `ldd` names
+`libhyprlang.so.2` among its libraries. hyprlang reads the environment itself,
+in `CConfigImpl::recheckEnv`, so the substitution below is the library's rather
+than the compositor's. It was measured by giving hyprlang 0.6.8 a configuration
+file and a handler that prints the value each keyword is called with:
+
+| The line holds                | The variable is set    | The variable is unset            |
+| ----------------------------- | ---------------------- | -------------------------------- |
+| `$XDG_STATE_HOME`             | the value of the variable | the text `$XDG_STATE_HOME`, unchanged |
+| `${XDG_STATE_HOME:-$HOME/x}`  | `${XDG_STATE_HOME:-/home/you/x}` | `${XDG_STATE_HOME:-/home/you/x}` |
+
+hyprlang expands `$NAME`, and it does not read `${…}` as a variable of its own
+at all: the braces reach the handler as text, with any `$NAME` inside them
+expanded.
+
+What happens to that text then depends on the keyword. A `source =` line is a
+file name, so the literal `$XDG_CONFIG_HOME/…` names no file and the include
+fails, loudly. An `exec` or `exec-once` line is a **shell command**:
+`Config::Supplementary::CExecutor::spawnRawProc` calls
+`execl("/bin/sh", "/bin/sh", "-c", COMMAND)`, which the disassembly of
+`/usr/bin/Hyprland` shows directly. So the shell gets whatever hyprlang left,
+and the shell expands an unset variable to nothing.
+
+The measurement was made without touching the running session. It reads the
+library the compositor links and the binary the compositor is, and it starts
+neither. `hyprctl` was not run.
+
+The real binary was asked one question on top of that, with the same
+`Hyprland --verify-config` this suite already runs: it answers `config ok` for
+an `exec-once` line holding `${XDG_STATE_HOME:-$HOME/.local/state}`. That mode
+parses and reports, and it runs no `exec-once` line at all — this file holds
+three, and a machine with one notification daemon still had exactly one after
+the run.
 
 | Line in the dotfiles                              | What happened to it                                                     |
 | ------------------------------------------------- | ----------------------------------------------------------------------- |
