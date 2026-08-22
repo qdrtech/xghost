@@ -120,8 +120,10 @@ means a generated `config.json`. What that would take was left as two open
 routes above. Both have now been measured, and so has a third thing that sits
 in front of them.
 
-**Neither has an issue yet, and both need one.** Until then this section is the
-record, and the first is held by a test.
+**Each has an issue now: the corner is #45 and the widget is #46.** Both were
+blocked on the renderer, which is issue #57. "What issue #57 decided about the
+three" below records what each of the two can and cannot do after it. Until they
+ship, this section is the record, and the first is held by a test.
 
 ### What the two delivery routes were measured to cost
 
@@ -158,16 +160,17 @@ existing regression tests as its floor.
 
 ### The renderer is what stands in front of both routes
 
-A delivery route only matters once `config.json` can be a template at all, and
-today it cannot. Three measurements, each made by rendering a fixture rather
-than by reading the module:
+A delivery route only matters once `config.json` can be a template at all. Three
+measurements, each made by rendering a fixture rather than by reading the
+module. This is what was found. "What issue #57 decided about the three" below
+is what was done about each:
 
 1. **`@DEFAULT_AUDIO_SINK@` fails the render.** A template holding the line
    `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` is refused with `no value for
    'DEFAULT_AUDIO_SINK' in the theme palette, the machine facts or the knobs`.
-   The renderer has no escape for a literal placeholder, and "The file the
+   The renderer had no escape for a literal placeholder, and "The file the
    renderer must never read" below is exactly this file. Every route to a
-   generated `config.json` walks into it.
+   generated `config.json` walked into it.
 2. **One output file takes exactly one structural choice.** Two choice
    directories that write one path are refused: `it writes 'probe/two.json', and
    'probe/two.json.choice.KNOB_ANIMATIONS' writes that path as well`.
@@ -189,6 +192,52 @@ decides how it reaches the daemon.
 of `KNOB_BAR_POSITION` out of the schema, and it fails when the two name the
 same edge. So a change to the default of the knob fails the suite rather than
 shipping a desktop whose notifications sit on the bar.
+
+### What issue #57 decided about the three
+
+All three were reproduced against the shipped renderer, and each was decided on
+its own. One was lifted and two stay. [Theming](../theming.md) carries the rules
+and the reasoning; this is what each decision means for this bundle.
+
+**1 is lifted.** `@@NAME@@` now writes the literal text `@NAME@`. The two
+`wpctl` lines are written `@@DEFAULT_AUDIO_SINK@@` and
+`@@DEFAULT_AUDIO_SOURCE@@` in a template, and the render succeeds. The escape
+reads no value, so a name that no palette, fact or knob declares is not a
+problem inside it. **`config.json` can now be a template.**
+
+**2 stays.** Two whole prescribed fragments cannot be written to one path
+without merging them, and to merge them the renderer would have to know where in
+the file the second one belongs — the syntax of the file it is writing, which it
+reads nowhere. The merged file would also be text the renderer assembled rather
+than a file the walk of `templates/` found, which is the property the mechanism
+is sound on.
+
+**3 stays.** Nesting keeps that property whole, so it was refused on cost. Two
+values by two values is four whole copies of this 160-line file, which the two
+settings reach in a handful of lines, and every later change to the daemon would
+have to be made four times.
+
+So the first obstacle is gone and the second is not. This bundle may now hold
+**one** structural variation in `config.json`, at the price of two copies of the
+file, and it may not hold two. The corner and the backlight widget are two, and
+they land here.
+
+What each of the two would still need, in order:
+
+| Wanted                          | What it needs now                                                        |
+| ------------------------------- | ------------------------------------------------------------------------ |
+| The corner alone                | A delivery route. One choice on `config.json`, two copies of it.          |
+| The backlight widget alone      | A delivery route. One choice on `config.json`, two copies of it.          |
+| Both                            | A way to vary two places in one file. This project has no mechanism for it. |
+
+A delivery route is the linker mode above, and it is still unbuilt. So neither
+setting can be delivered today, and the reason has moved: it is no longer that
+`config.json` cannot be a template.
+
+One trap for whoever writes that template. `tests/golden.bats` reads `@NAME@` in
+the committed output as a placeholder nobody substituted, and an escaped one is
+exactly that text written on purpose. That test has to learn the difference in
+the same commit as the first escaped template.
 
 ### What the placeholder test can and cannot catch
 
@@ -212,8 +261,15 @@ audio device:
 ```
 
 `@DEFAULT_AUDIO_SINK@` is also, exactly, the spelling the renderer substitutes:
-an upper case name between two `@`. A template holding that line would fail the
-render, because no palette, no fact and no knob declares `DEFAULT_AUDIO_SINK`.
+an upper case name between two `@`. This file is prescribed, so the renderer
+never reads it, and the line above is written exactly as SwayNC needs it.
+
+A template that held this line unaltered would still fail the render, because no
+palette, no fact and no knob declares `DEFAULT_AUDIO_SINK`. Since issue #57 a
+template may write `@@DEFAULT_AUDIO_SINK@@` instead, and that renders the line
+above. So the spelling is no longer a wall in front of a generated
+`config.json`; it is a spelling a template has to escape.
+
 `tests/swaync.bats` asserts that the text is in the prescribed file and in no
 template, so the two can never be confused.
 
