@@ -114,10 +114,52 @@ The rules:
 The renderer keeps the case the theme author wrote, so `#1A1B26` reaches the
 output as `#1A1B26`.
 
-Which names a palette must declare is decided by the templates, not by the
-renderer. A template that names a value the palette does not declare fails the
-render and reports the file and the name. Read `templates/` for the names the
-project uses today.
+### The names a palette must declare
+
+The templates decide these names, not the renderer. The renderer holds no list
+of its own. A template that names a value the palette does not declare fails the
+render and reports the file and the name, so a theme that leaves one of the
+names below out fails at the first switch.
+
+| Name          | What it is for                                                             |
+| ------------- | -------------------------------------------------------------------------- |
+| `ACCENT`      | Focus, a selection and the cursor. The background image is tinted with it. |
+| `ACCENT_ALT`  | The second accent, for what the first one does not mark.                   |
+| `BG`          | The colour behind everything. The background image is drawn from it.       |
+| `ERROR`       | A failure, and red in the terminal.                                        |
+| `SUCCESS`     | A success, and green in the terminal.                                      |
+| `SURFACE`     | A panel that sits on the background.                                       |
+| `SURFACE_ALT` | The second surface colour, for a panel on a panel.                         |
+| `TEXT`        | Ordinary text.                                                             |
+| `TEXT_MUTED`  | Text that recedes and stays readable. Ghostty draws bright black in it.    |
+| `WARN`        | A warning, and yellow in the terminal.                                     |
+
+Every one of the ten is a colour, so each one carries the three forms of "The
+three forms of a scalar" below. A template that names `@BG_HEX@` or `@BG_RGB@`
+names `BG`: the palette declares the plain name alone, and the renderer derives
+the other two. A palette key may not end in `_HEX` or `_RGB`, so a derived form
+always folds back to exactly one declared name.
+
+`tests/docs.bats` reads this table against the templates, both ways round. A
+name a template starts to read has to reach this table, and a name that leaves
+the templates has to leave it. So the list is what the renderer requires, and
+not what the two shipped themes happen to declare.
+
+Both shipped palettes declare these ten names and no other, and two tests keep
+that true. `tests/golden.bats` renders every shipped theme against every
+template, so a template that read an eleventh name would fail there.
+`tests/docs.bats` holds the other direction: a palette name that no template
+reads is dead weight the author of a new theme would copy, and no render would
+ever report it.
+
+A structural choice reads a name the same way. `<file>.choice.<NAME>` needs
+`NAME` declared, so a choice keyed on a palette name belongs in the table above
+as well. No shipped choice is keyed on one today.
+
+Two of the ten are read outside a template as well: `lib/background.sh` draws
+the background image from `BG` and from `ACCENT`. A theme without one of the two
+still renders. The image is not drawn, and one sentence reaches standard error.
+[Backgrounds](backgrounds.md) records that.
 
 ## What a value may hold
 

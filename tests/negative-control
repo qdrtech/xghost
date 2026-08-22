@@ -2128,6 +2128,134 @@ control "a structural choice may hold another one after all" \
 	m_a_choice_may_hold_another_one
 
 #
+# The names a palette must declare. Perturbed inputs, except where a case says
+# otherwise.
+#
+# docs/theming.md carries the list, and templates/ is the source of truth for
+# it. tests/docs.bats pins the two together both ways round, and each way needs
+# a control of its own: a mutation that adds a name to the page and a mutation
+# that adds one to a template break different tests, and a control that held
+# only for one of them would leave the other free to be vacuous.
+#
+# Two of the cases mutate tests/docs.bats itself rather than a source. The
+# escape and the fold of a derived form reach no shipped template today, so no
+# mutation of the sources of this project can break the test that reads them.
+# Breaking what that test reads is what proves it reads them, and the header of
+# this file calls that the weaker kind of case. It is named here for that reason.
+#
+
+SUITE=tests/docs.bats
+THEMING_PAGE=docs/theming.md
+WAYBAR_COLORS=templates/waybar/colors.css
+TOKYONIGHT_PALETTE=themes/tokyonight/palette.conf
+MACOS_PALETTE=themes/macos-dark/palette.conf
+DOCS_TESTS=tests/docs.bats
+
+# A perturbed input: a template starts reading a name the page never listed.
+# This is the direction that would fail a render for the author of a new theme,
+# who has the page and not the templates.
+m_a_template_reads_an_unlisted_name() {
+	substitute "$WAYBAR_COLORS" \
+		'@define-color success @SUCCESS@;' \
+		'@define-color success @SUCCESS@;
+@define-color highlight @HIGHLIGHT@;'
+}
+
+# A perturbed input: the page drops a row while the templates still read the
+# name. Same test as the case above, and a different half of it: that one adds
+# to the source, this one takes from the page.
+m_the_page_drops_a_name_the_templates_read() {
+	substitute "$THEMING_PAGE" \
+		'| `WARN`        | A warning, and yellow in the terminal.                                     |
+' \
+		''
+}
+
+# A perturbed input: the page lists a name no template reads. Nothing about a
+# render would ever report this, and it is the dead weight a new theme would be
+# copied from, so it is the direction that needs a test of its own.
+m_the_page_lists_a_name_no_template_reads() {
+	substitute "$THEMING_PAGE" \
+		'| `WARN`        | A warning, and yellow in the terminal.' \
+		'| `HIGHLIGHT`   | A name no template reads.                                                  |
+| `WARN`        | A warning, and yellow in the terminal.'
+}
+
+# A perturbed input: a shipped palette declares a name the page does not list.
+# The render still succeeds, every golden file is unchanged, and the whole suite
+# apart from the named test is green.
+m_a_shipped_palette_declares_an_unlisted_name() {
+	substitute "$TOKYONIGHT_PALETTE" \
+		'SUCCESS=#9ECE6A' \
+		'SUCCESS=#9ECE6A
+HIGHLIGHT=#9ECE6A'
+}
+
+# A perturbed input: a shipped palette drops a name the page lists. The render
+# of that theme fails too, so a control asking only for a non-zero status would
+# hold here through another suite. This one requires the named test.
+m_a_shipped_palette_drops_a_listed_name() {
+	substitute "$MACOS_PALETTE" 'SUCCESS=#34c759' ''
+}
+
+# A deleted guard, in the test file: the collector stops telling an escape from
+# a placeholder, which is what a plain grep for '@[A-Z_]*@' would do. '@@GHOST@@'
+# then reaches the collected set as the name '@GHOST@'.
+m_the_collector_reads_no_escape() {
+	substitute "$DOCS_TESTS" \
+		'				if [ "${match:0:2}" = "@@" ]; then
+					continue
+				fi' \
+		'				if false; then
+					continue
+				fi'
+}
+
+# A deleted guard, in the test file: the collector stops folding a derived form
+# back to the name the palette declares. '@BG_HEX@' then reads as a name of its
+# own, and the page does not list it.
+m_the_collector_folds_no_derived_form() {
+	substitute "$DOCS_TESTS" \
+		'			*_HEX) name=${name%_HEX} ;;
+			*_RGB) name=${name%_RGB} ;;' \
+		'			*_HEX) : ;;
+			*_RGB) : ;;'
+}
+
+# A perturbed input, in the test file: the collector walks the template
+# directory and finds nothing in it. Every name comparison then holds with
+# nothing compared, which is what the floor test exists to catch.
+m_the_collector_reads_no_template() {
+	substitute "$DOCS_TESTS" \
+		'		done < <(find -L "$2" -type f)' \
+		'		done < <(find -L "$2" -type f -name "no-such-template")'
+}
+
+printf '\n'
+control "a template reads a name docs/theming.md does not list" \
+	"docs/theming.md lists every palette name the templates read" \
+	m_a_template_reads_an_unlisted_name
+control "docs/theming.md drops a name the templates still read" \
+	"docs/theming.md lists every palette name the templates read" \
+	m_the_page_drops_a_name_the_templates_read
+control "docs/theming.md lists a name no template reads" \
+	"every palette name docs/theming.md lists is read by a template" \
+	m_the_page_lists_a_name_no_template_reads
+control "a shipped palette declares a name docs/theming.md does not list" \
+	"every shipped palette declares the names docs/theming.md lists, and no other" \
+	m_a_shipped_palette_declares_an_unlisted_name
+control "a shipped palette drops a name docs/theming.md lists" \
+	"every shipped palette declares the names docs/theming.md lists, and no other" \
+	m_a_shipped_palette_drops_a_listed_name
+control "the collector counts an escaped placeholder as a reference" \
+	"the palette-name collector reads the escape, the derived forms and the other two sources" \
+	m_the_collector_reads_no_escape
+control "the collector reads a derived form as a name of its own" \
+	"docs/theming.md lists every palette name the templates read" \
+	m_the_collector_folds_no_derived_form
+control "the collector reads no template at all" \
+	"the templates read the palette names this project has" \
+	m_the_collector_reads_no_template
 # The Hyprland bundle, issue #54. The control socket of hyprpaper.
 #
 # A perturbed input. The setting is spelled correctly and given the other value
