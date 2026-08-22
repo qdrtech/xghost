@@ -2312,6 +2312,107 @@ control "the reload capture reads standard output alone" \
 	"a reload that failed on standard error still reports the cause" \
 	m_the_capture_drops_standard_error
 
+# The wallpaper of a running session, issue #65. The one command that carries a
+# path.
+#
+# Deleted guards and perturbed inputs, and the perturbed ones are the ones this
+# section exists for. Every mutation below leaves a table that parses, a module
+# that sources, a request that is sent and a daemon that answers it. What
+# changes is which file the request names, whether the path survives a space,
+# and whether a build that drew nothing is called a fault.
+
+SUITE=tests/reload.bats
+RELOAD=lib/reload.sh
+WALLPAPER_ROW='	"hyprpaper|hyprpaper|hyprctl|hyprctl hyprpaper wallpaper ,@BACKGROUND@"'
+
+# A perturbed input: the value is put in, and then the words are split again.
+# That is what the module would do if the value were substituted into the
+# command before the split, and it is the state a path holding a space arrives
+# in as two arguments naming two files that are not there.
+m_the_value_is_split_again() {
+	substitute "$RELOAD" '	status=0
+	reload_expand words || status=$?
+	case $status in' '	status=0
+	reload_expand words || status=$?
+	read -r -a words <<<"${words[*]}"
+	case $status in'
+}
+
+# A perturbed input: the row carries the path itself, at the default state
+# directory. It is the shape the table would have if a row could hold a path,
+# and it is right on a machine that never set XDG_STATE_HOME.
+m_the_row_carries_a_literal_path() {
+	substitute "$RELOAD" "$WALLPAPER_ROW" \
+		'	"hyprpaper|hyprpaper|hyprctl|hyprctl hyprpaper wallpaper ,$HOME/.local/state/xghost/generated/hypr/background.png"'
+}
+
+# A perturbed input: the value is resolved from HOME alone, so the module stops
+# reading the rule lib/paths.sh owns. It agrees with lib/theme.sh on every
+# machine that never set XDG_STATE_HOME, and on no other.
+m_the_value_ignores_the_state_directory() {
+	substitute "$RELOAD" '	if ! generated=$(xghost_generated_dir); then' \
+		'	generated=$HOME/.local/state/xghost/generated
+	if false; then'
+}
+
+# A perturbed input: the request names an output. hyprpaper would draw the
+# wallpaper on that one display and the Hyprland bundle would carry the output
+# name it promises never to write down.
+m_the_request_names_a_monitor() {
+	substitute "$RELOAD" 'hyprctl hyprpaper wallpaper ,@BACKGROUND@' \
+		'hyprctl hyprpaper wallpaper DP-1,@BACKGROUND@'
+}
+
+# A deleted guard: a build that drew no image is called a fault. The render
+# succeeded, the switch happened, and lib/background.sh supports the state, so
+# this is the answer the fifth one exists to replace.
+m_nothing_to_send_is_a_failure() {
+	substitute "$RELOAD" '		RELOAD_RESULT="nothing to send"
+		return 0' '		RELOAD_RESULT=failed
+		return 1'
+}
+
+# A deleted guard: the row check stops asking whether the module resolves the
+# value a command carries. A name nothing answers is then sent to the program
+# as itself.
+m_an_unresolved_value_is_not_refused() {
+	substitute "$RELOAD" '		if ! reload_value_row "$value" >/dev/null; then' \
+		'		if false; then'
+}
+
+# A deleted guard: the reason is dropped from the line of a component that is
+# not a problem. The report then says a build sent nothing and never says why.
+m_the_reason_is_dropped_from_the_line() {
+	substitute "$RELOAD" '			if [ -n "$RELOAD_DETAIL" ]; then
+				reload_say "   $name: $RELOAD_RESULT: $RELOAD_DETAIL"
+			else
+				reload_say "   $name: $RELOAD_RESULT"
+			fi' '			reload_say "   $name: $RELOAD_RESULT"'
+}
+
+printf '\n'
+control "the value is put into the command before it is split" \
+	"a generated path that holds a space reaches the daemon as one argument" \
+	m_the_value_is_split_again
+control "the wallpaper row carries a path of its own" \
+	"the path the request names is the path the wallpaper file names" \
+	m_the_row_carries_a_literal_path
+control "the wallpaper value is resolved from HOME alone" \
+	"the path the request names is the path the wallpaper file names" \
+	m_the_value_ignores_the_state_directory
+control "the wallpaper request names an output" \
+	"the wallpaper request names no monitor, so it reaches every display" \
+	m_the_request_names_a_monitor
+control "a build that drew no image is reported as a failure" \
+	"a build that drew no image is 'nothing to send', and nothing is sent" \
+	m_nothing_to_send_is_a_failure
+control "a value no function answers is left in the command" \
+	"a row that carries a value this file resolves no name for is refused" \
+	m_an_unresolved_value_is_not_refused
+control "the reason for an answer that is not a problem is dropped" \
+	"a build with nothing to send is not a problem, and says why on its line" \
+	m_the_reason_is_dropped_from_the_line
+
 printf '\n%s: %d controls held, %d did not\n' "$PROGRAM" "$PASSED" "$FAILED"
 if [ "$FAILED" -gt 0 ]; then
 	exit 1

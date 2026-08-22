@@ -9,7 +9,10 @@
 #   pgrep          Answers from a file this suite writes, so "the bar is
 #                  running" is a fact of the test rather than of the machine.
 #   pkill          Records the call. It never signals anything.
-#   hyprctl        Records the call.
+#   hyprctl        Records the call, and records its arguments one per line as
+#                  well. The wallpaper request carries a path, a path may hold
+#                  a space, and a line of the log cannot tell one argument that
+#                  holds a space from two that do not.
 #   swaync-client  Records the call.
 #
 # assert_stubs_are_first runs in setup, before any test body, and a PATH that
@@ -73,6 +76,11 @@ stub_programs() {
 
 	: >"$STUB_DIR/log"
 
+	# The arguments of the stub hyprctl, one per line, with a count before each
+	# call. The log above joins the arguments with a space, so it cannot say
+	# whether a path holding a space arrived whole.
+	: >"$STUB_DIR/argv"
+
 	# The processes this machine is running, one name per line, as the stub
 	# pgrep reads them. A test writes this file to say what is running.
 	: >"$STUB_DIR/running"
@@ -119,6 +127,10 @@ stub_programs() {
 		#!/usr/bin/env bash
 		set -uo pipefail
 		printf 'hyprctl %s\n' "$*" >>"$STUB_DIR/log"
+		printf 'argc %s\n' "$#" >>"$STUB_DIR/argv"
+		if [ "$#" -gt 0 ]; then
+			printf 'arg %s\n' "$@" >>"$STUB_DIR/argv"
+		fi
 		if [ -n "${HYPRCTL_STDERR:-}" ]; then
 			printf '%s\n' "$HYPRCTL_STDERR" >&2
 		fi
@@ -163,7 +175,37 @@ running() {
 
 # Every component of the shipped table, running.
 running_all() {
-	running Hyprland waybar swaync ghostty
+	running Hyprland waybar swaync ghostty hyprpaper
+}
+
+# The image of a build, where a render leaves one.
+#
+# The wallpaper request names this file, and the module asks whether it is
+# there before it sends anything. A test that wants the request sent puts one
+# here; a test that wants "nothing to send" leaves the path empty.
+a_background() {
+	local image=${1:-$XDG_STATE_HOME/xghost/generated/hypr/background.png}
+
+	mkdir -p "${image%/*}"
+	printf 'this stands for the image a render draws\n' >"$image"
+	printf '%s\n' "$image"
+}
+
+# Copy the library of this checkout into a directory of this test, with one
+# 'sed' expression applied to lib/reload.sh.
+#
+# The whole directory is copied because the module sources lib/paths.sh and
+# lib/background.sh beside itself: it reads the state directory rule and the
+# name of the image from the files that own them rather than keeping a copy of
+# either. A copy of reload.sh alone would resolve neither.
+module_copy() {
+	local expression=$1
+	local dir
+
+	dir=$(mktemp -d "$BATS_TEST_TMPDIR/lib.XXXXXX")
+	cp "$ROOT_DIR"/lib/*.sh "$dir/"
+	sed "$expression" "$ROOT_DIR/lib/reload.sh" >"$dir/reload.sh"
+	printf '%s\n' "$dir/reload.sh"
 }
 
 # Run one function of the module in this shell, so the variables it sets can be
@@ -435,8 +477,8 @@ signals() {
 	# 'pgrep' with no pattern at all matches every process of the user, so an
 	# empty process field would report every component as running and the
 	# matching 'pkill' would signal the whole session. It is refused by name.
-	local copy=$BATS_TEST_TMPDIR/empty.sh
-	sed 's#^\t"waybar|waybar|pkill#\t"waybar||pkill#' "$MODULE" >"$copy"
+	local copy
+	copy=$(module_copy 's#^\t"waybar|waybar|pkill#\t"waybar||pkill#')
 	run -0 grep -qF '"waybar||pkill' "$copy"
 
 	# shellcheck disable=SC1090
@@ -457,9 +499,8 @@ signals() {
 	# runs. A row where the two disagree tests one program and runs another, so
 	# an installed component reads as one with no command, or a missing one is
 	# run.
-	local copy=$BATS_TEST_TMPDIR/mismatch.sh
-	sed 's#^\t"waybar|waybar|pkill|pkill #\t"waybar|waybar|killall|pkill #' \
-		"$MODULE" >"$copy"
+	local copy
+	copy=$(module_copy 's#^\t"waybar|waybar|pkill|pkill #\t"waybar|waybar|killall|pkill #')
 	run -0 grep -qF '"waybar|waybar|killall|pkill ' "$copy"
 
 	# shellcheck disable=SC1090
@@ -481,9 +522,8 @@ signals() {
 }
 
 @test "a row whose process name is longer than the kernel keeps is refused" {
-	local copy=$BATS_TEST_TMPDIR/long.sh
-	sed 's#^\t"waybar|waybar|pkill#\t"waybar|waybar-with-a-very-long-name|pkill#' \
-		"$MODULE" >"$copy"
+	local copy
+	copy=$(module_copy 's#^\t"waybar|waybar|pkill#\t"waybar|waybar-with-a-very-long-name|pkill#')
 
 	# shellcheck disable=SC1090
 	. "$copy"
@@ -521,11 +561,17 @@ signals() {
 	running_all
 
 	# The assertion that makes the rest of this test safe to run.
-	for name in hyprctl pkill swaync-client waybar swaync ghostty Hyprland; do
+	for name in hyprctl pkill swaync-client waybar swaync ghostty Hyprland hyprpaper; do
 		run -1 env PATH="$safe" "$shell" -c "command -v $name"
 	done
 
-	for name in hyprland waybar swaync ghostty; do
+	# The wallpaper daemon is asked here too, and it is asked with an image in
+	# place. A missing program and a build with no image are two different
+	# answers, and the one this branch is about is the missing program: it is a
+	# fault of the installation that nothing else reports.
+	a_background >/dev/null
+
+	for name in hyprland waybar swaync ghostty hyprpaper; do
 		run -1 env PATH="$safe" STUB_DIR="$STUB_DIR" MODULE="$MODULE" \
 			PGREP_STATUS=0 "$shell" -c '
 				. "$MODULE"
@@ -547,6 +593,8 @@ signals() {
 
 @test "every component is reloaded, and the compositor is first" {
 	running_all
+	local image
+	image=$(a_background)
 
 	module reload_all
 	[ "$RELOAD_PROBLEMS" -eq 0 ]
@@ -556,10 +604,14 @@ signals() {
 	[ "${lines[1]}" = "pkill -SIGUSR2 -x -u $EUID waybar" ]
 	[ "${lines[2]}" = 'swaync-client -rs' ]
 	[ "${lines[3]}" = "pkill -SIGUSR2 -x -u $EUID ghostty" ]
-	[ "${#lines[@]}" -eq 4 ]
+	[ "${lines[4]}" = "hyprctl hyprpaper wallpaper ,$image" ]
+	[ "${#lines[@]}" -eq 5 ]
 }
 
 @test "one failure does not stop the rest" {
+	# No image is put in place here, so the wallpaper daemon has nothing to
+	# send and signals nothing. The four signals below are the whole of what
+	# this run sends.
 	running_all
 	export HYPRCTL_STATUS=1
 
@@ -596,8 +648,9 @@ signals() {
 	[[ $output == *"waybar: failed"* ]]
 	[[ $output == *"swaync: not running"* ]]
 	[[ $output == *"ghostty: not running"* ]]
+	[[ $output == *"hyprpaper: not running"* ]]
 	[[ $output == *"problems=1 status=1"* ]]
-	[[ $output == *"summary=hyprland reloaded,waybar failed,swaync not running,ghostty not running"* ]]
+	[[ $output == *"summary=hyprland reloaded,waybar failed,swaync not running,ghostty not running,hyprpaper not running"* ]]
 }
 
 @test "a run in which nothing is running is not a failure" {
@@ -660,10 +713,12 @@ signals() {
 
 @test "'xghost system reload' reloads every running component and ends well" {
 	running_all
+	a_background >/dev/null
 
 	run -0 "$XGHOST" system reload
 	[[ $output == *"hyprland: reloaded"* ]]
 	[[ $output == *"ghostty: reloaded"* ]]
+	[[ $output == *"hyprpaper: reloaded"* ]]
 
 	run -0 grep -qxF 'hyprctl reload' "$STUB_DIR/log"
 }
@@ -674,7 +729,7 @@ signals() {
 
 	run -1 "$XGHOST" system reload
 	[[ $output == *"hyprland: failed"* ]]
-	[[ $output == *"1 of 4 components did not reload"* ]]
+	[[ $output == *"1 of 5 components did not reload"* ]]
 
 	# The exit status of this command is the reload, which is what makes it the
 	# one to run again after a failure is fixed.
@@ -721,8 +776,14 @@ use_own_inputs() {
 	[[ $output == *"waybar: reloaded"* ]]
 	[[ $output == *"swaync: reloaded"* ]]
 	[[ $output == *"ghostty: reloaded"* ]]
+	[[ $output == *"hyprpaper: reloaded"* ]]
 
 	run -0 grep -qxF 'hyprctl reload' "$STUB_DIR/log"
+
+	# The switch drew an image, so the wallpaper daemon was told to draw it.
+	run -0 grep -qxF \
+		"hyprctl hyprpaper wallpaper ,$XDG_STATE_HOME/xghost/generated/hypr/background.png" \
+		"$STUB_DIR/log"
 }
 
 @test "'xghost theme set' reloads nothing when the render failed" {
@@ -748,7 +809,11 @@ use_own_inputs() {
 	run -0 "$XGHOST" theme set plain
 	[[ $output == *"the active theme is now 'plain'"* ]]
 	[[ $output == *"hyprland: failed"* ]]
-	[[ $output == *"1 of 4 components did not reload"* ]]
+
+	# The switch drew an image, so the wallpaper request was sent as well, and
+	# the stub fails every 'hyprctl' call of this test.
+	[[ $output == *"hyprpaper: failed"* ]]
+	[[ $output == *"2 of 5 components did not reload"* ]]
 	[[ $output == *"xghost system reload"* ]]
 }
 
@@ -775,6 +840,210 @@ use_own_inputs() {
 	run -0 "$XGHOST" settings set KNOB_FONT 'CaskaydiaCove Nerd Font'
 	[[ $output == *"no theme is active"* ]]
 	[ ! -s "$STUB_DIR/log" ]
+}
+
+# --- the wallpaper ------------------------------------------------------------
+
+# The wallpaper daemon is the one component whose command carries a path, and
+# the path is a file of the generated output. Every test below asks the module
+# with a stub 'hyprctl' first on the PATH, which setup() has already asserted.
+#
+# What cannot be tested here is the wallpaper itself. The only hyprpaper on this
+# machine is the session of whoever runs this suite, and the request this module
+# sends CHANGES a wallpaper. docs/reloading.md records that claim as reasoned
+# rather than observed, with the four others of its kind.
+
+@test "the wallpaper daemon is told to draw the image of the build" {
+	running_all
+	local image
+	image=$(a_background)
+
+	module reload_one hyprpaper
+	[ "$RELOAD_RESULT" = reloaded ]
+	[ -z "$RELOAD_DETAIL" ]
+
+	run -0 grep -qxF "hyprctl hyprpaper wallpaper ,$image" "$STUB_DIR/log"
+}
+
+@test "the wallpaper request names no monitor, so it reaches every display" {
+	# The Hyprland bundle promises that no output name is written into any file
+	# or request of this project, and the empty monitor field is what keeps it.
+	# hyprpaper reads an empty monitor as every display.
+	running_all
+	local image
+	image=$(a_background)
+
+	module reload_one hyprpaper
+	[ "$RELOAD_RESULT" = reloaded ]
+
+	# The arguments, one per line. The request is three of them, and the third
+	# starts with the comma that leaves the monitor field empty.
+	run -0 grep -qxF 'argc 3' "$STUB_DIR/argv"
+	run -0 grep -qxF 'arg hyprpaper' "$STUB_DIR/argv"
+	run -0 grep -qxF 'arg wallpaper' "$STUB_DIR/argv"
+	run -0 grep -qxF "arg ,$image" "$STUB_DIR/argv"
+
+	# No fit mode is passed. The third argument is optional and hyprpaper uses
+	# 'cover' without it, which is the mode the generated wallpaper file names.
+	run -1 grep -qxF 'argc 4' "$STUB_DIR/argv"
+}
+
+@test "a generated path that holds a space reaches the daemon as one argument" {
+	# XDG_STATE_HOME is the user's to set, and a directory name may hold a
+	# space. The command of a row is split on white space, so a value put in
+	# before the split would arrive as two arguments naming two files that are
+	# not there, and hyprpaper would draw neither. The value is put in after
+	# the split, one word at a time.
+	export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state dir"
+	mkdir -p "$XDG_STATE_HOME"
+	running_all
+
+	local image
+	image=$(a_background)
+	# The floor of this test: without a space in the path it proves nothing.
+	[[ $image == *" "* ]]
+
+	module reload_one hyprpaper
+	[ "$RELOAD_RESULT" = reloaded ]
+
+	# Three arguments, and the path is the whole of the third. A line of the
+	# call log could not tell this apart from four arguments, which is why the
+	# stub records them one per line.
+	run -0 grep -qxF 'argc 3' "$STUB_DIR/argv"
+	run -0 grep -qxF "arg ,$image" "$STUB_DIR/argv"
+	run -1 grep -qxF 'argc 4' "$STUB_DIR/argv"
+}
+
+@test "the path the request names is the path the wallpaper file names" {
+	# The two are written by different modules. lib/theme.sh writes the path
+	# into hypr/wallpaper.conf for the daemon to read at start, and
+	# lib/reload.sh names it in the request that reaches a daemon already
+	# running. Both compose it with xghost_generated_dir of lib/paths.sh, and
+	# this is what says they agree.
+	#
+	# The state directory of this test holds a space as well, so a path built
+	# from anything but XDG_STATE_HOME fails here.
+	use_own_inputs
+	export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state dir"
+	mkdir -p "$XDG_STATE_HOME"
+	running_all
+
+	run -0 "$XGHOST" theme set plain
+	[[ $output == *"hyprpaper: reloaded"* ]]
+
+	local wallpaper=$XDG_STATE_HOME/xghost/generated/hypr/wallpaper.conf
+	local named
+	named=$(sed -n 's/^[[:space:]]*path = //p' "$wallpaper")
+
+	# The floor. A file that named no image would make every claim below hold
+	# against nothing.
+	[ -n "$named" ]
+	[[ $named == *" "* ]]
+	[ -f "$named" ]
+
+	run -0 grep -qxF "arg ,$named" "$STUB_DIR/argv"
+	run -0 grep -qxF 'argc 3' "$STUB_DIR/argv"
+}
+
+@test "a build that drew no image is 'nothing to send', and nothing is sent" {
+	# The machine facts may carry no resolution, and a palette may declare no
+	# colour to draw with. Both are states lib/background.sh supports, and both
+	# leave the output with no image. 'failed' would report a supported state
+	# as a fault, and 'hyprctl' would fail on a path that is not there.
+	running_all
+	[ ! -e "$XDG_STATE_HOME/xghost/generated/hypr/background.png" ]
+
+	module reload_one hyprpaper
+	[ "$RELOAD_RESULT" = "nothing to send" ]
+	[[ $RELOAD_DETAIL == *"drew no wallpaper"* ]]
+	[[ $RELOAD_DETAIL == *"hypr/wallpaper.conf"* ]]
+
+	# The probe ran and the request did not.
+	run -0 grep -qxF "pgrep -x -u $EUID -- hyprpaper" "$STUB_DIR/log"
+	run -1 grep -q 'hyprctl' "$STUB_DIR/log"
+	[ ! -s "$STUB_DIR/argv" ]
+}
+
+@test "a build with nothing to send is not a problem, and says why on its line" {
+	running_all
+
+	run -0 env STUB_DIR="$STUB_DIR" MODULE="$MODULE" PATH="$PATH" \
+		HOME="$HOME" XDG_STATE_HOME="$XDG_STATE_HOME" XGHOST_RELOAD=yes \
+		bash -c '
+			. "$MODULE"
+			reload_all
+			status=$?
+			printf "problems=%d status=%d\n" "$RELOAD_PROBLEMS" "$status"
+			printf "summary=%s\n" "$RELOAD_SUMMARY"
+		'
+
+	# The reason is on the line of the component. A reader of that report is
+	# told which build drew nothing and where the reason for it is written.
+	[[ $output == *"hyprpaper: nothing to send: this build drew no wallpaper"* ]]
+	[[ $output == *"problems=0 status=0"* ]]
+	[[ $output == *"summary="*"hyprpaper nothing to send"* ]]
+}
+
+@test "a state directory with no home is reported, and no request is sent" {
+	# The one case where this module cannot tell where the generated output is
+	# at all. It is a failure rather than "nothing to send", because a machine
+	# with neither variable set is not a build that drew no image.
+	running_all
+
+	run -1 env -u HOME -u XDG_STATE_HOME STUB_DIR="$STUB_DIR" \
+		MODULE="$MODULE" PATH="$PATH" XGHOST_RELOAD=yes bash -c '
+			. "$MODULE"
+			reload_one hyprpaper
+			status=$?
+			printf "%s|%s\n" "$RELOAD_RESULT" "$RELOAD_DETAIL"
+			exit "$status"
+		'
+
+	[[ $output == "failed|"* ]]
+	[[ $output == *"neither XDG_STATE_HOME nor HOME is set"* ]]
+	run -1 grep -q 'hyprctl' "$STUB_DIR/log"
+}
+
+@test "a row that carries a value this file resolves no name for is refused" {
+	# A name nothing answers would be sent to the program as itself, and the
+	# request would name a file called '@NOSUCH@'. The row is refused instead,
+	# by name, in the same way as the three rules the fields keep.
+	local copy
+	copy=$(module_copy 's#wallpaper ,@BACKGROUND@#wallpaper ,@NOSUCH@#')
+	run -0 grep -qF 'wallpaper ,@NOSUCH@' "$copy"
+	running_all
+	a_background >/dev/null
+
+	# shellcheck disable=SC1090
+	. "$copy"
+	reload_one hyprpaper || true
+	[ "$RELOAD_RESULT" = malformed ]
+	[[ $RELOAD_DETAIL == *"'@NOSUCH@'"* ]]
+	[[ $RELOAD_DETAIL == *"resolves no value of that name"* ]]
+
+	# Nothing was run at all.
+	[ ! -s "$STUB_DIR/log" ]
+}
+
+@test "every value the shipped table carries is one the module resolves" {
+	local row command name rest
+	local count=0
+
+	. "$MODULE"
+	for row in "${RELOAD_COMPONENTS[@]}"; do
+		command=${row##*|}
+		rest=$command
+		while [[ $rest =~ $RELOAD_VALUE_PATTERN ]]; do
+			name=$BASH_REMATCH
+			run -0 reload_value_row "$name"
+			rest=${rest#*"$name"}
+			count=$((count + 1))
+		done
+	done
+
+	# The floor. The loop above holds for a table that carries no value at all,
+	# and one row carries one today.
+	[ "$count" -ge 1 ]
 }
 
 # --- criterion 9: adding a component is a one-file change ---------------------

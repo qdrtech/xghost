@@ -353,7 +353,7 @@ is a deliberate change of the configuration itself.
 | Change                                                    | Why                                                                  |
 | --------------------------------------------------------- | -------------------------------------------------------------------- |
 | `hyprlock.conf`: `font_family` is `JetBrainsMono Nerd Font`, and the dotfiles wrote `Fira Semibold`, in both labels | The desktop draws in one family. [The Ghostty bundle](ghostty.md) already ships that one, from `ttf-jetbrains-mono-nerd`, and nothing here ships a Fira package. It is the **default** of `KNOB_FONT` and it is written out rather than generated, so the lock screen keeps that family when the knob moves: hyprlock has no offline check of its configuration, and a generated file it refused would leave the machine going idle and never locking. `tests/hyprland.bats` pins the two together, and [Knobs](../knobs.md) records the decision. |
-| `hyprpaper.conf`: `ipc = on`, which the dotfiles never set | The control socket. It was set so that a theme switch could reload the wallpaper of the running daemon, and the `reload` request that would do it does not exist in hyprpaper 0.8.4. The line is **kept**, and it is kept for a reason that holds today rather than for that one: hyprpaper opens the socket only when this is on, and both requests `hyprctl hyprpaper` does offer travel over it. See "The wallpaper of a running session" below. |
+| `hyprpaper.conf`: `ipc = on`, which the dotfiles never set | The control socket. It was set so that a theme switch could reload the wallpaper of the running daemon, and the `reload` request that would do it does not exist in hyprpaper 0.8.4. The line is **load-bearing** all the same: hyprpaper opens the socket only when this is on, and a theme switch now sends `hyprctl hyprpaper wallpaper` over it. See "The wallpaper of a running session" below. |
 | `hyprland.conf`: `source = conf/decoration.conf`, which the dotfiles never had | The dotfiles carried `conf/decoration.conf` and sourced it from nowhere, so the file was dead and every decoration value came from `conf/theme.conf`. |
 | `conf/decoration.conf` and `conf/window.conf` hold the values of the dotfiles' `conf/theme.conf` | `conf/theme.conf` was sourced last, so it overrode `conf/window.conf`, and `conf/decoration.conf` was never sourced at all. Its values are the ones that reached the compositor. The rounding is 6 rather than 10, and the border width is 1 rather than 3. |
 
@@ -432,6 +432,19 @@ Neither request is a reload. `wallpaper` **sets** a wallpaper, so it has to be
 told which image to draw, and that is the question
 [issue #54](https://github.com/qdrtech/xghost/issues/54) was opened to answer.
 
+The answer is the request this project sends, once per render, to a daemon that
+is already running:
+
+```
+hyprctl hyprpaper wallpaper ,<the image of the build>
+```
+
+The monitor field is empty, which is every display, so criterion 2 of this
+bundle stays true: no output name is written into any file **or any request** of
+this project. No fit mode is passed, because it is optional and the default is
+the mode the generated file names. [Reloading](../reloading.md) records the row
+and what the module does with it.
+
 ### What hyprpaper does with a path it already holds
 
 Every theme writes its image to `hypr/background.png` of the generated output.
@@ -502,9 +515,18 @@ Two smaller findings the same reading settled:
   fresh for every render. So the path hyprpaper receives already differs on every
   switch, whatever the cache does.
 
-**The reload of the wallpaper is not built yet, and it is not blocked by
-hyprpaper.** [Reloading](../reloading.md) records what stands in the way, which
-is the shape of this project's own reload table and not the daemon.
+**The reload of the wallpaper is built, and hyprpaper never stood in the way.**
+What stood in the way was the shape of this project's own reload table, and
+[Reloading](../reloading.md) records the three things it now does about it: a
+command may carry a value the table cannot hold, the value is put in after the
+command is split so a path holding a space stays one argument, and a build that
+drew no image answers `nothing to send` rather than `failed`.
+
+**Nobody has seen the wallpaper change.** The request reaching the program with
+the right argument is observed, against a stub `hyprctl`. What hyprpaper then
+draws is reasoned from the reading above. The only hyprpaper on this machine is
+the session of the person writing this, and the request changes that person's
+wallpaper.
 
 ## hyprlock is not themed yet
 

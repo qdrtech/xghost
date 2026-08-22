@@ -34,6 +34,8 @@ set +f
 
 XGHOST_LIB_DIR=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
+# shellcheck source=lib/paths.sh
+. "$XGHOST_LIB_DIR/paths.sh"
 # shellcheck source=lib/palette.sh
 . "$XGHOST_LIB_DIR/palette.sh"
 # shellcheck source=lib/facts.sh
@@ -88,19 +90,6 @@ xghost_die() {
 	exit "$code"
 }
 
-# The state directory of the user, per the XDG base directory specification.
-# The specification says a relative value is invalid and must be ignored.
-xghost_state_home() {
-	local base=${XDG_STATE_HOME:-}
-	if [ -z "$base" ] || [ "${base:0:1}" != / ]; then
-		if [ -z "${HOME:-}" ]; then
-			return 1
-		fi
-		base=$HOME/.local/state
-	fi
-	printf '%s\n' "$base"
-}
-
 # The paths inside the checkout.
 #
 # They need no state directory, so a command that only reads the checkout is
@@ -130,11 +119,16 @@ theme_state_paths() {
 		return 1
 	fi
 
-	XGHOST_STATE_DIR=$state_home/$XGHOST_PROGRAM
+	XGHOST_STATE_DIR=$state_home/$XGHOST_STATE_SUBDIR
 
 	# The stable path applications reference. It is a symbolic link, because a
 	# link is what the kernel replaces in one step. See theme_set.
-	XGHOST_GENERATED_DIR=$XGHOST_STATE_DIR/generated
+	#
+	# It is composed by lib/paths.sh rather than here, because lib/reload.sh
+	# names the same path in the request it sends to the wallpaper daemon and
+	# the two have to be the same path. The call cannot fail here: the state
+	# directory is resolved above.
+	XGHOST_GENERATED_DIR=$(xghost_generated_dir)
 
 	# One directory per build. The link above points into the live one.
 	XGHOST_BUILDS_DIR=$XGHOST_STATE_DIR/builds

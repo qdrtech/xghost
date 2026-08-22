@@ -47,12 +47,13 @@ singular) says and which the unit the package ships confirms, because that unit
 runs `--reload-config` and `--reload-css` as two separate commands. The probe is
 what keeps the wait from ever starting.
 
-## The four answers
+## The five answers
 
 | Answer | What it means | A problem? |
-| ------------- | ---------------------------------------------------------- | --- |
+| ----------------- | ------------------------------------------------------ | --- |
 | `reloaded` | The process was there and the command succeeded. | No |
 | `not running` | No process of that name belongs to this user. | No |
+| `nothing to send` | The process is there, and this build holds nothing for it to read. | No |
 | `no command` | The process **is** there and the program that reloads it is not installed. | Yes |
 | `failed` | The process is there, the command ran, and it returned non-zero. | Yes |
 
@@ -66,7 +67,16 @@ not a failed update. With the probe, that reading no longer holds: the branch is
 only ever reached for a component that is **running**, so it means the change
 will not be seen and nothing else would say so.
 
-`failed` carries the exit status and the first line of the standard error of the
+`nothing to send` is the wallpaper, and it is not a problem either. The command
+of that component carries a file of the generated output, and a build may hold
+none: the machine facts may carry no display resolution, and a palette may
+declare no colour to draw with. [Backgrounds](backgrounds.md) records both as
+supported states, so `failed` would report a supported state as a fault, which
+is what the probe was built to stop. The reason is printed on the line of that
+component rather than on standard error, because standard error is where the
+problems are.
+
+`failed` carries the exit status and the first line of the output of the
 command, so the report names the cause rather than the fact.
 
 ### The race between the two steps
@@ -101,6 +111,7 @@ That is acceptance criterion 8: one failure does not stop the rest.
 | `waybar` | `waybar` | `pkill` | `pkill -SIGUSR2 -x -u <uid> waybar` | Every bar of the process: the configuration and the style sheet. |
 | `swaync` | `swaync` | `swaync-client` | `swaync-client -rs` | The style sheet. |
 | `ghostty` | `ghostty` | `pkill` | `pkill -SIGUSR2 -x -u <uid> ghostty` | The configuration, in every window. |
+| `hyprpaper` | `hyprpaper` | `hyprctl` | `hyprctl hyprpaper wallpaper ,@BACKGROUND@` | The wallpaper, on every display. |
 
 The compositor is first because its reload is the one that can change the
 geometry every other surface is drawn into. The order of the rest does not
@@ -196,59 +207,60 @@ starts. [The supporting bundle](bundles/supporting.md) records the mechanism, an
 there is no general one: GTK offers no signal, and a per-application route would
 be a per-application design.
 
-### hyprpaper is not in the table yet, and the reason has changed
+### hyprpaper: the wallpaper of a running session
 
-[The Hyprland bundle](bundles/hyprland.md) sets `ipc = on` in `hyprpaper.conf`.
-It was set for a reload of the running daemon, and **the request that would do
-it does not exist in the version this project installs**. `hyprctl` 0.56.2
-offers two hyprpaper requests, `wallpaper` and `listactive`, and neither is a
-`reload`.
+[The Hyprland bundle](bundles/hyprland.md) sets `ipc = on` in `hyprpaper.conf`,
+and that is the socket this request travels over.
 
-`wallpaper` **sets** a wallpaper, so it has to be told which image to draw. Every
-theme writes its image to the same name in the generated output, so the request
-would name a path whose contents changed and whose name did not, and a daemon
-that kept the image it already held would draw the old theme.
+`hyprctl` 0.56.2 offers **no** hyprpaper `reload` request. It offers `wallpaper`
+and `listactive`, and `wallpaper` **sets** a wallpaper, so it has to be told
+which image to draw:
 
-**It does not. hyprpaper 0.8.4 reads the file again.** That was established from
-the program and from the library it is built on, without sending anything to the
-running daemon; the bundle page records the whole reading and the measurement.
-So the wallpaper of a running session **can** follow a theme switch, and
-`ipc = on` is the socket that carries it. The same reading found that the path
-would not repeat in any case: `hyprctl` resolves it with
-`std::filesystem::canonical` before it sends it, and the stable path is a link
-into a build directory a switch creates fresh every time.
+```
+hyprctl hyprpaper wallpaper ,<path>
+```
 
-`ipc = on` is therefore **kept**, and not for the reason it was written for. It
-is what makes both `hyprctl hyprpaper` requests reach the daemon at all, for this
-project and for the person at the keyboard. That reason is true today and needs
-nothing built.
+**The monitor field is empty**, which hyprpaper reads as every display. That is
+what keeps the promise of the Hyprland bundle that no output name is written
+into any file or any request of this project. **No fit mode is passed either**:
+the third argument is optional, hyprpaper uses `cover` without it, and `cover`
+is the mode the generated wallpaper file already names.
 
-**What is not built is the row.** Three things stand in the way, and every one of
-them is the shape of the table above rather than anything hyprpaper does:
+Every theme writes its image to the same name, so the request names a path whose
+contents changed and whose name did not. **hyprpaper 0.8.4 reads that file
+again**, which the bundle page establishes from the program and from the library
+it is built on, without anything being sent to a running daemon.
 
-- **The row would have to carry a path, and the row is frozen too early.**
-  `RELOAD_COMPONENTS` is read-only and it is built when `lib/reload.sh` is
-  sourced. The image is at `hypr/background.png` under the stable path, and that
-  path is resolved by `lib/theme.sh` **after** this module is sourced. Every
-  other command in the table is a constant.
-- **This module would have to learn where the generated output is.**
-  `commands/system-reload` sources this file and nothing else, so the module
-  would resolve the state directory itself. The rule for that lives in
-  `xghost_state_home` in `lib/theme.sh`, and `lib/linker.sh` already keeps a
-  second copy of it. A third copy, or a dependency on the whole theme module, is
-  a choice about this project rather than about the wallpaper.
-- **A build that draws no image has no answer here.** The machine facts may carry
-  no resolution and a palette may declare no colour to draw with. Both are notes
-  rather than problems, which [Backgrounds](backgrounds.md) records, and both
-  leave the output with no `hypr/background.png`. `hyprctl` then fails on the
-  path before it opens the socket, and the four answers above hold no word for
-  "there is nothing to send". `failed` would report a supported state as a fault,
-  which is exactly what the probe was built to stop.
+Three things about the table itself stood in the way of this row, and each one
+is answered by a mechanism the whole table has rather than by anything of this
+one component.
 
-So the wallpaper of a running session still follows on the next login. That is a
-limitation of this table, it is written down here rather than closed by a signal
-that would lie in one state, and the issue that closes it owns the three points
-above.
+**The row carries a value.** `RELOAD_COMPONENTS` is read-only and it is built
+when `lib/reload.sh` is sourced, and the state directory of the user is resolved
+later. So a command may carry a value of the form `@NAME@`. `RELOAD_VALUES`
+names each one and the function that answers it, and a row that carries a name
+no function answers is refused rather than run: the request would otherwise name
+a file called `@NAME@`.
+
+**The value is put in after the command is split.** The command is split on
+white space, and the path of the image runs through `XDG_STATE_HOME`, which a
+user may point at a directory whose name holds a space. A value substituted into
+the command before the split would arrive as two arguments naming two files that
+are not there. Each value lands inside the one word that carries its name, so a
+value that holds a space is one argument and stays one.
+
+**The state directory has one owner.** `commands/system-reload` sources
+`lib/reload.sh` and nothing else, so the module has to know where the generated
+output is. `lib/paths.sh` owns that rule and `lib/theme.sh` reads it from there
+as well, so the path this request names is composed by the same function as the
+path the render wrote to. There is no third copy of the rule, and no copy at all
+in `lib/reload.sh`. `lib/linker.sh` keeps a rule of its own, and it is a
+different rule: it reads an `XGHOST_STATE_DIR` override, and it refuses a
+relative path rather than ignoring it, because that path is written into the
+link record it owns.
+
+**A build that drew no image is `nothing to send`.** That is the fifth answer,
+and the table above says why it is not `failed`.
 
 ## Where the reload is called from
 
@@ -313,7 +325,8 @@ function.
 The fields are the name the report uses, the process name exactly as the kernel
 holds it, the program that must be installed, and the command.
 
-Three rules the fields keep, each one measured rather than assumed:
+Four rules the fields keep, and the first three were measured rather than
+assumed:
 
 - **No field may be empty.** `pgrep` with no pattern at all matches every process
   of the user, so an empty process field would report every component as running
@@ -322,8 +335,16 @@ Three rules the fields keep, each one measured rather than assumed:
 - **A process name is at most 15 characters.** That is the length the kernel
   keeps, and `pgrep -x` on a longer one matches nothing and says so on standard
   error. Such a row is refused here instead.
-- **No argument of the command may hold a space.** The command is split on white
-  space. No component needs one today.
+- **No argument written in the command may hold a space.** The command is split
+  on white space. A value the command carries may hold one: it is put in after
+  the split, so it is one argument.
+- **Every `@NAME@` the command carries has to be one `RELOAD_VALUES` answers.**
+  A name nothing answers would be sent to the program as itself, and the request
+  would name a file called `@NAME@`. Such a row is refused by name as well.
+
+A component that needs a value adds one row of `RELOAD_VALUES` and the function
+that answers it, in the same file. One component needs one today, and it is the
+wallpaper.
 
 `tests/reload.bats` proves the one-file claim rather than asserting it: it copies
 the checkout, adds one row for a fictional component, reloads it, and then runs
@@ -338,6 +359,12 @@ differ to be exactly `lib/reload.sh`. That is acceptance criterion 9.
   the machine. `assert_stubs_are_first` runs in `setup`, before any test body, so
   a PATH that does not resolve to the stub fails the test there instead of
   reaching a live session.
+- The wallpaper has tests of its own in the same file, and the stub `hyprctl`
+  records its arguments one per line for them: a line of the call log joins the
+  arguments with a space, so it cannot say whether a path holding a space
+  arrived whole. One test renders a theme with `XDG_STATE_HOME` pointed at a
+  directory whose name holds a space, and requires the path in the request to be
+  the path `lib/theme.sh` wrote into `hypr/wallpaper.conf`, as one argument.
 - `tests/update.bats` proves the reload as step 6 of an update: that it runs
   after the render, that a component which is not running is skipped and the
   update still ends well, that a component which is running and refused makes the
@@ -349,7 +376,11 @@ differ to be exactly `lib/reload.sh`. That is acceptance criterion 9.
   removed, the backstop behind the switch removed, the run stopped at the first
   failure, the bar sent `SIGRTMIN+8`, the compositor moved out of first place, a
   failed render reloading anyway, and a failed reload left uncounted by the
-  update.
+  update. For the wallpaper: the value put into the command before the split,
+  the row carrying a path of its own, the value resolved from `HOME` alone, the
+  request naming an output, a build that drew no image reported as a failure, a
+  value no function answers left in the command, and the reason dropped from the
+  line of a component that is not a problem.
 
 ## What has never been observed
 
@@ -372,15 +403,28 @@ What that leaves proved, and how:
 | `SIGUSR2` reloads the bar and `SIGRTMIN+8` does not | Read out of `waybar(5)` |
 | `swaync-client -rs` reloads the style sheet | Read out of `swaync-client(1)` |
 | hyprpaper reads a wallpaper path it already holds | Measured, against `libhyprtoolkit` and the `hyprpaper` binary |
+| The wallpaper request reaches `hyprctl` with the image of the build, as one argument, and names no monitor | Observed, against stubs |
+| The request names the same path `lib/theme.sh` wrote into `hypr/wallpaper.conf` | Observed, against stubs |
+| A build that drew no image sends nothing | Observed, against stubs |
 | A theme change is **visible** on a running desktop | **Reasoned, not observed** |
+| A theme change **changes the wallpaper** on a running desktop | **Reasoned, not observed** |
 | A knob change is **visible** on a running desktop | **Reasoned, not observed** |
 | The bar and the notification centre **draw** the new styling | **Reasoned, not observed** |
 | A running Ghostty **draws** the new colours | **Reasoned, not observed** |
 
-The last four are the same claim four times: that a component which accepted the
-signal then redraws. Each rests on the documentation of the program that was
+The last five are the same claim five times: that a component which accepted the
+request then redraws. Each rests on the documentation of the program that was
 signalled, and on the generated file being where that program reads it, which
-every bundle page proves separately. None of the four rests on a desktop anybody
+every bundle page proves separately. None of the five rests on a desktop anybody
 watched change.
+
+The wallpaper is the sharpest of them, because the request **changes** a
+wallpaper rather than telling a program to read a file again. The only hyprpaper
+on the machine this was written on is the session of the person writing it, and
+sending the request to watch it work would change that person's wallpaper. What
+is proved instead is that the request reaches the program with the right
+argument, and what hyprpaper does with that argument was read out of the program
+and measured against the library it is built on. Nobody has seen the wallpaper
+change.
 
 A first theme switch on a running session is therefore the first test of them.
