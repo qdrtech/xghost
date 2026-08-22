@@ -273,6 +273,70 @@ accent=10, 132, 255" ]
 	[ "$output" = 'font=Gill Sans & Co' ]
 }
 
+# --- writing a literal placeholder -------------------------------------------
+#
+# '@@NAME@@' writes '@NAME@'. Some prescribed configuration has to carry the
+# exact spelling the renderer substitutes: SwayNC names the default audio device
+# '@DEFAULT_AUDIO_SINK@', which no palette, fact or knob declares, so a template
+# holding it failed the render and that file could not be a template at all.
+# docs/bundles/swaync.md records the case.
+#
+# The escape is exactly one spelling wide. The three tests below are the
+# behaviour, the case it was built for, and the guarantee that every template
+# written before it renders as it did.
+
+@test "a doubled placeholder writes the literal placeholder" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_template literal.conf <<-'EOF'
+		escaped=@@BG@@
+		substituted=@BG@
+	EOF
+	"$XGHOST" theme set demo
+	run cat "$GENERATED/literal.conf"
+	[ "$output" = 'escaped=@BG@
+substituted=#1a2b3c' ]
+}
+
+# The escape reads no value, so the name inside it names nothing. This is the
+# whole of the SwayNC case: the render has to succeed for a name that no source
+# declares, where the bare placeholder fails.
+@test "a doubled placeholder renders a name that no source declares" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_template button.json <<-'EOF'
+		"command": "wpctl set-mute @@DEFAULT_AUDIO_SINK@@ toggle"
+	EOF
+	run "$XGHOST" theme set demo
+	[ "$status" -eq 0 ]
+	run cat "$GENERATED/button.json"
+	[ "$output" = '"command": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"' ]
+}
+
+# The rule changed the meaning of one spelling and of no other. A lone '@' was
+# ordinary text before and still is, a bare '@@' is ordinary text, and one '@'
+# beside a placeholder keeps the meaning it had. Without this test the escape
+# could be widened to '@@' meaning a single '@' and nothing here would notice,
+# which would rewrite the CSS and Hyprland templates this project already ships.
+@test "the escape changes the meaning of no other text" {
+	use_own_inputs
+	plain_palette | make_theme demo
+	make_template narrow.css <<-'EOF'
+		@import url("x");
+		pair=@@
+		left=@@BG@
+		right=@BG@@
+		address=a@b.com
+	EOF
+	"$XGHOST" theme set demo
+	run cat "$GENERATED/narrow.css"
+	[ "$output" = '@import url("x");
+pair=@@
+left=@#1a2b3c
+right=#1a2b3c@
+address=a@b.com' ]
+}
+
 # --- a value a generated file cannot carry ----------------------------------
 #
 # The renderer writes a value into a file another program reads as code, and it

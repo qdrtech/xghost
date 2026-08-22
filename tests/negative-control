@@ -1921,6 +1921,76 @@ control "the image path answers the question itself again" \
 	"a link to a directory at the image path of a theme fails the render" \
 	m_the_background_keeps_its_own_predicate
 
+#
+# The renderer, issue #57. Three limits were examined together, one was lifted
+# and two stay. Each control below mutates lib/renderer.sh, because all three
+# are rules of the renderer and of no bundle. The two that stay have controls of
+# their own: a limit nobody can break is a limit nobody is testing.
+#
+
+SUITE=tests/renderer.bats
+RENDERER=lib/renderer.sh
+
+# A deleted guard: the pass reads placeholders alone again, which is what it
+# read before the escape existed. '@@BG@@' then matches '@BG@' inside itself and
+# the value is substituted, and '@@DEFAULT_AUDIO_SINK@@' fails the render on a
+# name no source declares. That is the state issue #57 was filed against.
+m_no_escape_in_the_substitution_pass() {
+	substitute "$RENDERER" \
+		'	while [[ $rest =~ $RENDER_TOKEN_PATTERN ]]; do' \
+		'	while [[ $rest =~ $RENDER_PLACEHOLDER_PATTERN ]]; do'
+}
+
+# A perturbed input: the escape closes on one '@' instead of two. Nothing is
+# deleted, every render still succeeds, and both tests of the escape itself
+# still pass, because '@@NAME@@' is read as '@@NAME@' followed by a '@' and the
+# output is the same string. Only the test of what the rule does NOT change
+# notices, where '@@BG@' stops meaning one '@' beside a placeholder. It is the
+# control that says that third test is not a copy of the other two.
+m_the_escape_closes_on_one_marker() {
+	substitute "$RENDERER" \
+		"readonly RENDER_ESCAPED_PATTERN='@@[A-Z][A-Z0-9_]*@@'" \
+		"readonly RENDER_ESCAPED_PATTERN='@@[A-Z][A-Z0-9_]*@'"
+}
+
+# A deleted guard: the path a choice writes is never held against the paths
+# already spoken for, so two choices that write one file both write it and the
+# later one wins. The render succeeds, and which fragment reaches the desktop
+# follows the sorted order of two directory names rather than any rule. This is
+# the limit issue #57 decided to keep; docs/theming.md records why.
+m_two_choices_may_write_one_path() {
+	substitute "$RENDERER" \
+		'		if [ -n "${targets[$target]+set}" ]; then' \
+		'		if false; then'
+}
+
+# A deleted guard: a choice inside a choice is no longer refused. The render
+# still fails, on the directory rule and on the fragment of the inner choice,
+# so a control that only asked for a non-zero status would hold here. This one
+# requires the named test, and that test reads the sentence about nesting.
+m_a_choice_may_hold_another_one() {
+	substitute "$RENDERER" \
+		'			if [ "$ancestor" != "$relative" ] && [ "${relative#"$ancestor"/}" != "$relative" ]; then' \
+		'			if false; then'
+}
+
+printf '\n'
+control "the substitution pass reads no escape" \
+	"a doubled placeholder writes the literal placeholder" \
+	m_no_escape_in_the_substitution_pass
+control "the substitution pass reads no escape, so the SwayNC line fails again" \
+	"a doubled placeholder renders a name that no source declares" \
+	m_no_escape_in_the_substitution_pass
+control "the escape is widened to a spelling that already meant something" \
+	"the escape changes the meaning of no other text" \
+	m_the_escape_closes_on_one_marker
+control "one output file may take two structural choices after all" \
+	"two choices that write one path are reported" \
+	m_two_choices_may_write_one_path
+control "a structural choice may hold another one after all" \
+	"a choice inside a choice is refused, and its fragments stay fragments" \
+	m_a_choice_may_hold_another_one
+
 printf '\n%s: %d controls held, %d did not\n' "$PROGRAM" "$PASSED" "$FAILED"
 if [ "$FAILED" -gt 0 ]; then
 	exit 1

@@ -94,6 +94,34 @@ RENDER_BACKGROUND_NOTE=
 # a CSS at-rule is never mistaken for one.
 readonly RENDER_PLACEHOLDER_PATTERN='@[A-Z][A-Z0-9_]*@'
 
+# The escape, and the one text a template could not write without it.
+#
+# '@@NAME@@' writes the literal text '@NAME@'. That spelling is the whole of the
+# gap: every other text a file may need is already written as itself, because a
+# lone '@' is ordinary text and a placeholder is the only thing the renderer
+# reads. So the escape is the doubled placeholder and nothing wider. '@@' on its
+# own keeps its old meaning, and so does '@@NAME@' and '@NAME@@'. The only
+# string whose meaning this changes is the doubled form itself, and no file of
+# this project holds one.
+#
+# It exists because a prescribed file may have to carry the exact spelling the
+# renderer substitutes. 'config/swaync/config.json' carries
+# '@DEFAULT_AUDIO_SINK@' and '@DEFAULT_AUDIO_SOURCE@', which is the name
+# wireplumber gives the default audio device, and no palette, fact or knob
+# declares either. Without an escape that file cannot be a template at all,
+# whatever else it needs. docs/bundles/swaync.md records the case.
+#
+# The escape belongs to the template text and never to a value. A value that
+# holds '@@NAME@@' reaches the output as '@@NAME@@', because render_substitute
+# reads the template once and never reads back what it wrote.
+readonly RENDER_ESCAPED_PATTERN='@@[A-Z][A-Z0-9_]*@@'
+
+# What one pass of render_substitute reads: an escape or a placeholder. A
+# regular expression matches leftmost and longest, so at a position where both
+# could match the doubled form is the one that is taken, whichever side of the
+# alternation it is written on.
+readonly RENDER_TOKEN_PATTERN="$RENDER_ESCAPED_PATTERN|$RENDER_PLACEHOLDER_PATTERN"
+
 # A structural choice, which is the second substitution mechanism of ADR 0001.
 #
 # A directory named '<file>.choice.<NAME>' holds one prescribed fragment per
@@ -917,6 +945,11 @@ render_unsafe_reason() {
 #   - A value that holds a placeholder reaches the output as that placeholder.
 #     It is never substituted again, so the result does not depend on the order
 #     an associative array happens to walk its keys.
+#
+# The pass reads one more token than it once did. '@@NAME@@' is the escape, and
+# it writes the literal text '@NAME@'. See RENDER_ESCAPED_PATTERN above for what
+# it is for and for how narrow it is. It reads no value, so an escaped name that
+# no source declares reaches none of the three arrays and fails nothing.
 render_substitute() {
 	local rest=$1
 	local out= match prefix name
@@ -927,13 +960,25 @@ render_substitute() {
 	RENDER_UNKNOWN=()
 	RENDER_UNSAFE=()
 
-	while [[ $rest =~ $RENDER_PLACEHOLDER_PATTERN ]]; do
+	while [[ $rest =~ $RENDER_TOKEN_PATTERN ]]; do
 		match=${BASH_REMATCH[0]}
-		# The regular expression matches the leftmost placeholder, so the text
-		# before the first occurrence of that exact string is the text before
-		# the match.
+		# The regular expression matches the leftmost token, so the text before
+		# the first occurrence of that exact string is the text before the
+		# match. That holds for either token: were the matched text present
+		# earlier in the string, the expression would have matched it there.
 		prefix=${rest%%"$match"*}
 		rest=${rest#"$prefix$match"}
+
+		# The escape. The doubled form writes the single one, and this is the
+		# one token that reads no value: the name inside it names nothing, so a
+		# name no source declares is not a problem here. What is written goes
+		# straight to 'out', which the pass never reads back, so the result is
+		# never substituted again.
+		if [ "${match:0:2}" = '@@' ]; then
+			out=$out$prefix${match:1:${#match}-2}
+			continue
+		fi
+
 		name=${match:1:${#match}-2}
 
 		if [ -n "${RENDER_UNKNOWN_FACTS[$name]+set}" ]; then
@@ -973,9 +1018,10 @@ render_substitute() {
 
 # Substitute every known value into one template file and write the result.
 #
-# Every '@NAME@' is replaced by the value of NAME. A placeholder that has no
-# value is a problem: the renderer reports it and writes no file, rather than
-# leaving the name in the output for a user to find later. A placeholder whose
+# Every '@NAME@' is replaced by the value of NAME, and '@@NAME@@' writes the
+# literal text '@NAME@'. A placeholder that has no value is a problem: the
+# renderer reports it and writes no file, rather than leaving the name in the
+# output for a user to find later. A placeholder whose
 # machine fact is 'unknown' is the same problem, because that word is what
 # lib/facts.sh writes for a fact nobody could read. A placeholder whose value
 # holds a character a generated file cannot carry is the third, and

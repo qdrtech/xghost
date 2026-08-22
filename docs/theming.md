@@ -212,6 +212,39 @@ A template is a text file. One that holds a NUL byte is refused by name,
 because reading it as text would drop that byte and write a file that quietly
 differs from its template.
 
+### Writing a literal `@NAME@`
+
+Some configuration has to carry the exact spelling the renderer substitutes.
+SwayNC names the default audio device `@DEFAULT_AUDIO_SINK@`, and no palette, no
+machine fact and no knob declares that name, so a template holding it fails the
+render.
+
+`@@NAME@@` writes the literal text `@NAME@`:
+
+| The template holds | The output holds       |
+| ------------------ | ---------------------- |
+| `@BG@`             | `#1a1b26`              |
+| `@@BG@@`           | `@BG@`                 |
+| `@@NOSUCHNAME@@`   | `@NOSUCHNAME@`         |
+
+The escape reads no value, so the name inside it names nothing. `@@NOSUCHNAME@@`
+renders, where `@NOSUCHNAME@` fails the render.
+
+The escape is exactly this wide, and no wider:
+
+- A lone `@` is ordinary text and always was. A CSS `@import` and a Hyprland
+  `$variable` need nothing.
+- `@@` on its own is ordinary text as well.
+- `@@BG@` and `@BG@@` keep the meaning they had: one `@` beside a placeholder.
+
+`@@NAME@@` is the only spelling whose meaning this rule changed, and it is the
+one spelling a template could not write before. So every template written
+before the rule renders exactly as it did.
+
+The escape belongs to the template text and never to a value. A value that
+holds `@@NAME@@` reaches the output as `@@NAME@@`, because the renderer reads a
+template once and never reads back what it wrote.
+
 ## Structural choices
 
 A structural choice is the second substitution mechanism of
@@ -270,6 +303,63 @@ values. `templates/hypr/animation.conf.choice.KNOB_ANIMATIONS/` holds `on` and
 `off`, and the animations of the desktop are one whole prescribed file rather
 than a setting with a condition around it. [Knobs](knobs.md) documents that
 file and the two kinds of knob.
+
+### One file takes one choice, and a choice holds no choice
+
+Two of the rules above were read as defects and were examined as such. Both
+stay. This is the record of why, so the next reader who meets one of the two
+refusals reads a decision rather than a gap.
+
+**One output file takes exactly one structural choice.** Two choice directories
+that write one path fail the render, and both are named:
+
+```
+xghost: demo: swaync/config.json.choice.MACHINE_BACKLIGHT_COUNT: it writes
+'swaync/config.json', and 'swaync/config.json.choice.KNOB_BAR_POSITION' writes
+that path as well
+```
+
+Composing them means writing one file out of two prescribed fragments, and that
+is a merge rather than a selection. To merge, the renderer would have to know
+where in the file the second fragment belongs, which means reading the syntax of
+the file it is writing. The renderer reads no syntax anywhere, which is the rule
+"What a value may hold" above rests on, and it holds no table of output
+languages.
+
+The merged file would also break the property the mechanism is sound on. What
+the renderer writes at `<file>` today is one prescribed fragment, the file
+itself, chosen by a name the walk of `templates/` already found. A value never
+builds a path and never builds text. A merged file is text the renderer
+assembled, and no file under `templates/` would hold it. So the limit stays,
+and a file that needs two structural variations needs a mechanism this project
+does not have. [ADR 0001](adr/0001-prescribed-config-architecture.md) names two
+substitution mechanisms, and a third is an ADR decision rather than a renderer
+change.
+
+**A structural choice cannot hold another one.** A choice inside a choice fails
+the render and is named:
+
+```
+xghost: demo: swaync/config.json.choice.KNOB_BAR_POSITION/top.choice.MACHINE_BACKLIGHT_COUNT:
+a structural choice cannot hold another one, and this one is inside
+'swaync/config.json.choice.KNOB_BAR_POSITION'
+```
+
+Nesting keeps the property above whole: every leaf is still one prescribed file
+the walk found, and the value at each level is still compared against names
+rather than joined into a path. So this limit stays for a different reason, and
+the reason is cost.
+
+A nested choice is the product of its levels. Two values by two values is four
+whole copies of the file, and the file this was examined for is
+`config/swaync/config.json`, which is 160 lines and which the two settings reach
+in a handful of them. Every later change to the daemon would have to be made
+four times, in four files that a reader has to diff to tell apart. Duplication is the accepted price of a
+structural choice — `monitors.conf.choice.MACHINE_MONITOR_COUNT` holds four
+layouts of about fifteen lines each — but a product rather than a sum turns that
+price into one the project would refuse to pay at the one file that asked for
+it. A mechanism whose only intended caller should not use it is not worth its
+complexity, so it is not built.
 
 A template may be a symbolic link. The renderer follows it and renders what it
 points at. A link that points at nothing fails the render and is named, because
@@ -407,8 +497,15 @@ asserts that the two trees differ. `tests/regenerate-golden` reads the same
 files.
 
 `tests/renderer.bats` covers the behaviour around the render: the commands, the
-three scalar forms, the hand-written file, the palette rules, the structural
-choice and every way one can be wrong, and what a failed switch leaves behind.
+three scalar forms, the escape, the hand-written file, the palette rules, the
+structural choice and every way one can be wrong, and what a failed switch
+leaves behind.
+
+One test of `tests/golden.bats` reads `@NAME@` in the committed output as a
+placeholder nobody substituted. No shipped template uses `@@NAME@@` yet, so the
+two do not meet today. The first template that escapes one writes `@NAME@` into
+the golden output on purpose, and that test has to learn the difference in the
+same commit.
 
 When a change to a template, a palette, or the renderer is intentional, rewrite
 the expected output with the `--update` flag:
