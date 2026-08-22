@@ -9,9 +9,16 @@
 # routes <group> <verb>, and a hyphen-free file name has no group and no verb.
 # docs/updating.md records the decision and the two that were rejected.
 #
+# The argument name below holds no space. The dispatcher reads an argument
+# name as the first whitespace-delimited token of the value, so a name
+# written '[--on-failure MODE]' would cut the usage line at '[--on-failure'
+# and name the argument row 'MODE]'. Both '--on-failure=MODE' and
+# '--on-failure MODE' are accepted by the command; the '=' form is the one
+# that survives the metadata block.
+#
 # @xghost-meta
 # summary: Update the project, the system packages and this machine.
-# arg: [--on-failure MODE]  What a failed migration does: ask, skip or stop.
+# arg: [--on-failure=MODE]  What a failed migration does: ask, skip or stop.
 # example: xghost system update
 # example: xghost system update --on-failure stop
 # elevated: no
