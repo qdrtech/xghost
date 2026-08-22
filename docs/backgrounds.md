@@ -360,14 +360,14 @@ project owned SVG text as well as the raster step.
   itself, and whether it resolves a relative one against the file it opened, as
   Hyprland does, was not established from the program. The bundle prescribes
   that form and it is followed.
-- **Reloading a running daemon is not done at all.** A theme switch writes the
-  image and stops, so the wallpaper of a running session follows on the next
-  login. `hyprctl` 0.56.2 offers no hyprpaper `reload` request, only
-  `wallpaper [mon],[path],[fit_mode]` and `listactive`. The one request that
-  could serve names an image, and every theme writes its image to the same
-  stable path, so it would name a path that did not change. **hyprpaper 0.8.4
-  reads that path again rather than drawing the image it holds**, which
-  [the Hyprland bundle](bundles/hyprland.md) establishes from the program and
-  from the library it is built on. What stops the reload is the shape of this
-  project's own component table, and [Reloading](reloading.md) records the three
-  points that issue owns.
+- **No wallpaper has been seen changing on a running daemon either.** A theme
+  switch now ends by sending `hyprctl hyprpaper wallpaper ,<image>` to a daemon
+  that is already running. `hyprctl` 0.56.2 offers no hyprpaper `reload`
+  request, and this one names an image: every theme writes its image to the same
+  stable path, so the request names a path whose contents changed and whose name
+  did not. **hyprpaper 0.8.4 reads that path again rather than drawing the image
+  it holds**, which [the Hyprland bundle](bundles/hyprland.md) establishes from
+  the program and from the library it is built on. That the request reaches the
+  program with the right argument is observed against a stub; what the daemon
+  then draws is reasoned. [Reloading](reloading.md) records both, and records
+  what a build that drew **no** image sends, which is nothing.
