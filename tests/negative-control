@@ -2256,6 +2256,28 @@ control "the collector reads a derived form as a name of its own" \
 control "the collector reads no template at all" \
 	"the templates read the palette names this project has" \
 	m_the_collector_reads_no_template
+# The Hyprland bundle, issue #54. The control socket of hyprpaper.
+#
+# A perturbed input. The setting is spelled correctly and given the other value
+# it takes. Every file still parses, every render still succeeds, and the daemon
+# still starts and still draws the wallpaper of the theme. The one thing that
+# changes is that neither request of 'hyprctl hyprpaper' reaches the daemon any
+# more, and nothing on the machine reports a socket that was never opened. That
+# is the whole reason this line has a test: it is a setting whose absence is
+# silent.
+#
+
+SUITE=tests/hyprland.bats
+HYPRPAPER_CONF=config/hypr/hyprpaper.conf
+
+m_the_control_socket_is_off() {
+	substitute "$HYPRPAPER_CONF" 'ipc = on' 'ipc = off'
+}
+
+printf '\n'
+control "hyprpaper is left without a control socket" \
+	"hyprpaper opens its control socket" \
+	m_the_control_socket_is_off
 
 printf '\n%s: %d controls held, %d did not\n' "$PROGRAM" "$PASSED" "$FAILED"
 if [ "$FAILED" -gt 0 ]; then

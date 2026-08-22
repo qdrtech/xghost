@@ -353,7 +353,7 @@ is a deliberate change of the configuration itself.
 | Change                                                    | Why                                                                  |
 | --------------------------------------------------------- | -------------------------------------------------------------------- |
 | `hyprlock.conf`: `font_family` is `JetBrainsMono Nerd Font`, and the dotfiles wrote `Fira Semibold`, in both labels | The desktop draws in one family. [The Ghostty bundle](ghostty.md) already ships that one, from `ttf-jetbrains-mono-nerd`, and nothing here ships a Fira package. It is the **default** of `KNOB_FONT` and it is written out rather than generated, so the lock screen keeps that family when the knob moves: hyprlock has no offline check of its configuration, and a generated file it refused would leave the machine going idle and never locking. `tests/hyprland.bats` pins the two together, and [Knobs](../knobs.md) records the decision. |
-| `hyprpaper.conf`: `ipc = on`, which the dotfiles never set | The control socket. It was set so that a theme switch could reload the wallpaper of the running daemon, and the request that would do it turned out not to exist in hyprpaper 0.8.4. See "The wallpaper of a running session does not follow a switch" below. The line is kept, because the socket is what any repair will need. |
+| `hyprpaper.conf`: `ipc = on`, which the dotfiles never set | The control socket. It was set so that a theme switch could reload the wallpaper of the running daemon, and the `reload` request that would do it does not exist in hyprpaper 0.8.4. The line is **kept**, and it is kept for a reason that holds today rather than for that one: hyprpaper opens the socket only when this is on, and both requests `hyprctl hyprpaper` does offer travel over it. See "The wallpaper of a running session" below. |
 | `hyprland.conf`: `source = conf/decoration.conf`, which the dotfiles never had | The dotfiles carried `conf/decoration.conf` and sourced it from nowhere, so the file was dead and every decoration value came from `conf/theme.conf`. |
 | `conf/decoration.conf` and `conf/window.conf` hold the values of the dotfiles' `conf/theme.conf` | `conf/theme.conf` was sourced last, so it overrode `conf/window.conf`, and `conf/decoration.conf` was never sourced at all. Its values are the ones that reached the compositor. The rounding is 6 rather than 10, and the border width is 1 rather than 3. |
 
@@ -404,15 +404,15 @@ A build that has no image writes the same generated file with no wallpaper in
 it, so the `source` line always resolves. Hyprland then draws its own
 wallpaper, which `conf/misc.conf` keeps switched on for exactly that case.
 
-### The wallpaper of a running session does not follow a switch
+### The wallpaper of a running session
 
 `ipc = on` was set here so that a theme switch could reload the running daemon.
-**The request that would do it does not exist in the version this project
-installs**, and this is the same version fault the `preload` entry above found:
-the verbs it was written against are hyprpaper 0.7 verbs.
+**The `reload` request that would do it does not exist in the version this
+project installs**, and this is the same version fault the `preload` entry above
+found: the verbs it was written against are hyprpaper 0.7 verbs.
 
-`hyprctl` 0.56.2 offers exactly one hyprpaper request, and its own usage text is
-the evidence:
+`hyprctl` 0.56.2 offers **two** hyprpaper requests, and its usage text names one
+of them:
 
 ```
 usage: hyprctl [flags] hyprpaper <request>
@@ -421,13 +421,90 @@ requests:
                     Arguments are [mon],[path],[fit_mode].
 ```
 
-There is no `reload`. So hyprpaper is **not** in the reload table, and the
-wallpaper of a running session follows on the next login rather than on the
-switch. [Reloading](../reloading.md) records why the one request that does exist
-was not pressed into service: every theme writes its image to the same stable
-path, so the request would name a path that did not change, and whether the
-daemon reads the file again was not measured, because measuring it means
-changing the wallpaper of a live session. **This needs an issue of its own.**
+The second is `listactive`, which prints the wallpaper of each display. It is in
+the program and not in the usage text: `Hyprpaper.cpp` dispatches `wallpaper` and
+`listactive` and refuses everything else, and the string `listactive` is in the
+`hyprctl` binary this machine runs. An earlier reading of this page said there
+was exactly one request. That reading came from the usage text, and the usage
+text is short by one.
+
+Neither request is a reload. `wallpaper` **sets** a wallpaper, so it has to be
+told which image to draw, and that is the question
+[issue #54](https://github.com/qdrtech/xghost/issues/54) was opened to answer.
+
+### What hyprpaper does with a path it already holds
+
+Every theme writes its image to `hypr/background.png` of the generated output.
+So a `wallpaper` request after a theme switch would name a path whose contents
+changed and whose name did not, and a daemon that kept the image it already had
+in memory would draw the old theme. **It does not. hyprpaper 0.8.4 reads the
+file again.** The wallpaper of a running session can therefore follow a theme
+switch.
+
+That was established without sending anything to the running daemon, because
+sending it would change the wallpaper of the person writing this. The method is
+the one "What `$XDG_CONFIG_HOME` does in a Hyprland line" above already used on
+this page: read the program, and measure the library it is built on.
+
+**hyprpaper 0.8.4 is a hyprtoolkit program.** The wallpaper of a display is a
+`CWallpaperTarget`, which owns one layer-shell window and one
+`Hyprtoolkit::CImageElement`. A `wallpaper` request reaches
+`CWallpaperMatcher::addState`, which gives the new setting a **fresh** id, drops
+the setting of the same monitor, and recalculates. A monitor whose id changed
+raises `monitorConfigChanged`, and because the id is always new, an identical
+request always raises it. `CUI::targetChanged` then does two things in this
+order: it **erases** the target of that monitor, and then it **constructs** a new
+one.
+
+**The image cache is keyed by path, and it holds the entry weakly.**
+`CImageElement::renderTex` asks `Asset::assetCache()->get(path)` first, and on a
+hit it reuses the texture and never opens the file. The cache keeps only weak
+references, and the strong reference lives in the image element. The erase above
+destroys the old element before the new one is built, so the entry is dead by the
+time the new element asks for it, the lookup misses, and the image is loaded from
+disk again.
+
+The weak half is the load-bearing half, and it was **measured against the library
+this machine has**, not read out of a header. A twenty-line program links
+`libhyprtoolkit.so.0.5.4`, caches one entry, and asks the cache four questions:
+
+```
+get before caching anything:                MISS
+get while a strong reference is held:       HIT
+get for a different path:                   MISS
+get after the strong reference is dropped:  MISS
+```
+
+It opens no window, connects to no compositor and starts nothing.
+
+The ordering was read out of the installed `hyprpaper` binary. In
+`CUI::targetChanged` the erase loop drops the reference count of each removed
+target and destroys it at `0x462ba`; the branch that builds the replacement calls
+`Hyprtoolkit::CWindowBuilder::begin` at `0x45686`, and the erase rejoins it at
+`0x46920`. The destruction is complete before the construction begins.
+
+The sources read are the upstream `hyprpaper` 0.8.4, `hyprtoolkit` 0.5.4 and
+Hyprland 0.56.2 tags, which are the versions this machine has. Each one was held
+against the installed binary before it was trusted: the log line
+`CImageElement: path {} was already cached, reusing entry` is in
+`libhyprtoolkit.so.0.5.4`, and `Monitor {} has no target: no wp will be created`
+is in `/usr/bin/hyprpaper`.
+
+Two smaller findings the same reading settled:
+
+- **The fit mode needs no parsing.** The third argument of the request is
+  optional, and hyprpaper uses `cover` when it is absent. That is the mode
+  `background_wallpaper_conf` writes into the generated file, so the two agree
+  without anything reading the file back.
+- **The path a request carries is not the stable path.** `hyprctl` resolves the
+  path with `std::filesystem::canonical` before it sends it, and the stable path
+  is a symbolic link into a build directory that `xghost theme set` creates
+  fresh for every render. So the path hyprpaper receives already differs on every
+  switch, whatever the cache does.
+
+**The reload of the wallpaper is not built yet, and it is not blocked by
+hyprpaper.** [Reloading](../reloading.md) records what stands in the way, which
+is the shape of this project's own reload table and not the daemon.
 
 ## hyprlock is not themed yet
 
