@@ -266,23 +266,50 @@ step_order() {
 	done
 }
 
+# Every documentation file of this repository: the README and every page under
+# docs/, at any depth. A page added later is read by the same list.
+doc_files() {
+	printf '%s\n' "$ROOT_DIR/README.md"
+	find "$ROOT_DIR/docs" -name '*.md' -type f | sort
+}
+
+# The packages one documentation file lists, one per line.
+#
+# A package row names the package and the repository that carries it. Reading
+# the repository as well is what keeps the rows of every other table of those
+# pages out of these two tests.
+page_packages() {
+	sed -n 's/^| `\([a-z0-9@._+-]*\)` *| `\(core\|extra\|multilib\|aur\)` *|.*|$/\1/p' "$1"
+}
+
+# The two manifests, read the way the packaging step reads them.
+declared_packages() {
+	install_read_manifest "$INSTALL_PACKAGES_DIR/base.txt"
+	install_read_manifest "$INSTALL_PACKAGES_DIR/aur.txt"
+}
+
 # Every bundle page carries a package table, and the manifest is derived from
 # those tables. One page was read here before, so the packages of the Ghostty
 # bundle were covered by the hard-coded list of the test above and by nothing
 # that fails when the bundle changes. Every page is read now, and a page added
 # later is read by the same loop.
-@test "the manifests declare every package a bundle page lists" {
+#
+# The loop reads the README and every other page beside the bundle pages, which
+# is acceptance criterion 8 of issue #21: no documentation duplicates the
+# package manifest. A page that grows a dependency list of its own is read here
+# the day it lands.
+@test "the manifests declare every package the documentation lists" {
 	load_install_lib
-	run -0 install_read_manifest "$INSTALL_PACKAGES_DIR/base.txt"
-	declared=$output
-	run -0 install_read_manifest "$INSTALL_PACKAGES_DIR/aur.txt"
-	declared="$declared"$'\n'"$output"
+	local declared page rows
+	declared=$(declared_packages)
 
-	# A package row of a bundle page names the package and the repository that
-	# carries it. Reading the repository as well is what keeps the rows of the
-	# other tables of those pages out of this test.
-	local page rows
-	for page in "$ROOT_DIR"/docs/bundles/*.md; do
+	# A manifest this test could not read would leave it comparing nothing.
+	[ -n "$declared" ] || {
+		printf 'neither manifest could be read, so nothing was compared\n' >&2
+		return 1
+	}
+
+	while IFS= read -r page; do
 		rows=0
 		while IFS= read -r name; do
 			rows=$((rows + 1))
@@ -290,15 +317,77 @@ step_order() {
 				printf '%s lists %s and no manifest declares it\n' "${page##*/}" "$name" >&2
 				return 1
 			}
-		done < <(sed -n 's/^| `\([a-z0-9@._+-]*\)` *| `\(core\|extra\|multilib\|aur\)` *|.*|$/\1/p' "$page")
+		done < <(page_packages "$page")
 
-		# A page whose table stopped matching would pass this test without a
-		# package name ever being read.
-		[ "$rows" -gt 0 ] || {
-			printf '%s carries no package table this test can read\n' "${page##*/}" >&2
+		# A bundle page whose table stopped matching would pass this test
+		# without a package name ever being read. Every other page is allowed
+		# to carry no package table at all, and most carry none.
+		case $page in
+		*/docs/bundles/*)
+			[ "$rows" -gt 0 ] || {
+				printf '%s carries no package table this test can read\n' "${page##*/}" >&2
+				return 1
+			}
+			;;
+		esac
+	done < <(doc_files)
+}
+
+# The other direction, and it is the half that makes the list derived rather
+# than merely consistent. A package that reaches a manifest and no page is a
+# dependency this project installs and never explains, and the first test above
+# would never see it.
+#
+# Two packages are in the manifest for xghost itself rather than for a bundle,
+# so no bundle page owns a row for either one. Each is named here with the
+# page that does explain it, and each is asserted to still need the allowance,
+# so an entry that stops being true fails this test rather than sitting here.
+@test "every package the manifests declare is named by a documentation page" {
+	load_install_lib
+	local declared listed page name
+	declared=$(declared_packages)
+
+	# A manifest this test could not read would leave it comparing nothing.
+	[ -n "$declared" ] || {
+		printf 'neither manifest could be read, so nothing was compared\n' >&2
+		return 1
+	}
+
+	listed=""
+	while IFS= read -r page; do
+		listed="$listed"$'\n'"$(page_packages "$page")"
+	done < <(doc_files)
+
+	# name:the page that explains it
+	local allowed=(
+		"xdg-utils:docs/installing.md"
+		"python:docs/backgrounds.md"
+	)
+	local entry allowed_name allowed_page
+	for entry in "${allowed[@]}"; do
+		allowed_name=${entry%%:*}
+		allowed_page=${entry#*:}
+
+		[[ $'\n'$declared$'\n' == *$'\n'"$allowed_name"$'\n'* ]] || {
+			printf 'no manifest declares %s any more, so this allowance is stale\n' \
+				"$allowed_name" >&2
 			return 1
 		}
+		[[ $'\n'$listed$'\n' != *$'\n'"$allowed_name"$'\n'* ]] || {
+			printf '%s is in a package table now, so this allowance is stale\n' \
+				"$allowed_name" >&2
+			return 1
+		}
+		run -0 grep -q -- "$allowed_name" "$ROOT_DIR/$allowed_page"
 	done
+
+	while IFS= read -r name; do
+		[ -n "$name" ] || continue
+		[[ $'\n'$listed$'\n' == *$'\n'"$name"$'\n'* ]] && continue
+		[[ " ${allowed[*]} " == *" $name:"* ]] && continue
+		printf 'the manifest declares %s and no documentation page lists it\n' "$name" >&2
+		return 1
+	done <<<"$declared"
 }
 
 # The one package no bundle page owns. Detection reads the default browser with

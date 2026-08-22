@@ -175,6 +175,17 @@ xghost --complete-groups          one group per line
 xghost --complete-verbs <group>   one 'verb:summary' per line
 ```
 
+## The README carries the same list
+
+A command a user runs is in the table of commands of `README.md`, with the
+summary of its metadata block. That table is the grouped help under another
+layout, so a command added, renamed or resummarised has to reach it as well.
+
+`tests/docs.bats` reads both and compares them, so the page cannot drift: a
+summary that differs fails, a command the README does not list fails, and a
+command the README lists and the dispatcher does not fails too. A command with
+`internal: yes` is in neither, because the dispatcher leaves it out of the help.
+
 ## Checking your work
 
 ```
@@ -183,3 +194,5 @@ xghost                 # confirm the command appears under its group
 xghost <group> <verb> --help
 bats tests             # run the dispatcher tests
 ```
+
+Then add the command to the table in `README.md`.

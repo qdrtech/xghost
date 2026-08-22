@@ -254,13 +254,13 @@ the prescribed file — is exactly what is delivered.
 
 ## The dependency this needs
 
-Nothing in `install/packages/base.txt` can write a raster image, and hyprpaper
-needs one: it does not read an SVG. One package therefore has to be added, and
-**the line in the manifest is a proposal**. It waits on the maintainer, who
-reads the vetting below before anything is installed. This slice installed
-nothing.
+Nothing else in `install/packages/base.txt` can write a raster image, and
+hyprpaper needs one: it does not read an SVG. One package therefore had to be
+added. The vetting below is what the maintainer read before the line was
+accepted, on 2026-08-14, and the slice that wrote this page installed nothing
+itself.
 
-### The proposal: `python`
+### The package: `python`
 
 | Field                | Value                                                        |
 | -------------------- | ------------------------------------------------------------ |
