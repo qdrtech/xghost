@@ -2413,6 +2413,41 @@ control "the reason for an answer that is not a problem is dropped" \
 	"a build with nothing to send is not a problem, and says why on its line" \
 	m_the_reason_is_dropped_from_the_line
 
+# The pending path of the atomic switch, issue #67.
+#
+# Two deleted guards. The constant and the word it holds are equal today, so a
+# control that changes the constant proves nothing on its own: it has to be the
+# composer or the caller that is broken, and the test that reads the other one
+# has to notice.
+
+SUITE=tests/renderer.bats
+PATHS=lib/paths.sh
+THEME=lib/theme.sh
+
+# A deleted guard: the composer writes the word out instead of reading the
+# constant. The test copies the library and changes the constant, so the
+# composed path no longer follows it.
+m_the_composer_writes_the_word_out() {
+	substitute "$PATHS" 'printf '"'"'%s\n'"'"' "$1/$XGHOST_GENERATED_NAME.pending.$2"' \
+		'printf '"'"'%s\n'"'"' "$1/generated.pending.$2"'
+}
+
+# A deleted guard: the theme module composes the path itself again, which is the
+# state issue #67 describes. The reading test is what catches it, because the
+# switch succeeds whichever name the link carried.
+m_the_theme_module_composes_the_path() {
+	substitute "$THEME" 'pending=$(xghost_pending_path "$XGHOST_STATE_DIR" "$$")' \
+		'pending=$XGHOST_STATE_DIR/generated.pending.$$'
+}
+
+printf '\n'
+control "the composer writes 'generated' out instead of reading the constant" \
+	"the pending path of the switch follows the generated-directory constant" \
+	m_the_composer_writes_the_word_out
+control "the theme module composes the pending path itself" \
+	"the theme module asks for the pending path instead of composing one" \
+	m_the_theme_module_composes_the_path
+
 printf '\n%s: %d controls held, %d did not\n' "$PROGRAM" "$PASSED" "$FAILED"
 if [ "$FAILED" -gt 0 ]; then
 	exit 1

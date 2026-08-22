@@ -1462,3 +1462,37 @@ tokyonight" ]
 	[[ $output != *"Permission denied"* ]]
 	[[ $output != *"renderer.sh: line"* ]]
 }
+
+# Issue #67. The pending path of the atomic switch is built from
+# XGHOST_GENERATED_NAME, not from the word 'generated' written out.
+#
+# The two agree today, which is why the first test below copies the library and
+# changes the constant: with the constant at its shipped value, a literal and
+# the constant produce the same path and no assertion can tell them apart.
+@test "the pending path of the switch follows the generated-directory constant" {
+	local lib="$BATS_TEST_TMPDIR/lib"
+	cp -R "$ROOT_DIR/lib" "$lib"
+	sed -i 's/^readonly XGHOST_GENERATED_NAME=generated$/readonly XGHOST_GENERATED_NAME=output/' \
+		"$lib/paths.sh"
+	grep -qx 'readonly XGHOST_GENERATED_NAME=output' "$lib/paths.sh"
+
+	run -0 env LIB="$lib" bash -c '
+		. "$LIB/paths.sh"
+		xghost_pending_path /state 4242
+	'
+
+	[ "$output" = "/state/output.pending.4242" ]
+}
+
+# The companion of the test above, and it is a reading of the source rather than
+# a run of it. The pending link is created and renamed inside one function, and
+# the switch succeeds whichever name the link carried, so no assertion on the
+# result of 'theme set' can see which one was used. What can be checked is that
+# the module asks for the path instead of composing one.
+@test "the theme module asks for the pending path instead of composing one" {
+	run -0 grep -c 'xghost_pending_path' "$ROOT_DIR/lib/theme.sh"
+	[ "$output" -ge 1 ]
+
+	run -1 grep -c 'generated\.pending' "$ROOT_DIR/lib/theme.sh"
+	[ "$output" -eq 0 ]
+}

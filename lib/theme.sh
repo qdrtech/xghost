@@ -377,7 +377,8 @@ theme_set_locked() {
 	# The switch itself. 'mv -T' onto the link is one rename, so a reader of the
 	# stable path sees either the previous build or the new one, never a
 	# half-written directory.
-	local pending=$XGHOST_STATE_DIR/generated.pending.$$
+	local pending
+	pending=$(xghost_pending_path "$XGHOST_STATE_DIR" "$$")
 	rm -f "$pending" 2>/dev/null
 	if ! ln -s "$staging/tree" "$pending" 2>/dev/null; then
 		rm -rf "$staging"

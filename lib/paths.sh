@@ -75,3 +75,19 @@ xghost_generated_dir() {
 	base=$(xghost_state_home) || return 1
 	printf '%s\n' "$base/$XGHOST_STATE_SUBDIR/$XGHOST_GENERATED_NAME"
 }
+
+# The path the new build is linked at before it is moved into place.
+#
+#   xghost_pending_path STATE_DIR PID
+#
+# 'xghost theme set' builds the whole output, links this path at it, and renames
+# that link onto the stable path in one step. The name is built from
+# XGHOST_GENERATED_NAME rather than written out, because the two have to move
+# together: a rename of the generated directory that reached the stable path and
+# not this one would leave the switch renaming a link nobody reads.
+#
+# The pid is in the name so that two switches at once do not take each other's
+# link.
+xghost_pending_path() {
+	printf '%s\n' "$1/$XGHOST_GENERATED_NAME.pending.$2"
+}
