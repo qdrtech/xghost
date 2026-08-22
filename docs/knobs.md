@@ -343,3 +343,10 @@ real file.
 knob, so a value the compositor would refuse fails the suite rather than a first
 login. `tests/ghostty.bats` reads `ghostty +show-config` for the font, which is
 the family the terminal holds after it has read every file it reads.
+
+`tests/docs.bats` covers this page against the schema. The table of "The knobs
+of today" has to name every knob the schema declares and no other, with the same
+values in the same order and the same default, and every knob name written
+anywhere in the documentation has to be one the schema declares. A knob added,
+renamed or dropped therefore fails a test rather than leaving a page that reads
+well and is wrong.

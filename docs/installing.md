@@ -116,25 +116,27 @@ psmisc      # killall, in the two restart keybindings
 
 The list is derived from two places: the package table of each bundle page under
 `docs/bundles/`, and the dependency tables of `qdrtech/dotfiles`,
-`docs/installation.md`. A package a later bundle owns is not declared yet. The
-bar, the launcher and the notifications arrive with issues #12, #13 and #14, and
-each one adds its line then.
+`docs/installation.md`. Every bundle has landed, so every bundle has added its
+own line.
 
 Two packages are in the file for xghost itself rather than for a bundle:
 `xdg-utils`, which detection reads the default browser with, and `python`,
 which draws the background of a theme.
-[Backgrounds](backgrounds.md) carries the vetting of the second one, and the
-line **is a proposal** until the maintainer accepts it.
+[Backgrounds](backgrounds.md) carries the vetting of the second one, which the
+maintainer read and accepted on 2026-08-14.
 
 Two rules keep the list honest:
 
 - A package of the Arch `base` group is not declared. `util-linux` carries
   `flock` and `systemd` carries `localectl`, and every Arch installation has
   both already. Declaring them would say that this project chose them.
-- `tests/install.bats` reads the package table of every page under
-  `docs/bundles/` and fails when a package one of those tables lists is in
-  neither manifest. The manifest cannot drift away from the bundles that need
-  the packages.
+- `tests/install.bats` reads the package table of every documentation page, the
+  README included, and it reads the pair both ways. A package a page lists and
+  no manifest declares fails, and so does a package a manifest declares and no
+  page lists. So the documentation cannot invent a dependency, and the manifest
+  cannot grow one that nobody explains. Two packages are declared for xghost
+  itself rather than for a bundle, and the test names both with the page that
+  explains each.
 
 ### Why the AUR is a second file rather than a marked line
 
@@ -392,8 +394,8 @@ draws in the palette of the theme, the notifications do too, and every
 keybinding names a program the installation installed.
 
 `tests/install.bats` keeps the list empty rather than this paragraph: it reads
-the package table of every page under `docs/bundles/` and fails when a package
-one of them lists is declared by no manifest.
+the package table of every documentation page and fails when a package one of
+them lists is declared by no manifest.
 
 ## What an installation has never been observed doing
 

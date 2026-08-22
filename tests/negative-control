@@ -601,7 +601,7 @@ control "the cursor of GTK parts company with the cursor of the compositor" \
 # the table of the new page is one of the tables it reads.
 SUITE=tests/install.bats
 control "the manifest drops the package the new bundle page lists" \
-	"the manifests declare every package a bundle page lists" \
+	"the manifests declare every package the documentation lists" \
 	m_manifest_drops_the_theme_package
 SUITE=tests/supporting.bats
 control "a second schedule is planted where hyprshade reads first" \
@@ -1920,6 +1920,144 @@ control "the rule is gone, and the image path is the third site it reaches" \
 control "the image path answers the question itself again" \
 	"a link to a directory at the image path of a theme fails the render" \
 	m_the_background_keeps_its_own_predicate
+
+#
+# The documentation, issue #21. Perturbed inputs, every one of them.
+#
+# Three facts of this project are written out twice: once in the file that owns
+# them and once in a page a person reads. Each of the three has a test now, and
+# a test of a page is exactly the kind that passes for years while the page is
+# wrong. Nothing below deletes a guard. Every mutation leaves a page that reads
+# well, a manifest that parses and a schema that renders.
+#
+
+DOCS_KNOBS=docs/knobs.md
+DOCS_GHOSTTY=docs/bundles/ghostty.md
+BASE_MANIFEST=install/packages/base.txt
+
+# A knob the page documents and the schema never declared. This is the shape a
+# knob that was proposed and then dropped leaves behind.
+m_the_page_documents_a_knob_the_schema_has_not() {
+	substitute "$DOCS_KNOBS" \
+		'| `KNOB_BAR_POSITION`  | `top`, `bottom`                                     | `top`                   |' \
+		'| `KNOB_BAR_POSITION`  | `top`, `bottom`                                     | `top`                   |
+| `KNOB_BLUR`          | `on`, `off`                                         | `on`                    |'
+}
+
+# One value drops out of the row. The page still lists values, and every one of
+# them is real.
+m_a_knob_row_loses_a_value() {
+	substitute "$DOCS_KNOBS" \
+		'| `KNOB_GAP_SIZE`      | `0`, `5`, `10`, `15`, `20`                          | `10`                    |' \
+		'| `KNOB_GAP_SIZE`      | `0`, `5`, `10`, `20`                                | `10`                    |'
+}
+
+# The page gives a default the schema does not. The value is one the schema
+# names, so nothing about the row looks wrong.
+m_a_documented_default_drifts() {
+	substitute "$DOCS_KNOBS" \
+		'| `KNOB_BAR_POSITION`  | `top`, `bottom`                                     | `top`                   |' \
+		'| `KNOB_BAR_POSITION`  | `top`, `bottom`                                     | `bottom`                |'
+}
+
+# A page names a knob under a name the schema does not carry. A knob that was
+# renamed leaves this behind on every page but the one that was remembered.
+m_a_page_names_a_knob_the_schema_dropped() {
+	substitute README.md 'xghost settings set KNOB_BAR_POSITION bottom' \
+		'xghost settings set KNOB_BAR_EDGE bottom'
+}
+
+# The placeholder of docs/knobs.md, written on a page that meant a real knob.
+m_a_page_writes_the_placeholder_as_a_knob() {
+	substitute README.md '`KNOB_BAR_POSITION`, so at `bottom` a notification covers the bar.' \
+		'`KNOB_NAME`, so at `bottom` a notification covers the bar.'
+}
+
+# A page lists a package no manifest declares. The row is well formed and the
+# package is real, which is what makes it the plausible mistake.
+m_a_page_lists_a_package_no_manifest_declares() {
+	substitute "$DOCS_GHOSTTY" \
+		'| `ghostty`                 | `extra`    | The terminal itself.                           |' \
+		'| `ghostty`                 | `extra`    | The terminal itself.                           |
+| `imagemagick`             | `extra`    | Drawing the background of a theme.             |'
+}
+
+# The other direction: a package reaches the manifest and no page explains it.
+# Every installation gets it and no reader is ever told why.
+m_the_manifest_gains_a_package_no_page_names() {
+	substitute "$BASE_MANIFEST" '# The shell, the prompt and the multiplexer. docs/bundles/shell.md.' \
+		'imagemagick
+
+# The shell, the prompt and the multiplexer. docs/bundles/shell.md.'
+}
+
+# The allowance for a package no bundle page owns, left behind after the
+# manifest stopped declaring it. A budget that cannot rot is the point of
+# writing one.
+m_an_allowance_outlives_its_package() {
+	substitute "$BASE_MANIFEST" '
+python
+' '
+'
+}
+
+# A link to a page of this repository, pointed at a path that is not there.
+m_a_documentation_link_reaches_nothing() {
+	substitute README.md '[Installing](docs/installing.md) records what each group does' \
+		'[Installing](docs/install.md) records what each group does'
+}
+
+# A summary of the README and the summary the dispatcher prints part company.
+# The page still reads well, and it describes a command that does something
+# else.
+m_a_readme_summary_drifts() {
+	substitute README.md '| `xghost system reload`      | Tell the running components to read their configuration again.   |' \
+		'| `xghost system reload`      | Restart the running components.                                  |'
+}
+
+# A command that ships and reaches no page. This is what a command added
+# without its documentation looks like from the other end.
+m_the_readme_drops_a_command() {
+	substitute README.md '| `xghost machine refresh`    | Read this computer again and render the active theme from what it reads. |
+' ''
+}
+
+SUITE=tests/docs.bats
+control "the page documents a knob the schema never declared" \
+	"docs/knobs.md documents every knob of the schema, and no other" \
+	m_the_page_documents_a_knob_the_schema_has_not
+control "a value drops out of the row of a knob" \
+	"docs/knobs.md documents the values and the default of every knob" \
+	m_a_knob_row_loses_a_value
+control "the default on the page and the default in the schema part company" \
+	"docs/knobs.md documents the values and the default of every knob" \
+	m_a_documented_default_drifts
+control "a page still names a knob under the name it used to have" \
+	"every knob name the documentation writes is declared by the schema" \
+	m_a_page_names_a_knob_the_schema_dropped
+control "a page writes the placeholder where a knob belongs" \
+	"every knob name the documentation writes is declared by the schema" \
+	m_a_page_writes_the_placeholder_as_a_knob
+control "a link of the README reaches nothing" \
+	"every documentation link to this repository resolves" \
+	m_a_documentation_link_reaches_nothing
+control "a summary of the README and the summary of the command part company" \
+	"the README lists every command with the summary the dispatcher prints" \
+	m_a_readme_summary_drifts
+control "a command ships and the README does not list it" \
+	"the README lists every command with the summary the dispatcher prints" \
+	m_the_readme_drops_a_command
+
+SUITE=tests/install.bats
+control "a bundle page lists a package no manifest declares" \
+	"the manifests declare every package the documentation lists" \
+	m_a_page_lists_a_package_no_manifest_declares
+control "the manifest declares a package no page explains" \
+	"every package the manifests declare is named by a documentation page" \
+	m_the_manifest_gains_a_package_no_page_names
+control "an allowance outlives the package it was written for" \
+	"every package the manifests declare is named by a documentation page" \
+	m_an_allowance_outlives_its_package
 
 printf '\n%s: %d controls held, %d did not\n' "$PROGRAM" "$PASSED" "$FAILED"
 if [ "$FAILED" -gt 0 ]; then

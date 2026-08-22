@@ -484,10 +484,10 @@ comes with [issue #12](https://github.com/qdrtech/xghost/issues/12), and `rofi`
 is `$menu` and comes with
 [issue #13](https://github.com/qdrtech/xghost/issues/13).
 
-`ghostty` and `waybar` are installed, because their own bundles landed first.
-`rofi` is not, so a session started today does nothing on
-<kbd>Super</kbd>+<kbd>Space</kbd>. [Installing](../installing.md) records what a
-first installation leaves out.
+All three bundles have landed, so all three packages are declared and
+<kbd>Super</kbd>+<kbd>Space</kbd> opens the launcher of
+[the Rofi bundle](rofi.md). [Installing](../installing.md) records what a first
+installation leaves out, and the list is empty.
 
 ## What the tests prove
 
