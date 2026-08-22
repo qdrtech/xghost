@@ -280,6 +280,21 @@ verify_config() {
 	[ "$status" -ne 0 ]
 }
 
+# The control socket. hyprpaper opens it only when 'ipc' is on, and both requests
+# 'hyprctl hyprpaper' offers travel over it: 'wallpaper' and 'listactive'. The
+# line was written for a reload request that hyprpaper 0.8.4 does not have, and
+# it is kept for the reason above, which docs/reloading.md records. A file that
+# switched it off would take both requests away from this desktop in silence:
+# hyprpaper reports a socket it never opened in no log and to no caller.
+@test "hyprpaper opens its control socket" {
+	run grep -Ex '[[:space:]]*ipc[[:space:]]*=[[:space:]]*on' \
+		"$PRESCRIBED_DIR/hyprpaper.conf"
+	[ "$status" -eq 0 ]
+	run grep -nE '^[[:space:]]*ipc[[:space:]]*=[[:space:]]*(off|false|0)[[:space:]]*$' \
+		"$PRESCRIBED_DIR/hyprpaper.conf"
+	[ "$status" -ne 0 ]
+}
+
 # --- the monitor layout ------------------------------------------------------
 
 @test "one monitor renders one monitor line from the machine facts" {
