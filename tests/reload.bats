@@ -112,12 +112,18 @@ stub_programs() {
 		exit "${PKILL_STATUS:-0}"
 	STUB
 
+	# The real 'hyprctl' writes its errors to standard OUTPUT, so this stub can
+	# be told to fail on either stream. Issue #63 exists because the module read
+	# standard error alone and threw the cause away.
 	cat >"$STUB_DIR/hyprctl" <<-'STUB'
 		#!/usr/bin/env bash
 		set -uo pipefail
 		printf 'hyprctl %s\n' "$*" >>"$STUB_DIR/log"
 		if [ -n "${HYPRCTL_STDERR:-}" ]; then
 			printf '%s\n' "$HYPRCTL_STDERR" >&2
+		fi
+		if [ -n "${HYPRCTL_STDOUT:-}" ]; then
+			printf '%s\n' "$HYPRCTL_STDOUT"
 		fi
 		exit "${HYPRCTL_STATUS:-0}"
 	STUB
@@ -305,6 +311,65 @@ signals() {
 	[[ $output == *"failed|"* ]]
 	[[ $output == *"'hyprctl reload' ended 1"* ]]
 	[[ $output == *"Couldn't connect to the socket"* ]]
+}
+
+@test "a reload that failed on standard output reports the cause" {
+	# 'hyprctl' is the component this matters for: it writes its errors to
+	# standard output. The module captured standard error alone, so this
+	# diagnostic was thrown away and the reader was told only 'ended 1'.
+	running_all
+
+	run -1 env STUB_DIR="$STUB_DIR" MODULE="$MODULE" \
+		HYPRCTL_STATUS=1 HYPRCTL_STDOUT='Invalid dispatcher' PATH="$PATH" \
+		bash -c '
+			. "$MODULE"
+			reload_one hyprland
+			status=$?
+			printf "%s|%s\n" "$RELOAD_RESULT" "$RELOAD_DETAIL"
+			exit "$status"
+		'
+
+	[[ $output == *"failed|"* ]]
+	[[ $output == *"'hyprctl reload' ended 1"* ]]
+	[[ $output == *"Invalid dispatcher"* ]]
+}
+
+@test "a reload that failed on standard error still reports the cause" {
+	# The other direction of the same rule. Keeping both streams must not lose
+	# the one that already worked.
+	running_all
+
+	run -1 env STUB_DIR="$STUB_DIR" MODULE="$MODULE" \
+		HYPRCTL_STATUS=1 HYPRCTL_STDERR='socket is gone' PATH="$PATH" \
+		bash -c '
+			. "$MODULE"
+			reload_one hyprland
+			status=$?
+			printf "%s|%s\n" "$RELOAD_RESULT" "$RELOAD_DETAIL"
+			exit "$status"
+		'
+
+	[[ $output == *"failed|"* ]]
+	[[ $output == *"socket is gone"* ]]
+}
+
+@test "a component that succeeds gains no noise from its output" {
+	# Keeping both streams changes the failure report and nothing else. A
+	# component that writes to standard output and succeeds is still just
+	# 'reloaded', with no detail, exactly as before.
+	running_all
+
+	run -0 env STUB_DIR="$STUB_DIR" MODULE="$MODULE" \
+		HYPRCTL_STATUS=0 HYPRCTL_STDOUT='ok' PATH="$PATH" \
+		bash -c '
+			. "$MODULE"
+			reload_one hyprland
+			status=$?
+			printf "%s|%s\n" "$RELOAD_RESULT" "$RELOAD_DETAIL"
+			exit "$status"
+		'
+
+	[[ $output == "reloaded|" ]]
 }
 
 @test "a compositor that is running and refused the reload is not called 'not running'" {

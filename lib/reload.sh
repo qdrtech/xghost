@@ -354,8 +354,14 @@ reload_one() {
 
 	read -r -a words <<<"$command"
 
+	# Both streams are kept, because the components do not agree on where a
+	# diagnostic goes. 'hyprctl' writes its errors to standard output, so a
+	# capture of standard error alone reported the status of a failed reload
+	# with no cause attached, which is the one thing a reader needs. A
+	# component that succeeds gains no noise from this: the success branch
+	# below returns before the output is read, exactly as it did before.
 	status=0
-	output=$("${words[@]}" 2>&1 >/dev/null) || status=$?
+	output=$("${words[@]}" 2>&1) || status=$?
 	if [ "$status" -eq 0 ]; then
 		RELOAD_RESULT=reloaded
 		return 0

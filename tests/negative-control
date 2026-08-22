@@ -2279,6 +2279,39 @@ control "hyprpaper is left without a control socket" \
 	"hyprpaper opens its control socket" \
 	m_the_control_socket_is_off
 
+# The reload capture, issue #63. The stream a diagnostic is read from.
+#
+# A deleted guard and a perturbed input. The module kept standard error alone,
+# so a component that writes its errors to standard output - which 'hyprctl'
+# does - reported a status with no cause. Both directions have a control here,
+# because a capture that fixed one stream by losing the other would look fixed.
+
+SUITE=tests/reload.bats
+RELOAD=lib/reload.sh
+
+# A deleted guard: the capture goes back to standard error alone, which is the
+# state issue #63 describes. A failure on standard output loses its cause.
+m_the_capture_drops_standard_output() {
+	substitute "$RELOAD" 'output=$("${words[@]}" 2>&1) || status=$?' \
+		'output=$("${words[@]}" 2>&1 >/dev/null) || status=$?'
+}
+
+# A perturbed input: the capture keeps standard output and loses standard
+# error, which is the mirror fault. It would pass a test that only proved the
+# new direction works.
+m_the_capture_drops_standard_error() {
+	substitute "$RELOAD" 'output=$("${words[@]}" 2>&1) || status=$?' \
+		'output=$("${words[@]}" 2>/dev/null) || status=$?'
+}
+
+printf '\n'
+control "the reload capture reads standard error alone" \
+	"a reload that failed on standard output reports the cause" \
+	m_the_capture_drops_standard_output
+control "the reload capture reads standard output alone" \
+	"a reload that failed on standard error still reports the cause" \
+	m_the_capture_drops_standard_error
+
 printf '\n%s: %d controls held, %d did not\n' "$PROGRAM" "$PASSED" "$FAILED"
 if [ "$FAILED" -gt 0 ]; then
 	exit 1
