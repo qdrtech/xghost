@@ -196,40 +196,59 @@ starts. [The supporting bundle](bundles/supporting.md) records the mechanism, an
 there is no general one: GTK offers no signal, and a per-application route would
 be a per-application design.
 
-### hyprpaper is not in the table, and that needs an issue
+### hyprpaper is not in the table yet, and the reason has changed
 
-[The Hyprland bundle](bundles/hyprland.md) sets `ipc = on` in `hyprpaper.conf`
-for this issue, so that a theme switch could reload the wallpaper of the running
-daemon. **The request that would do it does not exist in the version this project
-installs.**
+[The Hyprland bundle](bundles/hyprland.md) sets `ipc = on` in `hyprpaper.conf`.
+It was set for a reload of the running daemon, and **the request that would do
+it does not exist in the version this project installs**. `hyprctl` 0.56.2
+offers two hyprpaper requests, `wallpaper` and `listactive`, and neither is a
+`reload`.
 
-`hyprctl` 0.56.2 offers exactly one hyprpaper request, and its own usage text is
-the evidence:
+`wallpaper` **sets** a wallpaper, so it has to be told which image to draw. Every
+theme writes its image to the same name in the generated output, so the request
+would name a path whose contents changed and whose name did not, and a daemon
+that kept the image it already held would draw the old theme.
 
-```
-usage: hyprctl [flags] hyprpaper <request>
-requests:
-    wallpaper       Issue a wallpaper to call a config wallpaper dynamically.
-                    Arguments are [mon],[path],[fit_mode].
-```
+**It does not. hyprpaper 0.8.4 reads the file again.** That was established from
+the program and from the library it is built on, without sending anything to the
+running daemon; the bundle page records the whole reading and the measurement.
+So the wallpaper of a running session **can** follow a theme switch, and
+`ipc = on` is the socket that carries it. The same reading found that the path
+would not repeat in any case: `hyprctl` resolves it with
+`std::filesystem::canonical` before it sends it, and the stable path is a link
+into a build directory a switch creates fresh every time.
 
-There is no `reload`. This is the same version fault that page already found for
-`preload`: the verbs it was written against are hyprpaper 0.7 verbs, and the
-installed hyprpaper is 0.8.4.
+`ipc = on` is therefore **kept**, and not for the reason it was written for. It
+is what makes both `hyprctl hyprpaper` requests reach the daemon at all, for this
+project and for the person at the keyboard. That reason is true today and needs
+nothing built.
 
-The one request that does exist cannot be used as a reload without work this
-issue does not own. The wallpaper of every theme is written to the **same**
-stable path, so `wallpaper ,<path>` names a path that did not change, and whether
-the daemon reads the file again or returns without doing anything was not
-measured here: measuring it means changing the wallpaper of a live session.
-Sending it anyway would be inventing a signal that may do nothing, which is the
-thing this page refuses to do for Rofi.
+**What is not built is the row.** Three things stand in the way, and every one of
+them is the shape of the table above rather than anything hyprpaper does:
 
-So the wallpaper of a running session does not follow a theme switch today. It
-follows on the next login. **This needs its own issue**, and that issue owns two
-questions: whether `hyprctl hyprpaper wallpaper` reloads a path that is
-unchanged, and where the `fit_mode` comes from, which today is a key of the
-generated `hypr/wallpaper.conf` and would have to be parsed back out of it.
+- **The row would have to carry a path, and the row is frozen too early.**
+  `RELOAD_COMPONENTS` is read-only and it is built when `lib/reload.sh` is
+  sourced. The image is at `hypr/background.png` under the stable path, and that
+  path is resolved by `lib/theme.sh` **after** this module is sourced. Every
+  other command in the table is a constant.
+- **This module would have to learn where the generated output is.**
+  `commands/system-reload` sources this file and nothing else, so the module
+  would resolve the state directory itself. The rule for that lives in
+  `xghost_state_home` in `lib/theme.sh`, and `lib/linker.sh` already keeps a
+  second copy of it. A third copy, or a dependency on the whole theme module, is
+  a choice about this project rather than about the wallpaper.
+- **A build that draws no image has no answer here.** The machine facts may carry
+  no resolution and a palette may declare no colour to draw with. Both are notes
+  rather than problems, which [Backgrounds](backgrounds.md) records, and both
+  leave the output with no `hypr/background.png`. `hyprctl` then fails on the
+  path before it opens the socket, and the four answers above hold no word for
+  "there is nothing to send". `failed` would report a supported state as a fault,
+  which is exactly what the probe was built to stop.
+
+So the wallpaper of a running session still follows on the next login. That is a
+limitation of this table, it is written down here rather than closed by a signal
+that would lie in one state, and the issue that closes it owns the three points
+above.
 
 ## Where the reload is called from
 
@@ -352,6 +371,7 @@ What that leaves proved, and how:
 | `SIGUSR2` is what Ghostty reloads on | Read out of the Ghostty binary |
 | `SIGUSR2` reloads the bar and `SIGRTMIN+8` does not | Read out of `waybar(5)` |
 | `swaync-client -rs` reloads the style sheet | Read out of `swaync-client(1)` |
+| hyprpaper reads a wallpaper path it already holds | Measured, against `libhyprtoolkit` and the `hyprpaper` binary |
 | A theme change is **visible** on a running desktop | **Reasoned, not observed** |
 | A knob change is **visible** on a running desktop | **Reasoned, not observed** |
 | The bar and the notification centre **draw** the new styling | **Reasoned, not observed** |

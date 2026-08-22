@@ -362,9 +362,12 @@ project owned SVG text as well as the raster step.
   that form and it is followed.
 - **Reloading a running daemon is not done at all.** A theme switch writes the
   image and stops, so the wallpaper of a running session follows on the next
-  login. hyprpaper is the one component of this desktop that
-  [Reloading](reloading.md) could not carry: `hyprctl` 0.56.2 offers no
-  hyprpaper `reload` request, only `wallpaper [mon],[path],[fit_mode]`, and every
-  theme writes its image to the same stable path. That page and
-  [the Hyprland bundle](bundles/hyprland.md) record it, and it needs an issue of
-  its own.
+  login. `hyprctl` 0.56.2 offers no hyprpaper `reload` request, only
+  `wallpaper [mon],[path],[fit_mode]` and `listactive`. The one request that
+  could serve names an image, and every theme writes its image to the same
+  stable path, so it would name a path that did not change. **hyprpaper 0.8.4
+  reads that path again rather than drawing the image it holds**, which
+  [the Hyprland bundle](bundles/hyprland.md) establishes from the program and
+  from the library it is built on. What stops the reload is the shape of this
+  project's own component table, and [Reloading](reloading.md) records the three
+  points that issue owns.
